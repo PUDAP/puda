@@ -1,0 +1,18 @@
+{
+  "name": "@puda/source",
+  "version": "0.0.0",
+  "license": "MIT",
+  "scripts": {},
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "libs/*",
+    "apps/*"
+  ],
+  "devDependencies": {
+    "@nx/js": "22.2.0",
+    "@nx/workspace": "22.2.0",
+    "@nxlv/python": "^21.2.0",
+    "nx": "22.2.0"
+  }
+}
