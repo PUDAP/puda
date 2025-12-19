@@ -1,0 +1,10 @@
+[project]
+name = "test"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14.2"
+dependencies = [
+    "nats-py>=2.12.0",
+    "puda-drivers>=0.0.12",
+]

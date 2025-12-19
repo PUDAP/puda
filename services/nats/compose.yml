@@ -1,43 +1,104 @@
 services:
   nats1:
     image: nats:2.12.2
+    container_name: nats1
     ports:
       - "4222:4222"
       - "8222:8222"
+      - "1883:1883"
+    networks:
+      - puda
     volumes:
       - nats1:/data
       - ./nats.conf:/etc/nats/nats.conf:ro
     environment:
       - SERVER_NAME=nats1
-    command: "-c /etc/nats/nats.conf"
+    # UPDATE: Advertise the Host IP and the External Port (4222)
+    command: "-c /etc/nats/nats.conf --client_advertise ${HOST_IP}:4222"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "nats",
+          "server",
+          "check",
+          "jetstream",
+          "--server",
+          "localhost:4222",
+        ]
+      start_period: 10s
 
   nats2:
     image: nats:2.12.2
+    container_name: nats2
     ports:
       - "4223:4222"
       - "8223:8222"
+      - "1884:1883"
+    networks:
+      - puda
     volumes:
       - nats2:/data
       - ./nats.conf:/etc/nats/nats.conf:ro
     environment:
       - SERVER_NAME=nats2
-    command: "-c /etc/nats/nats.conf"
+    # UPDATE: Advertise the Host IP and the External Port (4223)
+    command: "-c /etc/nats/nats.conf --client_advertise ${HOST_IP}:4223"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "nats",
+          "server",
+          "check",
+          "jetstream",
+          "--server",
+          "localhost:4222",
+        ]
+      start_period: 10s
 
   nats3:
     image: nats:2.12.2
+    container_name: nats3
     ports:
       - "4224:4222"
       - "8224:8222"
+      - "1885:1883"
+    networks:
+      - puda
     volumes:
       - nats3:/data
       - ./nats.conf:/etc/nats/nats.conf:ro
     environment:
       - SERVER_NAME=nats3
-    command: "-c /etc/nats/nats.conf"
+    # UPDATE: Advertise the Host IP and the External Port (4224)
+    command: "-c /etc/nats/nats.conf --client_advertise ${HOST_IP}:4224"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "nats",
+          "server",
+          "check",
+          "jetstream",
+          "--server",
+          "localhost:4222",
+        ]
+      start_period: 10s
+
+  nui:
+    image: ghcr.io/nats-nui/nui:latest
+    container_name: nui
+    ports:
+      - "31311:31311"
+    networks:
+      - puda
+    volumes:
+      - ./db:/db
 
 networks:
-  nats:
-    name: nats
+  puda:
+    driver: bridge
 
 volumes:
   nats1:
