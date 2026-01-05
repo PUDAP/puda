@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from puda_drivers.machines import First
 from puda_drivers.labware import get_available_labware
 from puda_drivers.core import setup_logging
@@ -25,7 +25,7 @@ async def poll_position(machine: First, stop_event: asyncio.Event):
     while not stop_event.is_set():
         try:
             position = await machine.get_position()
-            timestamp = datetime.utcnow().isoformat() + "Z"
+            timestamp = datetime.now(timezone.utc).isoformat()
             result = {
                 "timestamp": timestamp,
                 "qubot": position.get("qubot", {}),
@@ -33,7 +33,7 @@ async def poll_position(machine: First, stop_event: asyncio.Event):
             }
             print(json.dumps(result))
         except (ValueError, IOError, RuntimeError) as e:
-            timestamp = datetime.utcnow().isoformat() + "Z"
+            timestamp = datetime.now(timezone.utc).isoformat()
             result = {
                 "timestamp": timestamp,
                 "qubot": {},

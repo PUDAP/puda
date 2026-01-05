@@ -10,6 +10,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Environment variables
+.env
+.env.local
+.env.*.local
+
 # dependencies
 node_modules
 
