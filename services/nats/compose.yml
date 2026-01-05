@@ -102,8 +102,5 @@ networks:
 
 volumes:
   nats1:
-    external: true
   nats2:
-    external: true
   nats3:
-    external: true

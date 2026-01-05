@@ -1,0 +1,14 @@
+[project]
+name = "first-service"
+version = "0.1.0"
+description = "Service for the 'first' machine"
+readme = "README.md"
+requires-python = ">=3.14.2"
+dependencies = [
+    "puda-drivers",
+    "puda-comms",
+]
+
+[tool.uv.sources]
+puda-drivers = { path = "../../libs/drivers", editable = true }
+puda-comms = { path = "../../libs/comms", editable = true }

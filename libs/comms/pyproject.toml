@@ -1,0 +1,20 @@
+[project]
+name = "puda-comms"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "zhao", email = "20024592+agentzhao@users.noreply.github.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "nats-py>=2.12.0",
+    "puda-drivers>=0.0.16",
+]
+
+[project.scripts]
+puda-comms = "puda_comms:main"
+
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
