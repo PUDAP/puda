@@ -10,5 +10,5 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-puda-drivers = { path = "../../../libs/drivers", editable = true }
-puda-comms = { path = "../../../libs/comms", editable = true }
+puda-drivers = {workspace=true}
+puda-comms = {workspace=true}

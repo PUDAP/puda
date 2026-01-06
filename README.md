@@ -6,6 +6,12 @@ Physical Unified Device Architecture - A platform for laboratory automation and 
 
 PUDA is a modular platform that provides hardware drivers, communication infrastructure, and machine services for laboratory automation equipment. The platform uses NATS for distributed communication and supports various laboratory devices including motion systems, liquid handling equipment, and cameras.
 
+This is a **monorepo** that manages multiple related packages and services in a single repository, enabling:
+- Shared code and dependencies across packages
+- Coordinated versioning and releases
+- Easier refactoring across package boundaries
+- Single lockfile for dependency management
+
 ## Services
 
 Services are standalone applications that run on machines and handle device control and communication.
@@ -85,6 +91,30 @@ NATS-based communication library for machine-to-machine messaging.
   - `machine_client.py`: NATS client implementation
   - `execution_state.py`: Execution state and cancellation management
 
+## Monorepo Structure
+
+PUDA uses a monorepo architecture with:
+
+- **UV Workspace** (Python): Manages Python packages and services
+  - Workspace members: `libs/*` and `services/*/*`
+  - Single `uv.lock` file at the root for all Python dependencies
+  - Workspace packages can depend on each other using `tool.uv.sources`
+
+- **pnpm Workspace** (Node.js): Manages Node.js packages (if any)
+  - Configured via `pnpm-workspace.yaml`
+
+### Working with Workspace Dependencies
+
+Workspace packages automatically reference each other. For example, `services/first/edge` depends on `puda-drivers` and `puda-comms`:
+
+```toml
+[tool.uv.sources]
+puda-drivers = {workspace = true}
+puda-comms = {workspace = true}
+```
+
+See [`docs/uv.md`](docs/uv.md) for detailed information about working with UV workspaces.
+
 ## Development
 
 ### Prerequisites
@@ -92,21 +122,37 @@ NATS-based communication library for machine-to-machine messaging.
 - Python >= 3.14
 - [uv](https://docs.astral.sh/uv/) package manager
 - Docker (for NATS services)
+- pnpm (for Node.js packages, if needed)
 
 ### Setup
 
-1. Install dependencies for a service:
+1. **Install all workspace dependencies** (from repository root):
    ```bash
-   cd services/first
    uv sync
    ```
+   This installs dependencies for all workspace members and creates a shared virtual environment.
 
-2. Run a service:
+2. **Run a service**:
    ```bash
-   uv run python first.py
+   # From repository root
+   uv run --package first-edge python services/first/edge/main.py
+   
+   # Or navigate to the service directory
+   cd services/first/edge
+   uv run python main.py
    ```
 
-3. Start NATS infrastructure:
+3. **Add a dependency to a workspace package**:
+   ```bash
+   # From the package directory
+   cd libs/drivers
+   uv add some-package
+   
+   # Or from root
+   uv add --package puda-drivers some-package
+   ```
+
+4. **Start NATS infrastructure**:
    ```bash
    cd infra/nats
    docker compose up -d
@@ -116,12 +162,21 @@ NATS-based communication library for machine-to-machine messaging.
 
 ```
 puda/
-├── services/          # Application services
-│   ├── first/        # First machine service
-│   └── opentron/     # Opentrons robot services
-├── infra/            # Infrastructure deployment configs
-│   └── nats/         # NATS messaging infrastructure
-├── libs/             # Shared libraries
-│   ├── drivers/      # Hardware drivers
-│   └── comms/        # Communication library
-└── docs/             # Documentation
+├── pyproject.toml     # Root UV workspace configuration
+├── uv.lock           # Shared lockfile for all Python dependencies
+├── pnpm-workspace.yaml # pnpm workspace configuration
+├── services/          # Application services (workspace members)
+│   ├── first/         # First machine service
+│   │   ├── edge/      # Edge service (workspace member)
+│   │   └── mcp/       # MCP server (workspace member)
+│   └── opentron/      # Opentrons robot services
+│       ├── edge/      # Edge service (workspace member)
+│       └── mcp/       # MCP server (workspace member)
+├── infra/             # Infrastructure deployment configs
+│   ├── nats/          # NATS messaging infrastructure
+│   └── postgres/      # PostgreSQL database setup
+├── libs/               # Shared libraries (workspace members)
+│   ├── drivers/       # Hardware drivers (puda-drivers)
+│   └── comms/          # Communication library (puda-comms)
+└── docs/               # Documentation
+```

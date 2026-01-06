@@ -4,12 +4,14 @@ MCP Server for First Machine Service
 Provides tools for generating protocols and workflows for the First lab automation machine.
 """
 
-from fastmcp import FastMCP
-from typing import List, Dict, Any
-from pydantic import BaseModel
 import json
 import os
+import traceback
+from typing import List, Dict, Any
 from dotenv import load_dotenv
+from fastmcp import FastMCP
+from pydantic import BaseModel
+from openrouter import OpenRouter
 from puda_drivers import labware
 
 # Load environment variables from .env file
@@ -18,9 +20,19 @@ load_dotenv()
 # Define port as an environment variable with default
 PORT = int(os.getenv('FIRST_MCP_PORT', '8001'))
 
+# Define model name as an environment variable with default
+OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', "minimax/minimax-m2")
+
+# Initialize OpenRouter client
+openrouter_client = OpenRouter(
+    api_key=os.getenv('OPENROUTER_API_KEY'),
+)
+
 # Initialize FastMCP server
 mcp = FastMCP(
-    "First Machine Protocol Provider"
+    name="FirstMCP",
+    version="0.1.0",
+    instructions="This MCP server provides tools for generating protocols and workflows for the First machine.",
 )
 
 
@@ -66,11 +78,7 @@ class Protocol(BaseModel):
         return json.dumps(sequence, indent=2)
 
 
-@mcp.tool(
-    name="get_available_commands",
-    description="Get a list of all available commands for the First machine with their parameters"
-)
-async def get_available_commands() -> str:
+def _get_available_commands_data() -> str:
     """Returns a JSON object describing all available First machine commands and their parameters."""
     commands_info = {
         "commands": [
@@ -200,6 +208,15 @@ async def get_available_commands() -> str:
 
 
 @mcp.tool(
+    name="get_available_commands",
+    description="Get a list of all available commands for the First machine with their parameters"
+)
+async def get_available_commands() -> str:
+    """Returns a JSON object describing all available First machine commands and their parameters."""
+    return _get_available_commands_data()
+
+
+@mcp.tool(
     name="get_available_labware",
     description="Get a list of all available labware types for the First machine"
 )
@@ -209,37 +226,63 @@ async def get_available_labware() -> List[str]:
 
 
 @mcp.tool(
-    name="create_first_protocol",
-    description="Creates a First machine protocol as a JSON command sequence for NATS execution"
+    name="natural_language_to_protocol",
+    description="Convert natural language instructions into a First machine protocol"
 )
-async def create_first_protocol(
-    protocol_name: str,
+async def natural_language_to_commands(
+    name: str,
     author: str,
     description: str,
-    commands: str = "[]"
+    instructions: str
 ) -> str:
-    """Creates a First machine protocol as a JSON command sequence that can be sent via NATS."""
+    """Convert natural language instructions into a First machine protocol."""
     try:
-        # Parse commands JSON
-        commands_list = json.loads(commands)
+        # Create a prompt for the DeepSeek model to extract structured protocol information
+        prompt = f"""
+        You are an expert in creating First machine protocols. Convert the following natural language instructions into a structured JSON representation of a First machine protocol.
         
-        # Create protocol object
-        protocol = Protocol(
-            protocol_name=protocol_name,
-            author=author,
-            description=description,
-            commands=[ProtocolCommand(**cmd) for cmd in commands_list]
+        Here's information about available labware types:
+        - {labware.get_available_labware()}
+        
+        Here's information about available commands:
+        - {_get_available_commands_data()}
+        
+        Instructions to convert:
+        {instructions}
+        
+        Return your answer as a valid JSON object with the following structure:
+        {{
+            "name": "{name}",
+            "author": "{author}",
+            "description": "{description}",
+            "commands": [
+                {{
+                    "command_type": "command_type",
+                    "params": {{
+                        "param1": "value1",
+                        "param2": "value2"
+                    }}
+                }}
+            ]
+        }}
+        """
+
+        # Call the OpenRouter API
+        response = openrouter_client.chat.send(
+            model=OPENROUTER_MODEL,
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7
         )
         
-        # Generate JSON sequence
-        json_sequence = protocol.to_json_sequence()
+        # Extract the JSON from the response
+        json_content = response.choices[0].message.content
         
-        return json_sequence
-    
+        return json_content
     except Exception as e:
-        import traceback
         error_details = traceback.format_exc()
-        return f"Error generating protocol: {str(e)}\n\nDetails: {error_details}"
+        return f"Error generating protocol: {str(e)}\n\nDetails: {error_details}."
 
 
 if __name__ == "__main__":

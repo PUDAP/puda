@@ -5,23 +5,27 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
   build-essential \
+  curl \
   && rm -rf /var/lib/apt/lists/*
 
-# Install anyio first with specific version to avoid conflicts
-RUN pip install --no-cache-dir anyio==3.6.2
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.cargo/bin:$PATH"
 
-# Install core dependencies first
-RUN pip install --no-cache-dir \
-  mcp>=1.9.1 \
-  fastmcp==2.8.1 \
-  pydantic==2.7.4 \
-  python-dotenv
+# Copy workspace files needed for uv workspace
+COPY pyproject.toml uv.lock ./
+COPY libs/drivers/pyproject.toml ./libs/drivers/
+COPY libs/drivers/src/ ./libs/drivers/src/
+COPY services/first/mcp/pyproject.toml ./services/first/mcp/
+COPY services/first/mcp/server.py ./services/first/mcp/
 
-# Copy MCP server files
-COPY services/first/mcp/server.py ./server.py
+# Install dependencies using uv
+RUN uv sync --frozen --package first-mcp --no-dev
 
 # Choose a port
 EXPOSE 8001
 
-CMD ["python", "server.py"]
+# Run the server using uv
+WORKDIR /app/services/first/mcp
+CMD ["uv", "run", "python", "server.py"]
 

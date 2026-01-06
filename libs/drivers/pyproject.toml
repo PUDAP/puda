@@ -29,5 +29,5 @@ requires = ["hatchling >= 1.26"]
 build-backend = "hatchling.build"
 
 [project.urls]
-Homepage = "https://github.com/zhao-bears/puda-drivers"
-Issues = "https://github.com/zhao-bears/puda-drivers/issues"
+Homepage = "https://github.com/PUDAP/puda-drivers"
+Issues = "https://github.com/PUDAP/puda-drivers/issues"

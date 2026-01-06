@@ -6,6 +6,9 @@ requires-python = ">=3.14.2"
 members = [
     "first-edge",
     "first-mcp",
+    "puda-comms",
+    "puda-drivers",
+    "puda-root",
 ]
 
 [[package]]
@@ -342,7 +345,7 @@ wheels = [
 [[package]]
 name = "first-edge"
 version = "0.1.0"
-source = { virtual = "." }
+source = { virtual = "services/first/edge" }
 dependencies = [
     { name = "puda-comms" },
     { name = "puda-drivers" },
@@ -350,20 +353,26 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "puda-comms", editable = "../../libs/comms" },
-    { name = "puda-drivers", editable = "../../libs/drivers" },
+    { name = "puda-comms", editable = "libs/comms" },
+    { name = "puda-drivers", editable = "libs/drivers" },
 ]
 
 [[package]]
 name = "first-mcp"
 version = "0.1.0"
-source = { virtual = "mcp" }
+source = { virtual = "services/first/mcp" }
 dependencies = [
     { name = "fastmcp" },
+    { name = "openrouter" },
+    { name = "puda-drivers" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "fastmcp", specifier = ">=2.14.2" }]
+requires-dist = [
+    { name = "fastmcp", specifier = ">=2.14.2" },
+    { name = "openrouter", specifier = ">=0.1.1" },
+    { name = "puda-drivers", editable = "libs/drivers" },
+]
 
 [[package]]
 name = "h11"
@@ -660,6 +669,20 @@ wheels = [
 ]
 
 [[package]]
+name = "openrouter"
+version = "0.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpcore" },
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c3/ce/69d3d7a79b2a9a28377cbf2a502a0d41da41bf99f40a17dd5dbdc61d5aea/openrouter-0.1.1.tar.gz", hash = "sha256:f224545a562a060e154120808b05525e95247193ad54a349c4928b9eb8cabe33", size = 114369, upload-time = "2025-12-04T15:50:35.683Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8f/f8/e86cc449d1ca5ced4e6a483b07932444c04a0146b4ed287956496ff5b61e/openrouter-0.1.1-py3-none-any.whl", hash = "sha256:37480230413a246f15af7056f479b2c1a9ca79c88086660bc56c3f69b37847d4", size = 240934, upload-time = "2025-12-04T15:50:36.646Z" },
+]
+
+[[package]]
 name = "opentelemetry-api"
 version = "1.39.1"
 source = { registry = "https://pypi.org/simple" }
@@ -776,7 +799,7 @@ wheels = [
 [[package]]
 name = "puda-comms"
 version = "0.1.0"
-source = { editable = "../../libs/comms" }
+source = { editable = "libs/comms" }
 dependencies = [
     { name = "nats-py" },
     { name = "puda-drivers" },
@@ -785,13 +808,13 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "nats-py", specifier = ">=2.12.0" },
-    { name = "puda-drivers", specifier = ">=0.0.16" },
+    { name = "puda-drivers", editable = "libs/drivers" },
 ]
 
 [[package]]
 name = "puda-drivers"
 version = "0.0.16"
-source = { editable = "../../libs/drivers" }
+source = { editable = "libs/drivers" }
 dependencies = [
     { name = "nats-py" },
     { name = "opencv-python" },
@@ -804,6 +827,11 @@ requires-dist = [
     { name = "opencv-python", specifier = ">=4.12.0.88" },
     { name = "pyserial", specifier = "~=3.5" },
 ]
+
+[[package]]
+name = "puda-root"
+version = "0.1.0"
+source = { virtual = "." }
 
 [[package]]
 name = "py-key-value-aio"
