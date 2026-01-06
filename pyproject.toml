@@ -1,0 +1,15 @@
+[project]
+name = "puda-root"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    # Your root dependencies here
+]
+
+# Add this section
+[tool.uv.workspace]
+members = [
+    "libs/*",
+    "services/*/*"
+]
+

@@ -1,0 +1,141 @@
+{
+    "ordering": [
+        [
+            "A1",
+            "B1"
+        ],
+        [
+            "A2",
+            "B2"
+        ],
+        [
+            "A3",
+            "B3"
+        ],
+        [
+            "A4",
+            "B4"
+        ]
+    ],
+    "brand": {
+        "brand": "Polyelectric",
+        "brandId": []
+    },
+    "metadata": {
+        "displayName": "Polyelectric 8 Well Plate 30000 µL",
+        "displayCategory": "wellPlate",
+        "displayVolumeUnits": "µL",
+        "tags": []
+    },
+    "dimensions": {
+        "xDimension": 128,
+        "yDimension": 85.5,
+        "zDimension": 54
+    },
+    "wells": {
+        "A1": {
+            "depth": 70.5,
+            "totalLiquidVolume": 30000,
+            "shape": "circular",
+            "diameter": 16.9,
+            "x": 25,
+            "y": 59,
+            "z": 3.5
+        },
+        "B1": {
+            "depth": 70.5,
+            "totalLiquidVolume": 30000,
+            "shape": "circular",
+            "diameter": 16.9,
+            "x": 25,
+            "y": 29,
+            "z": 3.5
+        },
+        "A2": {
+            "depth": 70.5,
+            "totalLiquidVolume": 30000,
+            "shape": "circular",
+            "diameter": 16.9,
+            "x": 54,
+            "y": 59,
+            "z": 3.5
+        },
+        "B2": {
+            "depth": 70.5,
+            "totalLiquidVolume": 30000,
+            "shape": "circular",
+            "diameter": 16.9,
+            "x": 54,
+            "y": 29,
+            "z": 3.5
+        },
+        "A3": {
+            "depth": 70.5,
+            "totalLiquidVolume": 30000,
+            "shape": "circular",
+            "diameter": 16.9,
+            "x": 83,
+            "y": 59,
+            "z": 3.5
+        },
+        "B3": {
+            "depth": 70.5,
+            "totalLiquidVolume": 30000,
+            "shape": "circular",
+            "diameter": 16.9,
+            "x": 83,
+            "y": 29,
+            "z": 3.5
+        },
+        "A4": {
+            "depth": 70.5,
+            "totalLiquidVolume": 30000,
+            "shape": "circular",
+            "diameter": 16.9,
+            "x": 112,
+            "y": 59,
+            "z": 3.5
+        },
+        "B4": {
+            "depth": 70.5,
+            "totalLiquidVolume": 30000,
+            "shape": "circular",
+            "diameter": 16.9,
+            "x": 112,
+            "y": 29,
+            "z": 3.5
+        }
+    },
+    "groups": [
+        {
+            "metadata": {
+                "wellBottomShape": "flat"
+            },
+            "wells": [
+                "A1",
+                "B1",
+                "A2",
+                "B2",
+                "A3",
+                "B3",
+                "A4",
+                "B4"
+            ]
+        }
+    ],
+    "parameters": {
+        "format": "irregular",
+        "quirks": [],
+        "isTiprack": false,
+        "isMagneticModuleCompatible": false,
+        "loadName": "polyelectric_8_wellplate_30000ul"
+    },
+    "namespace": "custom_beta",
+    "version": 1,
+    "schemaVersion": 2,
+    "cornerOffsetFromSlot": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+    }
+}

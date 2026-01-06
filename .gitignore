@@ -5,6 +5,16 @@ dist
 tmp
 out-tsc
 
+# Python
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
 # dependencies
 node_modules
 

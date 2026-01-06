@@ -1,0 +1,14 @@
+[project]
+name = "first-mcp"
+version = "0.1.0"
+description = "MCP server for the first machine"
+readme = "README.md"
+requires-python = ">=3.14.2"
+dependencies = [
+    "fastmcp>=2.14.2",
+    "openrouter>=0.1.1",
+    "puda-drivers",
+]
+
+[tool.uv.sources]
+puda-drivers = {workspace = true}

@@ -1,0 +1,28 @@
+services:
+  first:
+    build:
+      context: ../..
+      dockerfile: services/first/edge/Dockerfile
+    image: ghcr.io/pudap/first-edge:latest
+    container_name: first-edge
+    restart: unless-stopped
+    # Mount USB devices for serial communication and camera access
+    devices:
+      - /dev/ttyACM0:/dev/ttyACM0
+      - /dev/ttyUSB0:/dev/ttyUSB0
+      - /dev/video0:/dev/video0
+    # Alternative: Use privileged mode if device mounting doesn't work
+    # privileged: true
+    # Mount workspace for development (optional - allows live code changes)
+    # Uncomment these volumes to enable live code reloading during development
+    # volumes:
+    #   - ../../libs:/app/libs:ro
+    #   - ./first.py:/app/services/first/edge/first.py:ro
+    # Note: NATS servers are hardcoded in first.py
+    # To make them configurable, update first.py to use environment variables
+    healthcheck:
+      test: ["CMD", "uv", "run", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

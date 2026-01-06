@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NATS Architecture - PUDA Comms</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #34495e;
+            margin-top: 30px;
+        }
+        .diagram-container {
+            margin: 30px 0;
+            padding: 20px;
+            background: #fafafa;
+            border-radius: 5px;
+        }
+        .info-box {
+            background: #e8f4f8;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .subject-list {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .subject-list code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background: #3498db;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background: #f9f9f9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>NATS Architecture - PUDA Comms</h1>
+        
+        <h2>Introduction</h2>
+        <div class="info-box">
+            <h3>What is NATS?</h3>
+            <p><strong>NATS</strong> is a lightweight, high-performance messaging system that enables applications to communicate with each other. Think of it as a <strong>message bus</strong> or <strong>postal service</strong> for your applications:</p>
+            <ul>
+                <li><strong>Publishers</strong> send messages to specific <strong>subjects</strong> (like mailing addresses)</li>
+                <li><strong>Subscribers</strong> listen to subjects and receive messages</li>
+                <li>The NATS server routes messages from publishers to subscribers</li>
+            </ul>
+        </div>
+
+        <div class="info-box">
+            <h3>What is a Microservices Architecture?</h3>
+            <p>In a <strong>microservices architecture</strong>, a large application is broken down into smaller, independent services that communicate over a network. Instead of one monolithic application, you have:</p>
+            <ul>
+                <li><strong>Multiple services</strong> that can be developed, deployed, and scaled independently</li>
+                <li><strong>Loose coupling</strong> - services don't need to know about each other's internal implementation</li>
+                <li><strong>Message-based communication</strong> - services communicate by sending messages rather than direct function calls</li>
+            </ul>
+        </div>
+
+        <div class="info-box">
+            <h3>Why Use NATS for Machine Communication?</h3>
+            <p>This system uses NATS because:</p>
+            <ul>
+                <li><strong>Decoupling:</strong> Command senders don't need to know which machines are online or where they are</li>
+                <li><strong>Reliability:</strong> Messages are persisted and guaranteed to be delivered (using JetStream)</li>
+                <li><strong>Scalability:</strong> Can handle many machines and many command senders simultaneously</li>
+                <li><strong>Flexibility:</strong> New services can subscribe to telemetry or events without modifying existing code</li>
+                <li><strong>Resilience:</strong> If a machine disconnects, messages wait in queues until it reconnects</li>
+            </ul>
+        </div>
+
+        <h2>Core Concepts</h2>
+        
+        <h3>Subjects (Message Addresses)</h3>
+        <div class="subject-list">
+            <p>A <strong>subject</strong> is like an address or topic name. Messages are published to subjects, and subscribers listen to subjects.</p>
+            <p><strong>Subject Pattern:</strong> <code>puda.{machine_id}.{category}.{sub_category}</code></p>
+            <p><strong>Example:</strong> <code>puda.first-machine.tlm.heartbeat</code></p>
+            <ul>
+                <li><code>puda</code> - namespace (all PUDA messages)</li>
+                <li><code>first-machine</code> - which machine</li>
+                <li><code>tlm</code> - category (telemetry)</li>
+                <li><code>heartbeat</code> - specific type</li>
+            </ul>
+        </div>
+
+        <h3>Core NATS vs JetStream</h3>
+        <div class="subject-list">
+            <p>This system uses two NATS features:</p>
+            <table>
+                <tr>
+                    <th>Feature</th>
+                    <th>Core NATS (Fire-and-Forget)</th>
+                    <th>JetStream (Persistent)</th>
+                </tr>
+                <tr>
+                    <td><strong>Persistence</strong></td>
+                    <td>No - messages are not stored</td>
+                    <td>Yes - messages are stored in streams</td>
+                </tr>
+                <tr>
+                    <td><strong>Reliability</strong></td>
+                    <td>Best effort - if no subscriber, message is lost</td>
+                    <td>Guaranteed delivery</td>
+                </tr>
+                <tr>
+                    <td><strong>Best For</strong></td>
+                    <td>Telemetry, events, real-time data</td>
+                    <td>Commands, responses, critical data</td>
+                </tr>
+                <tr>
+                    <td><strong>Performance</strong></td>
+                    <td>Very fast, lightweight</td>
+                    <td>Slower due to persistence overhead</td>
+                </tr>
+            </table>
+        </div>
+
+        <h3>Streams and WorkQueue Retention</h3>
+        <div class="subject-list">
+            <p>A <strong>stream</strong> is like a message queue that stores messages. <strong>WorkQueue Retention</strong> means:</p>
+            <ul>
+                <li>Each message is delivered to <strong>exactly one subscriber</strong></li>
+                <li>Once processed and acknowledged, the message is removed</li>
+                <li>Ensures <strong>exactly-once processing</strong> - no duplicate work</li>
+                <li>Perfect for commands that should only be executed once</li>
+            </ul>
+        </div>
+        
+        <div class="info-box">
+            <strong>Subject Pattern:</strong> <code>puda.{machine_id}.{category}.{sub_category}</code>
+        </div>
+
+        <h2>System Architecture</h2>
+        <div class="diagram-container">
+            <div class="mermaid">
+graph TB
+    subgraph "NATS Server Cluster"
+        NATS[NATS Core Server]
+        JS[JetStream]
+        KV[Key-Value Store]
+    end
+
+    subgraph "Machine Client"
+        MC[MachineClient]
+        MC -->|Connect| NATS
+        MC -->|JetStream Context| JS
+        MC -->|KV Bucket| KV
+    end
+
+    subgraph "Command Streams (JetStream)"
+        CQ[COMMAND_QUEUE Stream<br/>WorkQueue Retention<br/>puda.*.cmd.queue]
+        CI[COMMAND_IMMEDIATE Stream<br/>WorkQueue Retention<br/>puda.*.cmd.immediate]
+        JS --> CQ
+        JS --> CI
+    end
+
+    subgraph "Response Streams (JetStream)"
+        RQ[RESPONSE_QUEUE Stream<br/>WorkQueue Retention<br/>puda.*.cmd.response.queue]
+        RI[RESPONSE_IMMEDIATE Stream<br/>WorkQueue Retention<br/>puda.*.cmd.response.immediate]
+        JS --> RQ
+        JS --> RI
+    end
+
+    subgraph "Machine Side"
+        MACHINE[Machine<br/>e.g., First Machine]
+        MC -->|Subscribe Queue| CQ
+        MC -->|Subscribe Immediate| CI
+        MC -->|Publish Queue Responses| RQ
+        MC -->|Publish Immediate Responses| RI
+        MC -->|Publish Status| KV
+        MC -->|Publish Telemetry<br/>(Fire-and-Forget)| NATS
+        MC -->|Publish Events<br/>(Fire-and-Forget)| NATS
+        MACHINE --> MC
+    end
+
+    subgraph "Command Sender"
+        SENDER[Command Sender<br/>Test Scripts]
+        SENDER -->|Publish Commands| CQ
+        SENDER -->|Publish Immediate| CI
+        SENDER -->|Subscribe Queue Responses| RQ
+        SENDER -->|Subscribe Immediate Responses| RI
+    end
+
+    subgraph "Telemetry Subscribers"
+        TLM_SUB[Telemetry Subscribers]
+        TLM_SUB -->|Subscribe| NATS
+    end
+
+    subgraph "Core NATS Subjects (Fire-and-Forget, No JetStream)"
+        TLM_HEARTBEAT[puda.{machine_id}.tlm.heartbeat]
+        TLM_POS[puda.{machine_id}.tlm.pos]
+        TLM_HEALTH[puda.{machine_id}.tlm.health]
+        EVT_LOG[puda.{machine_id}.evt.log]
+        EVT_ALERT[puda.{machine_id}.evt.alert]
+        EVT_MEDIA[puda.{machine_id}.evt.media]
+        
+        NATS --> TLM_HEARTBEAT
+        NATS --> TLM_POS
+        NATS --> TLM_HEALTH
+        NATS --> EVT_LOG
+        NATS --> EVT_ALERT
+        NATS --> EVT_MEDIA
+    end
+
+    style NATS fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px
+    style JS fill:#7B68EE,stroke:#5A4FCF,stroke-width:2px
+    style KV fill:#FF6B6B,stroke:#CC5555,stroke-width:2px
+    style CQ fill:#50C878,stroke:#3A9D5F,stroke-width:2px
+    style CI fill:#FFA500,stroke:#CC8500,stroke-width:2px
+    style RQ fill:#20B2AA,stroke:#178B85,stroke-width:2px
+    style RI fill:#FFD700,stroke:#CCAA00,stroke-width:2px
+    style MC fill:#9B59B6,stroke:#7D3C98,stroke-width:2px
+    style MACHINE fill:#E74C3C,stroke:#C0392B,stroke-width:2px
+    style SENDER fill:#3498DB,stroke:#2980B9,stroke-width:2px
+    style TLM_SUB fill:#1ABC9C,stroke:#16A085,stroke-width:2px
+            </div>
+        </div>
+
+        <h2>Telemetry Flow</h2>
+        <div class="diagram-container">
+            <div class="mermaid">
+sequenceDiagram
+    participant Machine as Machine Client
+    participant NATS as Core NATS
+    participant Subscriber as Telemetry Subscriber
+    
+    loop Periodic Updates
+        Machine->>NATS: Publish telemetry<br/>(heartbeat/pos/health)
+        NATS->>Subscriber: Deliver message
+        Note over Subscriber: Process telemetry data
+    end
+            </div>
+        </div>
+
+        <h2>Command Execution Flow</h2>
+        <div class="diagram-container">
+            <div class="mermaid">
+sequenceDiagram
+    participant Sender as Command Sender
+    participant JS as JetStream
+    participant Machine as Machine Client
+    participant Handler as Command Handler
+    
+    Sender->>JS: Publish to cmd.queue
+    JS->>Machine: Deliver message
+    Machine->>Machine: Check cancelled/paused
+    Machine->>Handler: Execute handler
+    Note over Handler: Long-running operation<br/>with keep-alive
+    Handler-->>Machine: Return success/failure
+    Machine->>JS: ACK/NAK command message
+    Machine->>JS: Publish response to<br/>response.queue stream
+    Machine->>KV: Update status
+    JS->>Sender: Deliver response message
+    Sender->>JS: ACK response message
+            </div>
+        </div>
+
+        <h2>Immediate Command Flow (JetStream)</h2>
+        <div class="diagram-container">
+            <div class="mermaid">
+sequenceDiagram
+    participant Sender as Command Sender
+    participant JS as JetStream
+    participant Machine as Machine Client
+    
+    Sender->>JS: Publish to cmd.immediate
+    Note over JS: Message persisted
+    JS->>Machine: Deliver message
+    Machine->>Machine: Process immediately<br/>(pause/resume/cancel)
+    Machine->>JS: ACK command message
+    Machine->>JS: Publish response to<br/>response.immediate stream
+    Machine->>KV: Update status
+    JS->>Sender: Deliver response message
+    Sender->>JS: ACK response message
+            </div>
+        </div>
+
+        <h2>Message Types</h2>
+        
+        <h3>Telemetry (Core NATS - Fire-and-Forget)</h3>
+        <div class="info-box">
+            <p><strong>What is it?</strong> Real-time status updates from machines (like sensor readings).</p>
+            <p><strong>Why Fire-and-Forget?</strong> Telemetry is high-frequency (sent many times per second), real-time (old data isn't useful), and lightweight (no persistence overhead). If a subscriber misses a message, the next one comes soon.</p>
+        </div>
+        <table>
+            <tr>
+                <th>Subject</th>
+                <th>Description</th>
+                <th>Transport</th>
+            </tr>
+            <tr>
+                <td><code>puda.{machine_id}.tlm.heartbeat</code></td>
+                <td>Periodic heartbeat with timestamp (machine is alive)</td>
+                <td>Core NATS</td>
+            </tr>
+            <tr>
+                <td><code>puda.{machine_id}.tlm.pos</code></td>
+                <td>Real-time position coordinates (where the machine is)</td>
+                <td>Core NATS</td>
+            </tr>
+            <tr>
+                <td><code>puda.{machine_id}.tlm.health</code></td>
+                <td>System health vitals (CPU, memory, temperature)</td>
+                <td>Core NATS</td>
+            </tr>
+        </table>
+
+        <h3>Commands (JetStream - Exactly-Once Delivery)</h3>
+        <div class="info-box">
+            <p><strong>What is it?</strong> Instructions sent to machines to perform actions.</p>
+            <p><strong>Why JetStream?</strong> Commands must be delivered (can't lose them), must be processed once (don't want duplicates), and must persist (survive machine disconnections).</p>
+            <p><strong>Two Types:</strong></p>
+            <ul>
+                <li><strong>Queue Commands</strong> - Processed sequentially, one at a time, in order (e.g., "Move to X, then Y, then Z")</li>
+                <li><strong>Immediate Commands</strong> - Priority actions that can interrupt queue processing (e.g., "Stop everything immediately!")</li>
+            </ul>
+        </div>
+        <table>
+            <tr>
+                <th>Stream</th>
+                <th>Subject</th>
+                <th>Retention</th>
+                <th>Usage</th>
+            </tr>
+            <tr>
+                <td><code>COMMAND_QUEUE</code></td>
+                <td><code>puda.{machine_id}.cmd.queue</code></td>
+                <td>WorkQueue</td>
+                <td>Execute commands (sequential processing, one at a time)</td>
+            </tr>
+            <tr>
+                <td><code>COMMAND_IMMEDIATE</code></td>
+                <td><code>puda.{machine_id}.cmd.immediate</code></td>
+                <td>WorkQueue</td>
+                <td>Pause, Resume, Cancel, and other immediate actions (can interrupt queue)</td>
+            </tr>
+        </table>
+
+        <h3>Command Responses (JetStream - Exactly-Once Delivery)</h3>
+        <div class="info-box">
+            <p><strong>What is it?</strong> Confirmation messages sent back from machines after processing commands.</p>
+            <p><strong>Why Separate Response Streams?</strong> Responses must be delivered to the command sender, must be processed once (don't want duplicate acknowledgments), and must persist (survive network issues).</p>
+            <p><strong>Note:</strong> Both response streams (<code>RESPONSE_QUEUE</code> and <code>RESPONSE_IMMEDIATE</code>) use <strong>WorkQueue retention</strong> to ensure exactly-once processing of responses.</p>
+        </div>
+        <table>
+            <tr>
+                <th>Stream</th>
+                <th>Subject</th>
+                <th>Retention</th>
+                <th>Usage</th>
+            </tr>
+            <tr>
+                <td><code>RESPONSE_QUEUE</code></td>
+                <td><code>puda.{machine_id}.cmd.response.queue</code></td>
+                <td><strong>WorkQueue</strong></td>
+                <td>Responses to queue commands (contains: success/failure status, completion time, error messages)</td>
+            </tr>
+            <tr>
+                <td><code>RESPONSE_IMMEDIATE</code></td>
+                <td><code>puda.{machine_id}.cmd.response.immediate</code></td>
+                <td><strong>WorkQueue</strong></td>
+                <td>Responses to immediate commands (confirmation that pause/resume/cancel was executed)</td>
+            </tr>
+        </table>
+
+        <h3>Events (Core NATS - Fire-and-Forget)</h3>
+        <div class="info-box">
+            <p><strong>What is it?</strong> Notifications about things that happened (like log entries or alerts).</p>
+            <p><strong>Why Fire-and-Forget?</strong> Events are informational (not critical for operation), high volume (many events can be generated), and real-time (old events aren't as useful). Multiple services can listen without coordination.</p>
+            <p><strong>Use Cases:</strong> Logging service subscribes to all <code>*.evt.log</code> subjects, alerting service subscribes to all <code>*.evt.alert</code> subjects, media storage service subscribes to all <code>*.evt.media</code> subjects.</p>
+        </div>
+        <table>
+            <tr>
+                <th>Subject</th>
+                <th>Description</th>
+                <th>Transport</th>
+            </tr>
+            <tr>
+                <td><code>puda.{machine_id}.evt.log</code></td>
+                <td>Log events (informational messages)</td>
+                <td>Core NATS</td>
+            </tr>
+            <tr>
+                <td><code>puda.{machine_id}.evt.alert</code></td>
+                <td>Alert events for critical issues (warnings, errors)</td>
+                <td>Core NATS</td>
+            </tr>
+            <tr>
+                <td><code>puda.{machine_id}.evt.media</code></td>
+                <td>Media events (images, videos captured)</td>
+                <td>Core NATS</td>
+            </tr>
+        </table>
+
+        <h3>Status (JetStream KV Store)</h3>
+        <div class="info-box">
+            <p><strong>What is it?</strong> Current state of each machine, stored as key-value pairs.</p>
+            <p><strong>Why KV Store?</strong> Fast lookups ("What's the status of machine X?" - instant answer), persistent (status survives server restarts), and simple (just key-value pairs, no complex queries needed).</p>
+            <p><strong>Example Value:</strong></p>
+            <pre><code>{
+  "state": "busy",
+  "run_id": "run-12345",
+  "timestamp": "2024-01-15T10:30:00Z"
+}</code></pre>
+            <p><strong>Use Cases:</strong> Dashboard shows current status of all machines, monitoring service checks if machines are stuck, load balancer routes commands based on machine availability.</p>
+        </div>
+        <table>
+            <tr>
+                <th>Bucket</th>
+                <th>Key</th>
+                <th>Description</th>
+            </tr>
+            <tr>
+                <td><code>MACHINE_STATE_{machine_id}</code></td>
+                <td><code>{machine_id}</code></td>
+                <td>Current state (idle/busy/error), run_id, timestamp</td>
+            </tr>
+        </table>
+
+        <h2>Key Features</h2>
+        <ul>
+            <li><strong>Exactly-Once Delivery:</strong> All commands and responses use JetStream with WorkQueue retention</li>
+            <li><strong>Four Streams Per Machine:</strong> Two command streams (queue and immediate) and two response streams (queue and immediate) ensure reliable command-response communication</li>
+            <li><strong>Keep-Alive:</strong> Messages send periodic <code>in_progress()</code> signals during long-running operations (every 25 seconds)</li>
+            <li><strong>Cancellation:</strong> Commands can be cancelled by run_id</li>
+            <li><strong>Pause/Resume:</strong> Queue processing can be paused and resumed</li>
+            <li><strong>Auto-Reconnection:</strong> Client automatically reconnects and resubscribes on connection loss</li>
+            <li><strong>Status Tracking:</strong> Machine state stored in KV store for quick lookup</li>
+            <li><strong>Durable Subscriptions:</strong> Subscriptions survive reconnections</li>
+            <li><strong>Fire-and-Forget:</strong> Telemetry and events use Core NATS for lightweight, non-persistent messaging</li>
+        </ul>
+    </div>
+
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'default' });
+    </script>
+</body>
+</html>
+

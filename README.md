@@ -1,77 +1,182 @@
 # PUDA
 
-<a alt="Nx logo" href="https://nx.dev" target="_blank" rel="noreferrer"><img src="https://raw.githubusercontent.com/nrwl/nx/master/images/nx-logo.png" width="45"></a>
+Physical Unified Device Architecture - A platform for laboratory automation and device control.
 
-✨ Your new, shiny [Nx workspace](https://nx.dev) is almost ready ✨.
+## Overview
 
-[Learn more about this workspace setup and its capabilities](https://nx.dev/getting-started/intro#learn-nx?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) or run `npx nx graph` to visually explore what was created. Now, let's get you up to speed!
+PUDA is a modular platform that provides hardware drivers, communication infrastructure, and machine services for laboratory automation equipment. The platform uses NATS for distributed communication and supports various laboratory devices including motion systems, liquid handling equipment, and cameras.
 
-## Finish your CI setup
+This is a **monorepo** that manages multiple related packages and services in a single repository, enabling:
+- Shared code and dependencies across packages
+- Coordinated versioning and releases
+- Easier refactoring across package boundaries
+- Single lockfile for dependency management
 
-[Click here to finish setting up your workspace!](https://cloud.nx.app/connect/hynFi1GXOp)
+## Services
 
-## Run tasks
+Services are standalone applications that run on machines and handle device control and communication.
 
-To run tasks with Nx use:
+### `services/first/`
 
-```sh
-npx nx <target> <project-name>
+Service for the "first" machine. Integrates motion control, deck management, liquid handling, and camera capabilities.
+
+- **Language**: Python
+- **Dependencies**: `puda-drivers`, `puda-comms`
+- **Features**:
+  - NATS-based command queue and immediate command handling
+  - Execution state management with cancellation support
+  - Telemetry publishing (position, health, heartbeat)
+  - Hardware initialization and lifecycle management
+
+### `services/opentron/`
+
+Services for Opentrons robot integration.
+
+- **`edge/`**: Edge service for Opentrons robots
+  - NATS client implementation
+  - Robot control and status reporting
+- **`mcp/`**: MCP (Model Context Protocol) server for Opentrons integration
+
+## Infrastructure
+
+Infrastructure deployment and configuration files.
+
+### `infra/nats/`
+
+NATS messaging infrastructure setup and configuration.
+
+- **Components**:
+  - Docker Compose configuration for NATS cluster
+  - Kubernetes manifests for high-availability deployment
+  - Stream configuration scripts
+  - NATS configuration files
+
+## Libraries
+
+Shared libraries used across services and applications.
+
+### `libs/drivers/`
+
+Hardware drivers for laboratory automation equipment.
+
+- **Package**: `puda-drivers`
+- **Features**:
+  - **Motion Control**: G-code compatible motion systems (e.g., QuBot)
+  - **Liquid Handling**: Sartorius rLINE® pipettes and dispensers
+  - **Camera Control**: Webcam and USB camera support
+  - **Labware Management**: Standard labware definitions and deck layout management
+  - **Serial Communication**: Robust serial port management with automatic reconnection
+  - **Logging**: Configurable logging with optional file output
+
+- **Key Components**:
+  - `machines/`: Machine classes (e.g., `First`)
+  - `move/`: Motion control and deck management
+  - `transfer/liquid/`: Liquid handling controllers
+  - `cv/`: Computer vision and camera interfaces
+  - `labware/`: Labware definitions and management
+  - `core/`: Core utilities (position, serial controller, logging)
+
+### `libs/comms/`
+
+NATS-based communication library for machine-to-machine messaging.
+
+- **Package**: `puda-comms`
+- **Features**:
+  - `MachineClient`: NATS client for machines with JetStream support
+  - `ExecutionState`: Execution state management with cancellation support
+  - Subject pattern: `puda.{machine_id}.{category}.{sub_category}`
+  - Support for queue commands, immediate commands, telemetry, and events
+
+- **Key Components**:
+  - `machine_client.py`: NATS client implementation
+  - `execution_state.py`: Execution state and cancellation management
+
+## Monorepo Structure
+
+PUDA uses a monorepo architecture with:
+
+- **UV Workspace** (Python): Manages Python packages and services
+  - Workspace members: `libs/*` and `services/*/*`
+  - Single `uv.lock` file at the root for all Python dependencies
+  - Workspace packages can depend on each other using `tool.uv.sources`
+
+- **pnpm Workspace** (Node.js): Manages Node.js packages (if any)
+  - Configured via `pnpm-workspace.yaml`
+
+### Working with Workspace Dependencies
+
+Workspace packages automatically reference each other. For example, `services/first/edge` depends on `puda-drivers` and `puda-comms`:
+
+```toml
+[tool.uv.sources]
+puda-drivers = {workspace = true}
+puda-comms = {workspace = true}
 ```
 
-For example:
+See [`docs/uv.md`](docs/uv.md) for detailed information about working with UV workspaces.
 
-```sh
-npx nx build myproject
+## Development
+
+### Prerequisites
+
+- Python >= 3.14
+- [uv](https://docs.astral.sh/uv/) package manager
+- Docker (for NATS services)
+- pnpm (for Node.js packages, if needed)
+
+### Setup
+
+1. **Install all workspace dependencies** (from repository root):
+   ```bash
+   uv sync
+   ```
+   This installs dependencies for all workspace members and creates a shared virtual environment.
+
+2. **Run a service**:
+   ```bash
+   # From repository root
+   uv run --package first-edge python services/first/edge/main.py
+   
+   # Or navigate to the service directory
+   cd services/first/edge
+   uv run python main.py
+   ```
+
+3. **Add a dependency to a workspace package**:
+   ```bash
+   # From the package directory
+   cd libs/drivers
+   uv add some-package
+   
+   # Or from root
+   uv add --package puda-drivers some-package
+   ```
+
+4. **Start NATS infrastructure**:
+   ```bash
+   cd infra/nats
+   docker compose up -d
+   ```
+
+## Project Structure
+
 ```
-
-These targets are either [inferred automatically](https://nx.dev/concepts/inferred-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) or defined in the `project.json` or `package.json` files.
-
-[More about running tasks in the docs &raquo;](https://nx.dev/features/run-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-## Add new projects
-
-While you could add new projects to your workspace manually, you might want to leverage [Nx plugins](https://nx.dev/concepts/nx-plugins?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) and their [code generation](https://nx.dev/features/generate-code?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) feature.
-
-To install a new plugin you can use the `nx add` command. Here's an example of adding the React plugin:
-
-```sh
-npx nx add @nx/react
+puda/
+├── pyproject.toml     # Root UV workspace configuration
+├── uv.lock           # Shared lockfile for all Python dependencies
+├── pnpm-workspace.yaml # pnpm workspace configuration
+├── services/          # Application services (workspace members)
+│   ├── first/         # First machine service
+│   │   ├── edge/      # Edge service (workspace member)
+│   │   └── mcp/       # MCP server (workspace member)
+│   └── opentron/      # Opentrons robot services
+│       ├── edge/      # Edge service (workspace member)
+│       └── mcp/       # MCP server (workspace member)
+├── infra/             # Infrastructure deployment configs
+│   ├── nats/          # NATS messaging infrastructure
+│   └── postgres/      # PostgreSQL database setup
+├── libs/               # Shared libraries (workspace members)
+│   ├── drivers/       # Hardware drivers (puda-drivers)
+│   └── comms/          # Communication library (puda-comms)
+└── docs/               # Documentation
 ```
-
-Use the plugin's generator to create new projects. For example, to create a new React app or library:
-
-```sh
-# Generate an app
-npx nx g @nx/react:app demo
-
-# Generate a library
-npx nx g @nx/react:lib some-lib
-```
-
-You can use `npx nx list` to get a list of installed plugins. Then, run `npx nx list <plugin-name>` to learn about more specific capabilities of a particular plugin. Alternatively, [install Nx Console](https://nx.dev/getting-started/editor-setup?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) to browse plugins and generators in your IDE.
-
-[Learn more about Nx plugins &raquo;](https://nx.dev/concepts/nx-plugins?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) | [Browse the plugin registry &raquo;](https://nx.dev/plugin-registry?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-[Learn more about Nx on CI](https://nx.dev/ci/intro/ci-with-nx#ready-get-started-with-your-provider?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-## Install Nx Console
-
-Nx Console is an editor extension that enriches your developer experience. It lets you run tasks, generate code, and improves code autocompletion in your IDE. It is available for VSCode and IntelliJ.
-
-[Install Nx Console &raquo;](https://nx.dev/getting-started/editor-setup?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-## Useful links
-
-Learn more:
-
-- [Learn more about this workspace setup](https://nx.dev/getting-started/intro#learn-nx?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Learn about Nx on CI](https://nx.dev/ci/intro/ci-with-nx?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Releasing Packages with Nx release](https://nx.dev/features/manage-releases?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [What are Nx plugins?](https://nx.dev/concepts/nx-plugins?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-And join the Nx community:
-
-- [Discord](https://go.nx.dev/community)
-- [Follow us on X](https://twitter.com/nxdevtools) or [LinkedIn](https://www.linkedin.com/company/nrwl)
-- [Our Youtube channel](https://www.youtube.com/@nxdevtools)
-- [Our blog](https://nx.dev/blog?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)

@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats-headless
+  labels:
+    app: nats
+spec:
+  ports:
+    - port: 4222
+      name: client
+    - port: 6222
+      name: cluster
+    - port: 8222
+      name: monitor
+  clusterIP: None # HEADLESS: Creates DNS records for individual pods
+  selector:
+    app: nats
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nats
+spec:
+  serviceName: "nats-headless"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nats
+  template:
+    metadata:
+      labels:
+        app: nats
+    spec:
+      # --- CRITICAL SECTION START ---
+      # This ensures pods are scheduled on DIFFERENT nodes
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - nats
+              topologyKey: "kubernetes.io/hostname"
+      # --- CRITICAL SECTION END ---
+
+      containers:
+        - name: nats
+          image: nats:2.10-alpine
+          ports:
+            - containerPort: 4222
+              name: client
+            - containerPort: 6222
+              name: cluster
+            - containerPort: 8222
+              name: monitor
+
+          # This command tells NATS to look for its peers using the headless service DNS
+          command:
+            - "nats-server"
+            - "--cluster"
+            - "nats://0.0.0.0:6222"
+            - "--routes"
+            - "nats://nats-0.nats-headless:6222,nats://nats-1.nats-headless:6222,nats://nats-2.nats-headless:6222"
+            - "--http_port"
+            - "8222"

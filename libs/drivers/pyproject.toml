@@ -1,0 +1,33 @@
+[project]
+name = "puda-drivers"
+version = "0.0.16"
+description = "Hardware drivers for the PUDA platform."
+readme = "README.md"
+authors = [
+    { name = "zhao", email = "20024592+agentzhao@users.noreply.github.com" }
+]
+requires-python = ">=3.10"
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Topic :: System :: Hardware",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: OS Independent",
+]
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+dependencies = [
+    "nats-py>=2.12.0",
+    "opencv-python>=4.12.0.88",
+    "pyserial~=3.5",
+]
+
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+[project.urls]
+Homepage = "https://github.com/PUDAP/puda-drivers"
+Issues = "https://github.com/PUDAP/puda-drivers/issues"
