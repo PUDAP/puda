@@ -7,13 +7,12 @@ services:
     container_name: first-mcp
     restart: unless-stopped
     ports:
-      - "8001:8001"
-    environment:
-      - FIRST_MCP_PORT=8001
+      - "${FIRST_MCP_PORT:-8001}:${FIRST_MCP_PORT:-8001}"
+    env_file:
+      - .env  # Path relative to compose.yml location (services/first/mcp/.env)
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8001)); s.close()"]
+      test: ["CMD", "python", "-c", "import urllib.request, sys, os; port = int(os.getenv('FIRST_MCP_PORT', '8001')); urllib.request.urlopen(f'http://localhost:{port}/health'); sys.exit(0)"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
-

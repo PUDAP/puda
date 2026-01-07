@@ -1,0 +1,92 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+tests/
+*.test.py
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation
+docs/
+# Keep README.md files as they're referenced in pyproject.toml
+# *.md
+
+# Node.js (if not needed in Python builds)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+infra/nats/db/
+infra/postgres/data/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Nx
+.nx/
+nx.json
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+compose.yml
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+*.o
+*.a
+*.lib
+*.dll
+*.exe
+
