@@ -1,14 +1,15 @@
 [project]
-name = "first-edge"
+name = "logger"
 version = "0.1.0"
-description = "Edge service for the 'first' machine"
+description = "Logger service that listens to NATS command/response streams and logs to PostgreSQL"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "puda-drivers",
+    "puda-db",
     "puda-comms",
 ]
 
 [tool.uv.sources]
-puda-drivers = {workspace=true}
+puda-db = {workspace=true}
 puda-comms = {workspace=true}
+

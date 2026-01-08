@@ -202,7 +202,7 @@ async def main():
             except Exception as e:
                 logger.error("Cancel handler error: %s", e, exc_info=True)
                 return False
-        
+            
         # For other immediate commands, return True (handled by built-in logic or user)
         return True
 

@@ -1,7 +1,7 @@
 services:
   first:
     build:
-      context: ../..
+      context: ../../..
       dockerfile: services/first/edge/Dockerfile
     image: ghcr.io/pudap/first-edge:latest
     container_name: first-edge

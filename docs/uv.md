@@ -99,7 +99,7 @@ puda-comms = {workspace = true}
 Install all workspace dependencies:
 
 ```bash
-uv sync
+uv sync --all-packages
 ```
 
 This creates/updates the `uv.lock` file and installs all packages in editable mode.

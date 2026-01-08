@@ -6,9 +6,10 @@ Provides tools for generating protocols and workflows for the First lab automati
 
 import json
 import os
+from typing import List
 import traceback
 import nats
-from typing import List
+from nats.js.errors import NotFoundError
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 from openrouter import OpenRouter
@@ -21,15 +22,23 @@ from starlette.responses import JSONResponse
 # For local dev: looks for .env in the directory where the script is run from
 load_dotenv()
 
-# CONSTANTS
-NAME = "FirstMCP"
-VERSION = "0.1.0"
-# Define port as an environment variable with default
-PORT = int(os.getenv('FIRST_MCP_PORT', '8001'))
-
-# machine id and kv bucket name
-MACHINE_ID = "first"
+# MCP Server
+MACHINE_ID = os.getenv('MACHINE_ID', 'first')
 KV_BUCKET_NAME = f"MACHINE_STATE_{MACHINE_ID.replace('.', '-')}"
+
+# capitalize first letter of machine id
+SERVER_NAME = f"{MACHINE_ID.capitalize()}MCP"
+SERVER_VERSION = os.getenv('SERVER_VERSION', '0.1.0')
+SERVER_PORT = int(os.getenv('SERVER_PORT', '8001'))
+
+# NATS servers configuration
+DEFAULT_NATS_SERVERS = (
+    'nats://192.168.50.201:4222,'
+    'nats://192.168.50.201:4223,'
+    'nats://192.168.50.201:4224'
+)
+NATS_SERVERS_ENV = os.getenv('NATS_SERVERS', DEFAULT_NATS_SERVERS)
+NATS_SERVERS = [s.strip() for s in NATS_SERVERS_ENV.split(',')]
 
 # Define model name as an environment variable with default
 OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', "minimax/minimax-m2")
@@ -41,9 +50,9 @@ openrouter_client = OpenRouter(
 
 # Initialize FastMCP server
 mcp = FastMCP(
-    name=NAME,
-    version=VERSION,
-    instructions="This MCP server provides tools for generating protocols and workflows for the First machine.",
+    name=SERVER_NAME,
+    version=SERVER_VERSION,
+    instructions=f"This MCP server provides tools for generating protocols and workflows for the {MACHINE_ID} machine.",
 )
 
 
@@ -51,8 +60,8 @@ mcp = FastMCP(
 async def root(request: Request) -> JSONResponse:
     """Root endpoint that returns server information."""
     return JSONResponse({
-        "name": NAME,
-        "version": VERSION,
+        "name": SERVER_NAME,
+        "version": SERVER_VERSION,
         "status": "running",
         "mcp_endpoint": "/mcp"
     })
@@ -191,11 +200,25 @@ def _get_available_commands_data() -> str:
     return json.dumps(commands_info, indent=2)
 
 
-@mcp.tool()
+@mcp.tool(
+    name="get_machine_status",
+    description="Get the current status of the machine from NATS Key-Value store"
+)
 async def get_machine_status() -> dict:
+    """Get the current status of the machine from NATS Key-Value store.
+    
+    Retrieves the machine status stored in the NATS JetStream Key-Value bucket.
+    The status includes the current state and operational information for the machine.
+    
+    Returns:
+        dict: Machine status information including state and operational data.
+        
+    Raises:
+        Exception: If the machine status cannot be found in the KV store.
+    """
     # 1. Connect to NATS (The "Client" is just this line)
     nc = await nats.connect(
-        servers=["nats://192.168.50.201:4222", "nats://192.168.50.201:4223", "nats://192.168.50.201:4224"],
+        servers=NATS_SERVERS,
         reconnect_time_wait=2,
         max_reconnect_attempts=-1,
     )
@@ -211,10 +234,17 @@ async def get_machine_status() -> dict:
             status = json.loads(entry.value.decode())
             return status
         else:
-            raise Exception(f"Could not find status for {MACHINE_ID}")
+            return {"error": f"Could not find status for {MACHINE_ID}"}
         
-    except Exception as e:
-        return f"Could not find status for {MACHINE_ID}. Error: {e}"
+    except NotFoundError as e:
+        return {"error": f"KV bucket or key not found for {MACHINE_ID}: {e}"}
+    except json.JSONDecodeError as e:
+        return {"error": f"Failed to parse status JSON for {MACHINE_ID}: {e}"}
+    except (KeyError, AttributeError) as e:
+        return {"error": f"Invalid status data format for {MACHINE_ID}: {e}"}
+    except Exception as e:  # pylint: disable=broad-except
+        # Catch-all for any unexpected errors (NATS connection, network, etc.)
+        return {"error": f"Unexpected error retrieving status for {MACHINE_ID}: {e}"}
         
     finally:
         # 4. Clean up
@@ -227,131 +257,7 @@ async def get_machine_status() -> dict:
 )
 async def get_available_commands() -> str:
     """Returns a JSON object describing all available First machine commands and their parameters."""
-    commands_info = {
-        "commands": [
-            {
-                "command": "startup",
-                "description": "Start up the machine by connecting all controllers and initializing subsystems",
-                "params": {}
-            },
-            {
-                "command": "shutdown",
-                "description": "Gracefully shut down the machine by disconnecting all controllers",
-                "params": {}
-            },
-            {
-                "command": "get_position",
-                "description": "Get the current position of the machine (async, returns position of all machine components)",
-                "params": {}
-            },
-            {
-                "command": "load_labware",
-                "description": "Load a labware object into a slot",
-                "params": {
-                    "slot": "str - Slot name (e.g., 'A1', 'B2')",
-                    "labware_name": "str - Name of the labware class to load"
-                }
-            },
-            {
-                "command": "load_deck",
-                "description": "Load multiple labware into the deck at once",
-                "params": {
-                    "deck_layout": "dict - Dictionary mapping slot names to labware names, e.g. {'C1': 'trash_bin', 'C2': 'polyelectric_8_wellplate_30000ul'}"
-                }
-            },
-            {
-                "command": "attach_tip",
-                "description": "Attach a tip from a slot",
-                "params": {
-                    "slot": "str - Slot name (e.g., 'A1', 'B2')",
-                    "well": "str (optional) - Well name within the slot (e.g., 'A1' for a well in a tiprack)"
-                }
-            },
-            {
-                "command": "drop_tip",
-                "description": "Drop a tip into a slot",
-                "params": {
-                    "slot": "str - Slot name (e.g., 'A1', 'B2')",
-                    "well": "str - Well name within the slot",
-                    "height_from_bottom": "float (optional, default 0.0) - Height from bottom of well in mm"
-                }
-            },
-            {
-                "command": "aspirate_from",
-                "description": "Aspirate a volume of liquid from a slot",
-                "params": {
-                    "slot": "str - Slot name (e.g., 'A1', 'B2')",
-                    "well": "str - Well name within the slot",
-                    "amount": "int - Volume to aspirate in µL",
-                    "height_from_bottom": "float (optional, default 0.0) - Height from bottom of well in mm"
-                }
-            },
-            {
-                "command": "dispense_to",
-                "description": "Dispense a volume of liquid to a slot",
-                "params": {
-                    "slot": "str - Slot name (e.g., 'A1', 'B2')",
-                    "well": "str - Well name within the slot",
-                    "amount": "int - Volume to dispense in µL",
-                    "height_from_bottom": "float (optional, default 0.0) - Height from bottom of well in mm"
-                }
-            },
-            {
-                "command": "capture_image",
-                "description": "Capture a single image from the camera",
-                "params": {
-                    "save": "bool (optional, default False) - If True, save the image to captures folder",
-                    "filename": "str (optional) - Filename for the saved image"
-                }
-            },
-            {
-                "command": "start_video_recording",
-                "description": "Start recording a video",
-                "params": {
-                    "filename": "str (optional) - Filename for the video",
-                    "fps": "float (optional) - Frames per second (default 30.0)"
-                }
-            },
-            {
-                "command": "stop_video_recording",
-                "description": "Stop recording a video",
-                "params": {}
-            },
-            {
-                "command": "record_video",
-                "description": "Record a video for a specified duration",
-                "params": {
-                    "duration_seconds": "float - Duration of the video in seconds",
-                    "filename": "str (optional) - Filename for the video",
-                    "fps": "float (optional) - Frames per second (default 30.0)"
-                }
-            },
-            {
-                "command": "get_slot_origin",
-                "description": "Get the origin coordinates of a slot",
-                "params": {
-                    "slot": "str - Slot name (e.g., 'A1', 'B2')"
-                }
-            },
-            {
-                "command": "get_absolute_z_position",
-                "description": "Get the absolute position for a slot (and optionally a well)",
-                "params": {
-                    "slot": "str - Slot name (e.g., 'A1', 'B2')",
-                    "well": "str (optional) - Well name within the slot"
-                }
-            },
-            {
-                "command": "get_absolute_a_position",
-                "description": "Get the absolute A-axis position for a slot (and optionally a well)",
-                "params": {
-                    "slot": "str - Slot name (e.g., 'A1', 'B2')",
-                    "well": "str (optional) - Well name within the slot"
-                }
-            }
-        ]
-    }
-    return json.dumps(commands_info, indent=2)
+    return _get_available_commands_data()
 
 
 @mcp.tool(
@@ -418,5 +324,5 @@ async def natural_language_to_commands(
 
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=PORT)
+    mcp.run(transport="streamable-http", host="0.0.0.0", port=SERVER_PORT)
 
