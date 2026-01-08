@@ -9,6 +9,7 @@ import logging
 from typing import Dict, Any, Optional, Callable, Tuple, Awaitable
 from datetime import datetime, timezone
 import nats
+from puda_comms.types import CommandResponseStatus
 from nats.js.client import JetStreamContext
 from nats.js.api import StreamConfig
 from nats.js.errors import NotFoundError
@@ -407,7 +408,7 @@ class MachineClient:
     async def _publish_command_response(
         self,
         msg: Msg,
-        status: str,
+        status: CommandResponseStatus,
         error: Optional[str] = None,
         response_stream: str = None
     ):
@@ -432,11 +433,13 @@ class MachineClient:
                 return
             
             # Append response to the original payload
-            payload['response'] = {
+            payload['result'] = {
                 'status': status,
                 'completed_at': self._format_timestamp(),
-                'error': error
             }
+            
+            if error:
+                payload['result']['error'] = error
             
             response_data = json.dumps(payload).encode()
             

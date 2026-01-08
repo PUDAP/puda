@@ -92,54 +92,6 @@ class DatabaseClient:
             sample
         )
     
-    def insert_command_log(
-        self,
-        machine_id: str,
-        command_type: str,
-        command: str,
-        run_id: Optional[str] = None,
-        command_id: Optional[str] = None,
-        timestamp: Optional[str] = None,
-        params: Optional[dict] = None,
-        full_payload: Optional[dict] = None
-    ) -> None:
-        """Insert a command log entry into the database.
-        
-        Args:
-            machine_id: Machine identifier
-            command_type: Type of command ('queue' or 'immediate')
-            command: Command name
-            run_id: Optional run ID
-            command_id: Optional command ID
-            timestamp: Optional timestamp from message
-            params: Optional command parameters
-            full_payload: Optional full message payload
-        """
-        import json
-        if self._conn is None or self._conn.closed:
-            self.connect()
-        
-        with self._conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO command_log 
-                (machine_id, command_type, command, run_id, command_id, timestamp, params, full_payload)
-                VALUES (%(machine_id)s, %(command_type)s, %(command)s, %(run_id)s, %(command_id)s, 
-                        %(timestamp)s, %(params)s, %(full_payload)s)
-                """,
-                {
-                    'machine_id': machine_id,
-                    'command_type': command_type,
-                    'command': command,
-                    'run_id': run_id,
-                    'command_id': command_id,
-                    'timestamp': timestamp,
-                    'params': json.dumps(params) if params else None,
-                    'full_payload': json.dumps(full_payload) if full_payload else None
-                }
-            )
-            self._conn.commit()
-    
     def insert_response_log(
         self,
         machine_id: str,
@@ -170,25 +122,26 @@ class DatabaseClient:
             self.connect()
         
         with self._conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO response_log 
-                (machine_id, response_type, command, run_id, command_id, status, error, completed_at, full_payload)
-                VALUES (%(machine_id)s, %(response_type)s, %(command)s, %(run_id)s, %(command_id)s,
-                        %(status)s, %(error)s, %(completed_at)s, %(full_payload)s)
-                """,
-                {
-                    'machine_id': machine_id,
-                    'response_type': response_type,
-                    'command': command,
-                    'run_id': run_id,
-                    'command_id': command_id,
-                    'status': status,
-                    'error': error,
-                    'completed_at': completed_at,
-                    'full_payload': json.dumps(full_payload) if full_payload else None
-                }
-            )
-            self._conn.commit()
+            # cur.execute(
+            #     """
+            #     INSERT INTO response_log 
+            #     (machine_id, response_type, command, run_id, command_id, status, error, completed_at, full_payload)
+            #     VALUES (%(machine_id)s, %(response_type)s, %(command)s, %(run_id)s, %(command_id)s,
+            #             %(status)s, %(error)s, %(completed_at)s, %(full_payload)s)
+            #     """,
+            #     {
+            #         'machine_id': machine_id,
+            #         'response_type': response_type,
+            #         'command': command,
+            #         'run_id': run_id,
+            #         'command_id': command_id,
+            #         'status': status,
+            #         'error': error,
+            #         'completed_at': completed_at,
+            #         'full_payload': json.dumps(full_payload) if full_payload else None
+            #     }
+            # )
+            # self._conn.commit()
+            print(f"\nInserted response log: {machine_id}, {response_type}, {command}, {run_id}, {command_id}, {status}, {error}, {completed_at}, {full_payload}")
         
         

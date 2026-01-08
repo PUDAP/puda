@@ -2,7 +2,7 @@ services:
   first:
     build:
       context: ../../..
-      dockerfile: services/first/edge/Dockerfile
+      dockerfile: machines/first/edge/Dockerfile
     image: ghcr.io/pudap/first-edge:latest
     container_name: first-edge
     restart: unless-stopped
@@ -17,7 +17,7 @@ services:
     # Uncomment these volumes to enable live code reloading during development
     # volumes:
     #   - ../../libs:/app/libs:ro
-    #   - ./first.py:/app/services/first/edge/first.py:ro
+    #   - ./first.py:/app/machines/first/edge/first.py:ro
     # Note: NATS servers are hardcoded in first.py
     # To make them configurable, update first.py to use environment variables
     healthcheck:

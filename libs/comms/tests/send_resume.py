@@ -1,5 +1,5 @@
 """
-Script to send pause command to a machine via NATS
+Script to send resume command to a machine via NATS
 """
 import asyncio
 import json
@@ -111,30 +111,30 @@ async def wait_for_response(js: JetStreamContext, machine_id: str, run_id: str, 
             logger.debug("Error during unsubscribe: %s", e)
 
 
-async def send_pause_command(
+async def send_resume_command(
     js: JetStreamContext,
     machine_id: str,
     run_id: str,
-    command_id: str = "pause"
+    command_id: str = "resume"
 ):
     """
-    Send a pause command to a machine and wait for acknowledgment.
+    Send a resume command to a machine and wait for acknowledgment.
     
     Args:
         js: JetStream context (for publishing commands and subscribing to responses)
         machine_id: Machine identifier
-        run_id: Run ID to pause (optional, can be None)
-        command_id: Command ID (default: 'pause')
+        run_id: Run ID to resume (optional, can be None)
+        command_id: Command ID (default: 'resume')
     
     Returns:
         True on ack (success), False on nak/term (error)
     """
     subject = f"{NAMESPACE}.{machine_id}.cmd.immediate"
     
-    # Construct pause command payload
+    # Construct resume command payload
     payload = {
         'header': {
-            'command': 'pause',
+            'command': 'resume',
             'version': '1.0',
             'run_id': run_id,
             'command_id': command_id,
@@ -143,7 +143,7 @@ async def send_pause_command(
         'params': {}
     }
     
-    logger.info("Sending pause command to %s for run_id: %s", subject, run_id)
+    logger.info("Sending resume command to %s for run_id: %s", subject, run_id)
     logger.info("Payload: \n%s", json.dumps(payload, indent=2))
     
     pub_ack = await js.publish(
@@ -151,20 +151,20 @@ async def send_pause_command(
         json.dumps(payload).encode()
     )
     
-    logger.info("Pause command sent successfully. Sequence: %s", pub_ack.seq)
+    logger.info("Resume command sent successfully. Sequence: %s", pub_ack.seq)
     
     # Wait for response message from JetStream response stream
     try:
         result = await wait_for_response(js, machine_id, run_id, command_id, timeout=30.0)
         return result
     except TimeoutError as e:
-        logger.error("Timeout waiting for pause response: %s", e)
+        logger.error("Timeout waiting for resume response: %s", e)
         return False
 
 
 async def main():
     """
-    Main function to send a pause command to a machine.
+    Main function to send a resume command to a machine.
     """
     import sys
     
@@ -178,10 +178,10 @@ async def main():
         logger.info("No run_id provided, using generated run_id: %s", run_id)
     
     servers = ["nats://192.168.50.201:4222", "nats://192.168.50.201:4223", "nats://192.168.50.201:4224"]
-    command_id = "pause"
+    command_id = "resume"
     
     logger.info("=" * 60)
-    logger.info("Sending pause command to machine: %s", MACHINE_ID)
+    logger.info("Sending resume command to machine: %s", MACHINE_ID)
     logger.info("Run ID: %s", run_id)
     logger.info("=" * 60)
     
@@ -192,17 +192,17 @@ async def main():
         js = nc.jetstream()
         logger.info("Connected to NATS")
         
-        # Send pause command
-        result = await send_pause_command(js, MACHINE_ID, run_id, command_id)
+        # Send resume command
+        result = await send_resume_command(js, MACHINE_ID, run_id, command_id)
         
         if result:
             logger.info("=" * 60)
-            logger.info("Pause command completed successfully")
+            logger.info("Resume command completed successfully")
             logger.info("=" * 60)
             return 0
         else:
             logger.error("=" * 60)
-            logger.error("Pause command failed")
+            logger.error("Resume command failed")
             logger.error("=" * 60)
             return 1
         

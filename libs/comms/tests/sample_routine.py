@@ -145,9 +145,9 @@ class ResponseHandler:
             resp_command_id = header.get('command_id')
             resp_command = header.get('command', 'unknown')
             
-            # Extract response status from response.response.status
-            response_data = response.get('response', {})
-            status = response_data.get('status')
+            # Extract result status from response.response.status
+            result_data = response.get('result', {})
+            status = result_data.get('status')
             
             # Look up pending response
             key = f"{resp_run_id}:{resp_command_id}"
@@ -166,7 +166,7 @@ class ResponseHandler:
                     print("  Result: SUCCESS")
                     pending['result']['result'] = True
                 elif status == 'error':
-                    error_msg = response_data.get('error', 'Unknown error')
+                    error_msg = result_data.get('error', 'Unknown error')
                     print(f"  Result: ERROR - {error_msg}")
                     pending['result']['result'] = False
                 

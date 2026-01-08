@@ -75,7 +75,7 @@ async def send_cancel_command(
             resp_command_id = header.get('command_id')
             
             # Extract response status
-            response_data = response.get('response', {})
+            response_data = response.get('result', {})
             status = response_data.get('status')
             
             # Check if this response matches our command

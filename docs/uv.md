@@ -28,8 +28,8 @@ Create or update the root `pyproject.toml`:
 members = [
     "libs/comms",
     "libs/drivers",
-    "services/first/edge",
-    "services/first/mcp",
+    "machines/first/edge",
+    "machines/first/mcp",
 ]
 ```
 
@@ -71,7 +71,7 @@ dependencies = [
 puda-drivers = {workspace = true}  # Mark as workspace dependency
 ```
 
-**Example: `services/first/edge/pyproject.toml`**
+**Example: `machines/first/edge/pyproject.toml`**
 
 ```toml
 [project]

@@ -27,8 +27,8 @@ NATS_SERVERS = os.getenv(
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
 POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
 POSTGRES_DB = os.getenv("POSTGRES_DB", "puda")
-POSTGRES_USER = os.getenv("POSTGRES_USER", "puda")
-POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD")
+POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres")
 
 # NATS stream names
 STREAM_RESPONSE_QUEUE = "RESPONSE_QUEUE"

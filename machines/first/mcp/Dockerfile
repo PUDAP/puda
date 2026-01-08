@@ -13,8 +13,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 # Copy workspace files needed for uv workspace
 COPY pyproject.toml uv.lock ./
 COPY libs/drivers ./libs/drivers/
-COPY services/first/mcp/pyproject.toml ./services/first/mcp/
-COPY services/first/mcp/server.py ./services/first/mcp/
+COPY machines/first/mcp/pyproject.toml ./machines/first/mcp/
+COPY machines/first/mcp/server.py ./machines/first/mcp/
 
 # Install dependencies using uv
 RUN uv sync --frozen --package first-mcp --no-dev
@@ -23,6 +23,6 @@ RUN uv sync --frozen --package first-mcp --no-dev
 EXPOSE 8001
 
 # Run the server using uv
-WORKDIR /app/services/first/mcp
+WORKDIR /app/machines/first/mcp
 CMD ["uv", "run", "python", "server.py"]
 

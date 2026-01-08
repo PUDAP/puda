@@ -6,6 +6,7 @@ requires-python = ">=3.14.2"
 members = [
     "first-edge",
     "first-mcp",
+    "logger",
     "puda-comms",
     "puda-db",
     "puda-drivers",
@@ -346,7 +347,7 @@ wheels = [
 [[package]]
 name = "first-edge"
 version = "0.1.0"
-source = { virtual = "services/first/edge" }
+source = { virtual = "machines/first/edge" }
 dependencies = [
     { name = "puda-comms" },
     { name = "puda-drivers" },
@@ -361,7 +362,7 @@ requires-dist = [
 [[package]]
 name = "first-mcp"
 version = "0.1.0"
-source = { virtual = "services/first/mcp" }
+source = { virtual = "machines/first/mcp" }
 dependencies = [
     { name = "fastmcp" },
     { name = "nats-py" },
@@ -543,6 +544,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/43/4b/674af6ef2f97d56f0ab5153bf0bfa28ccb6c3ed4d1babf4305449668807b/keyring-25.7.0.tar.gz", hash = "sha256:fe01bd85eb3f8fb3dd0405defdeac9a5b4f6f0439edbb3149577f244a2e8245b", size = 63516, upload-time = "2025-11-16T16:26:09.482Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/81/db/e655086b7f3a705df045bf0933bdd9c2f79bb3c97bfef1384598bb79a217/keyring-25.7.0-py3-none-any.whl", hash = "sha256:be4a0b195f149690c166e850609a477c532ddbfbaed96a404d4e43f8d5e2689f", size = 39160, upload-time = "2025-11-16T16:26:08.402Z" },
+]
+
+[[package]]
+name = "logger"
+version = "0.1.0"
+source = { virtual = "services/logger" }
+dependencies = [
+    { name = "puda-comms" },
+    { name = "puda-db" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "puda-comms", editable = "libs/comms" },
+    { name = "puda-db", editable = "libs/db" },
 ]
 
 [[package]]
