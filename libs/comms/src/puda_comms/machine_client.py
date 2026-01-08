@@ -566,6 +566,8 @@ class MachineClient:
                         self._is_paused = False
                         logger.info("Queue resumed")
                         await self.publish_status({'state': 'idle', 'run_id': None})
+                        
+                print(f"Publishing command: {msg.data}")
                 await self._publish_command_response(msg, 'success', response_stream=self.STREAM_RESPONSE_IMMEDIATE)
                 return
             

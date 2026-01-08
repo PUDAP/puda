@@ -69,9 +69,10 @@ CREATE TABLE command_log (
     command VARCHAR(100) NOT NULL,
     run_id UUID,
     command_id VARCHAR(100),
-    timestamp TIMESTAMP,
     params JSONB,
-    full_payload JSONB,
+    result_status VARCHAR(20) NOT NULL, -- 'success' or 'error'
+    result_error TEXT,
+    result_completed_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
     CONSTRAINT fk_machine_cmd

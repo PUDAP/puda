@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timezone
 import nats
 from nats.js.client import JetStreamContext
+from shared_response_handler import get_shared_handler, wait_for_response
 
 # Configure logging
 logging.basicConfig(
@@ -22,17 +23,18 @@ NAMESPACE = "puda"
 
 async def send_cancel_command(
     js: JetStreamContext,
+    handler,
     machine_id: str,
     run_id: str,
     command_id: str = "cancel",
     timeout: float = 30.0
 ):
     """
-    Send a cancel command to a machine using JetStream and wait for response from JetStream response stream.
+    Send a cancel command to a machine using JetStream and wait for response.
     
     Args:
-        js: JetStream context (for publishing commands and subscribing to responses)
-        nc: NATS connection
+        js: JetStream context (for publishing commands)
+        handler: Shared ResponseHandler instance
         machine_id: Machine identifier
         run_id: Run ID to cancel
         command_id: Command ID (default: 'cancel')
@@ -42,8 +44,6 @@ async def send_cancel_command(
         True on success, False on error
     """
     subject = f"{NAMESPACE}.{machine_id}.cmd.immediate"
-    response_subject = f"{NAMESPACE}.{machine_id}.cmd.response.immediate"
-    stream_name = "RESPONSE_IMMEDIATE"
     
     # Construct cancel command payload
     payload = {
@@ -60,121 +60,21 @@ async def send_cancel_command(
     logger.info("Sending cancel command to %s for run_id: %s", subject, run_id)
     logger.info("Payload: \n%s", json.dumps(payload, indent=2))
     
-    response_received = asyncio.Event()
-    result_container = {'result': None, 'response': None}
+    # Publish to JetStream
+    pub_ack = await js.publish(
+        subject,
+        json.dumps(payload).encode()
+    )
     
-    async def response_handler(msg):
-        """Handle response from JetStream response stream."""
-        try:
-            response = json.loads(msg.data.decode())
-            logger.info("Response: \n%s", json.dumps(response, indent=2))
-            
-            # Extract run_id and command_id from header
-            header = response.get('header', {})
-            resp_run_id = header.get('run_id')
-            resp_command_id = header.get('command_id')
-            
-            # Extract response status
-            response_data = response.get('result', {})
-            status = response_data.get('status')
-            
-            # Check if this response matches our command
-            if resp_run_id == run_id and resp_command_id == command_id:
-                result_container['response'] = response
-                if status == 'success':
-                    result_container['result'] = True
-                elif status == 'error':
-                    error_msg = response_data.get('error', 'Unknown error')
-                    logger.error("Cancel command failed - %s", error_msg)
-                    result_container['result'] = False
-                else:
-                    logger.warning("Unknown response status: %s", status)
-                    result_container['result'] = False
-                
-                response_received.set()
-            
-            # Always acknowledge the message to remove it from the stream
-            await msg.ack()
-        except Exception as e:
-            logger.error("Error processing response: %s", e)
-            # Acknowledge even on error to prevent infinite retries
-            try:
-                await msg.ack()
-            except Exception:
-                pass
+    logger.info("Cancel command sent successfully. Sequence: %s", pub_ack.seq)
     
-    # Try to delete existing consumers that might conflict
-    # Workqueue streams only allow one consumer per subject pattern
+    # Wait for response using shared handler
     try:
-        from nats.js.errors import NotFoundError
-        
-        # Try common consumer name patterns that might exist
-        patterns = [
-            f"response_immediate_{machine_id}",
-            f"resp_i_{machine_id}",
-            f"pull_resp_i_{machine_id}",
-        ]
-        
-        for pattern in patterns:
-            try:
-                await js.delete_consumer(stream_name, pattern)
-                logger.debug("Deleted existing consumer: %s on %s", pattern, stream_name)
-            except NotFoundError:
-                pass
-            except Exception as e:
-                logger.debug("Could not delete consumer %s: %s", pattern, e)
-    except Exception as e:
-        logger.debug("Error during consumer cleanup: %s", e)
-    
-    # Subscribe to JetStream response stream BEFORE publishing to avoid race condition
-    try:
-        sub = await js.subscribe(
-            response_subject,
-            stream=stream_name,
-            cb=response_handler
-        )
-    except Exception as e:
-        error_msg = str(e)
-        if "filtered consumer not unique" in error_msg or "10100" in error_msg:
-            logger.error(
-                "\n" + "=" * 80 +
-                "\nERROR: Cannot create consumer - another consumer already exists!\n"
-                f"Subject: {response_subject}\n"
-                "Workqueue streams only allow ONE consumer per subject pattern.\n\n"
-                "SOLUTION: Delete existing consumers using NATS CLI:\n"
-                f"  nats consumer rm {stream_name} <consumer_name>\n\n"
-                "Or list consumers first:\n"
-                f"  nats consumer ls {stream_name}\n" +
-                "=" * 80
-            )
-        raise
-    
-    try:
-        # Publish to JetStream (no reply subject)
-        pub_ack = await js.publish(
-            subject,
-            json.dumps(payload).encode()
-        )
-        
-        logger.info("Cancel command sent successfully. Sequence: %s", pub_ack.seq)
-        
-        # Wait for response with timeout
-        try:
-            await asyncio.wait_for(response_received.wait(), timeout=timeout)
-            return result_container['result']
-        except asyncio.TimeoutError:
-            logger.error("Timeout waiting for cancel response after %s seconds", timeout)
-            return False
-            
-    except Exception as e:
-        logger.error("Error sending cancel command: %s", e, exc_info=True)
+        result = await wait_for_response(handler, run_id, command_id, timeout=timeout)
+        return result
+    except TimeoutError:
+        logger.error("Timeout waiting for cancel response after %s seconds", timeout)
         return False
-    finally:
-        # Clean up subscription
-        try:
-            await sub.unsubscribe()
-        except Exception as e:
-            logger.debug("Error unsubscribing from response stream: %s", e)
 
 
 async def main():
@@ -202,13 +102,18 @@ async def main():
     
     # Connect to NATS
     nc = None
+    handler = None
     try:
         nc = await nats.connect(servers=servers)
         js = nc.jetstream()
         logger.info("Connected to NATS")
         
-        # Send cancel command using JetStream with response stream
-        result = await send_cancel_command(js, MACHINE_ID, run_id, command_id)
+        # Initialize shared response handler
+        handler = get_shared_handler(js, MACHINE_ID)
+        await handler.initialize()
+        
+        # Send cancel command using shared handler
+        result = await send_cancel_command(js, handler, MACHINE_ID, run_id, command_id)
         
         if result:
             logger.info("=" * 60)
@@ -225,6 +130,8 @@ async def main():
         logger.error("Error: %s", e, exc_info=True)
         return 1
     finally:
+        if handler:
+            await handler.cleanup()
         if nc:
             await nc.close()
 

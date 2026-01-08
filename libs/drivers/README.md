@@ -175,21 +175,43 @@ sartorius_ports = list_serial_ports(filter_desc="Sartorius")
 
 ### Setup Development Environment
 
-First, install `uv` if you haven't already. See the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/) for platform-specific instructions.
+This package is part of a UV workspace monorepo. First, install `uv` if you haven't already. See the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/) for platform-specific instructions.
+
+**From the repository root:**
 
 ```bash
-# Create virtual environment
-uv venv
-
-# Activate virtual environment
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install dependencies
-uv sync
-
-# Install package in editable mode
-pip install -e .
+# Or install dependencies for all workspace packages
+uv sync --all-packages
 ```
+
+This will:
+- Create a virtual environment at the repository root (`.venv/`)
+- Install all dependencies for all workspace packages
+- Install `puda-drivers` and other workspace packages in editable mode automatically
+
+**Using the package:**
+
+```bash
+# Run Python scripts with workspace context (recommended, works from anywhere in the workspace)
+uv run python your_script.py
+
+# Or activate the virtual environment (from repository root where .venv is located)
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+python your_script.py
+```
+
+**Adding dependencies:**
+
+```bash
+# From the package directory
+cd libs/drivers
+uv add some-package
+
+# Or from repository root
+uv add --package puda-drivers some-package
+```
+
+**Note:** Workspace packages are automatically installed in editable mode, so code changes are immediately available without reinstalling.
 
 ### Building and Publishing
 

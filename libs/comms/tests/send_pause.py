@@ -7,8 +7,8 @@ import logging
 from datetime import datetime, timezone
 import nats
 from nats.js.client import JetStreamContext
-from nats.errors import BadSubscriptionError
 import uuid
+from shared_response_handler import get_shared_handler, wait_for_response
 
 # Configure logging
 logging.basicConfig(
@@ -22,97 +22,9 @@ MACHINE_ID = "first"
 NAMESPACE = "puda"
 
 
-async def wait_for_response(js: JetStreamContext, machine_id: str, run_id: str, command_id: str, timeout: float = 60.0) -> bool:
-    """
-    Wait for command response by subscribing to JetStream response stream.
-    
-    Returns True on success, False on error.
-    Raises TimeoutError if timeout is reached.
-    
-    Args:
-        js: JetStream context (for subscribing to response stream)
-        machine_id: Machine identifier
-        run_id: Run ID to wait for
-        command_id: Command ID to wait for
-        timeout: Maximum time to wait in seconds
-    
-    Returns:
-        True if success, False if error
-    """
-    response_subject = f"{NAMESPACE}.{machine_id}.cmd.response.immediate"
-    stream_name = "RESPONSE_IMMEDIATE"
-    response_received = asyncio.Event()
-    result = None
-    
-    async def message_handler(msg):
-        """Handle response messages from JetStream."""
-        nonlocal result
-        try:
-            response = json.loads(msg.data.decode())
-            
-            logger.info("Response: \n%s", json.dumps(response, indent=2))
-            
-            # Extract run_id and command_id from header
-            header = response.get('header', {})
-            resp_run_id = header.get('run_id')
-            resp_command_id = header.get('command_id')
-            
-            # Extract response status from response.result.status
-            response_data = response.get('result', {})
-            status = response_data.get('status')
-            
-            # Check if this response matches our command
-            if resp_run_id == run_id and resp_command_id == command_id:
-                if status == 'success':
-                    logger.info("Received response: Command %s completed successfully", command_id)
-                    result = True
-                elif status == 'error':
-                    error_msg = response_data.get('error', 'Unknown error')
-                    logger.error("Received response: Command %s failed - %s", command_id, error_msg)
-                    result = False
-                response_received.set()
-            
-            # Always acknowledge the message to remove it from the stream
-            await msg.ack()
-        except Exception as e:
-            logger.error("Error processing response message: %s", e)
-            # Acknowledge even on error to prevent infinite retries
-            try:
-                await msg.ack()
-            except Exception:
-                pass
-    
-    # Subscribe to JetStream response stream
-    sub = await js.subscribe(
-        response_subject,
-        stream=stream_name,
-        cb=message_handler
-    )
-    logger.info("Waiting for response (run_id: %s, command_id: %s)...", run_id, command_id)
-    
-    try:
-        # Wait for response with timeout
-        try:
-            await asyncio.wait_for(response_received.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
-            raise TimeoutError(f"Timeout waiting for response after {timeout}s")
-        
-        # Return result
-        return result
-    finally:
-        # Always try to unsubscribe, but handle if subscription is already invalid
-        try:
-            await sub.unsubscribe()
-        except BadSubscriptionError:
-            # Subscription might already be invalid (e.g., due to timeout cancellation)
-            logger.debug("Subscription already invalid, skipping unsubscribe")
-        except Exception as e:
-            # Other unexpected errors during unsubscribe
-            logger.debug("Error during unsubscribe: %s", e)
-
-
 async def send_pause_command(
     js: JetStreamContext,
+    handler,
     machine_id: str,
     run_id: str,
     command_id: str = "pause"
@@ -121,7 +33,8 @@ async def send_pause_command(
     Send a pause command to a machine and wait for acknowledgment.
     
     Args:
-        js: JetStream context (for publishing commands and subscribing to responses)
+        js: JetStream context (for publishing commands)
+        handler: Shared ResponseHandler instance
         machine_id: Machine identifier
         run_id: Run ID to pause (optional, can be None)
         command_id: Command ID (default: 'pause')
@@ -153,9 +66,9 @@ async def send_pause_command(
     
     logger.info("Pause command sent successfully. Sequence: %s", pub_ack.seq)
     
-    # Wait for response message from JetStream response stream
+    # Wait for response message using shared handler
     try:
-        result = await wait_for_response(js, machine_id, run_id, command_id, timeout=30.0)
+        result = await wait_for_response(handler, run_id, command_id, timeout=30.0)
         return result
     except TimeoutError as e:
         logger.error("Timeout waiting for pause response: %s", e)
@@ -187,13 +100,18 @@ async def main():
     
     # Connect to NATS
     nc = None
+    handler = None
     try:
         nc = await nats.connect(servers=servers)
         js = nc.jetstream()
         logger.info("Connected to NATS")
         
+        # Initialize shared response handler
+        handler = get_shared_handler(js, MACHINE_ID)
+        await handler.initialize()
+        
         # Send pause command
-        result = await send_pause_command(js, MACHINE_ID, run_id, command_id)
+        result = await send_pause_command(js, handler, MACHINE_ID, run_id, command_id)
         
         if result:
             logger.info("=" * 60)
@@ -210,6 +128,8 @@ async def main():
         logger.error("Error: %s", e, exc_info=True)
         return 1
     finally:
+        if handler:
+            await handler.cleanup()
         if nc:
             await nc.close()
 
