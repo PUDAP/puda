@@ -1,0 +1,17 @@
+[project]
+name = "puda-db"
+version = "0.1.0"
+description = "PostgreSQL database client library for the PUDA platform"
+readme = "README.md"
+authors = [
+    { name = "zhao", email = "20024592+agentzhao@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "psycopg[binary]>=3.2.2",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
+

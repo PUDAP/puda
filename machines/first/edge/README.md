@@ -37,7 +37,7 @@ dependencies = [
 
 1. Build and start the service:
    ```bash
-   cd services/first
+   cd machines/first/edge
    docker compose up -d --build
    ```
 
@@ -73,7 +73,7 @@ To enable live code reloading, uncomment the volume mounts in `compose.yml`:
 ```yaml
 volumes:
   - ../../libs:/app/libs:ro
-  - ./first.py:/app/services/first/first.py:ro
+  - ./first.py:/app/machines/first/edge/first.py:ro
 ```
 
 ### Building and Pushing to GitHub Container Registry
@@ -86,7 +86,7 @@ volumes:
 
 2. **Build the image:**
    ```bash
-   cd services/first
+   cd machines/first/edge
    docker compose build
    ```
 
@@ -113,6 +113,6 @@ volumes:
 - **Base Image**: Python 3.14-slim
 - **Package Manager**: uv (Astral)
 - **Image Name**: `ghcr.io/pudap/first-edge:latest`
-- **Build Context**: Workspace root (`../..` from `services/first/`)
-- **Working Directory**: `/app/services/first`
+- **Build Context**: Workspace root (`../..` from `machines/first/edge/`)
+- **Working Directory**: `/app/machines/first/edge`
 

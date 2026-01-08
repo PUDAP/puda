@@ -9,6 +9,7 @@ import logging
 from typing import Dict, Any, Optional, Callable, Tuple, Awaitable
 from datetime import datetime, timezone
 import nats
+from puda_comms.types import CommandResponseStatus
 from nats.js.client import JetStreamContext
 from nats.js.api import StreamConfig
 from nats.js.errors import NotFoundError
@@ -26,7 +27,9 @@ class MachineClient:
     - Commands: JetStream with exactly-once delivery
       - Queue commands: COMMAND_QUEUE stream (WorkQueue retention)
       - Immediate commands: COMMAND_IMMEDIATE stream (WorkQueue retention)
-    - Command responses: Core NATS (RPC pattern, not bound to any stream)
+    - Command responses: JetStream streams (Interest retention)
+      - Queue responses: RESPONSE_QUEUE stream (Interest retention)
+      - Immediate responses: RESPONSE_IMMEDIATE stream (Interest retention)
     - Events: Core NATS (fire-and-forget, no JetStream)
     """
     
@@ -144,13 +147,14 @@ class MachineClient:
             logger.error("Error publishing to %s: %s", subject, e)
             return False
     
-    async def _ensure_stream(self, stream_name: str, subject_pattern: str):
+    async def _ensure_stream(self, stream_name: str, subject_pattern: str, retention: str = 'workqueue'):
         """
-        Ensure a stream exists with WorkQueue retention policy.
+        Ensure a stream exists with the specified retention policy.
         
         Args:
             stream_name: Name of the stream (e.g., STREAM_COMMAND_QUEUE)
             subject_pattern: Subject pattern for the stream (e.g., "puda.*.cmd.queue")
+            retention: Retention policy ('workqueue', 'interest', or 'limits'). Defaults to 'workqueue'
         """
         if not self.js:
             return
@@ -160,23 +164,23 @@ class MachineClient:
             stream_info = await self.js.stream_info(stream_name)
             # Check if it has the correct pattern and retention
             config = stream_info.config
-            if subject_pattern not in config.subjects or getattr(config, 'retention', None) != 'workqueue':
-                logger.info("Updating %s stream: subject=%s, retention=workqueue", stream_name, subject_pattern)
+            if subject_pattern not in config.subjects or getattr(config, 'retention', None) != retention:
+                logger.info("Updating %s stream: subject=%s, retention=%s", stream_name, subject_pattern, retention)
                 updated_config = StreamConfig(
                     name=stream_name,
                     subjects=[subject_pattern],
-                    retention='workqueue'
+                    retention=retention
                 )
                 await self.js.update_stream(updated_config)
                 logger.info("Successfully updated %s stream", stream_name)
         except NotFoundError:
             # Stream doesn't exist, create it
-            logger.info("Creating %s stream: subject=%s", stream_name, subject_pattern)
+            logger.info("Creating %s stream: subject=%s, retention=%s", stream_name, subject_pattern, retention)
             await self.js.add_stream(
                 StreamConfig(
                     name=stream_name,
                     subjects=[subject_pattern],
-                    retention='workqueue'
+                    retention=retention
                 )
             )
             logger.info("Successfully created %s stream", stream_name)
@@ -199,17 +203,19 @@ class MachineClient:
         )
     
     async def _ensure_response_queue_stream(self):
-        """Ensure RESPONSE_QUEUE stream exists with WorkQueue retention policy."""
+        """Ensure RESPONSE_QUEUE stream exists with Interest retention policy."""
         await self._ensure_stream(
             self.STREAM_RESPONSE_QUEUE,
-            f"{self.NAMESPACE}.*.cmd.response.queue"
+            f"{self.NAMESPACE}.*.cmd.response.queue",
+            retention='interest'
         )
     
     async def _ensure_response_immediate_stream(self):
-        """Ensure RESPONSE_IMMEDIATE stream exists with WorkQueue retention policy."""
+        """Ensure RESPONSE_IMMEDIATE stream exists with Interest retention policy."""
         await self._ensure_stream(
             self.STREAM_RESPONSE_IMMEDIATE,
-            f"{self.NAMESPACE}.*.cmd.response.immediate"
+            f"{self.NAMESPACE}.*.cmd.response.immediate",
+            retention='interest'
         )
     
     async def _get_or_create_kv_bucket(self):
@@ -402,7 +408,7 @@ class MachineClient:
     async def _publish_command_response(
         self,
         msg: Msg,
-        status: str,
+        status: CommandResponseStatus,
         error: Optional[str] = None,
         response_stream: str = None
     ):
@@ -427,11 +433,13 @@ class MachineClient:
                 return
             
             # Append response to the original payload
-            payload['response'] = {
+            payload['result'] = {
                 'status': status,
                 'completed_at': self._format_timestamp(),
-                'error': error
             }
+            
+            if error:
+                payload['result']['error'] = error
             
             response_data = json.dumps(payload).encode()
             
@@ -558,6 +566,8 @@ class MachineClient:
                         self._is_paused = False
                         logger.info("Queue resumed")
                         await self.publish_status({'state': 'idle', 'run_id': None})
+                        
+                print(f"Publishing command: {msg.data}")
                 await self._publish_command_response(msg, 'success', response_stream=self.STREAM_RESPONSE_IMMEDIATE)
                 return
             

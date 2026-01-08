@@ -6,10 +6,9 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Dict, Any, Tuple
 import nats
 from nats.js.client import JetStreamContext
-from nats.errors import BadSubscriptionError
+from shared_response_handler import get_shared_handler, wait_for_response
 
 # Configure logging
 logging.basicConfig(
@@ -52,236 +51,11 @@ async def read_status(js: JetStreamContext, machine_id: str) -> dict:
         return None
 
 
-class ResponseHandler:
-    """
-    Manages response message handling using pull consumers.
-    Uses pull consumers to avoid workqueue stream uniqueness constraints.
-    Routes responses to waiting commands based on run_id and command_id.
-    """
-    def __init__(self, js: JetStreamContext, machine_id: str):
-        self.js = js
-        self.machine_id = machine_id
-        self._pending_responses: Dict[str, Dict[str, Any]] = {}
-        self._queue_consumer = None
-        self._initialized = False
-    
-    async def _delete_all_consumers_on_subject(self, stream_name: str):
-        """
-        Try to delete consumers that might conflict.
-        This is a best-effort cleanup.
-        """
-        try:
-            from nats.js.errors import NotFoundError
-            
-            # Try common consumer name patterns that might exist
-            patterns = [
-                f"response_queue_{self.machine_id}",
-                f"response_immediate_{self.machine_id}",
-                f"resp_q_{self.machine_id}",
-                f"resp_i_{self.machine_id}",
-            ]
-            
-            for pattern in patterns:
-                try:
-                    await self.js.delete_consumer(stream_name, pattern)
-                    logger.info("Deleted consumer: %s on %s", pattern, stream_name)
-                except NotFoundError:
-                    pass
-                except Exception as e:
-                    logger.debug("Could not delete consumer %s: %s", pattern, e)
-                    
-        except Exception as e:
-            logger.debug("Error deleting consumers: %s", e)
-    
-    async def initialize(self):
-        """Initialize the response handler using pull consumers."""
-        if self._initialized:
-            return
-        
-        queue_subject = f"{NAMESPACE}.{self.machine_id}.cmd.response.queue"
-        
-        try:
-            # Try to delete existing consumers that might conflict
-            await self._delete_all_consumers_on_subject("RESPONSE_QUEUE")
-            
-            # Create ephemeral consumer (it'll be cleaned up automatically)
-            # Note: If this fails, there's still a consumer we couldn't delete
-            self._queue_consumer = await self.js.subscribe(
-                queue_subject,
-                stream="RESPONSE_QUEUE",
-                cb=lambda msg: asyncio.create_task(self._handle_message(msg))
-            )
-            
-            logger.info("Created consumer for queue response handling")
-            
-        except Exception as e:
-            error_msg = str(e)
-            logger.error("Failed to initialize pull consumer: %s", error_msg)
-            # Fallback: try to provide helpful error message
-            if "filtered consumer not unique" in error_msg or "10100" in error_msg:
-                logger.error(
-                    "\n" + "=" * 80 +
-                    "\nERROR: Cannot create consumer - another consumer already exists!\n"
-                    f"Subject: {queue_subject}\n"
-                    "Workqueue streams only allow ONE consumer per subject pattern.\n\n"
-                    "SOLUTION: Delete existing consumers using NATS CLI:\n"
-                    f"  nats consumer rm RESPONSE_QUEUE <consumer_name>\n\n"
-                    "Or list consumers first:\n"
-                    f"  nats consumer ls RESPONSE_QUEUE\n" +
-                    "=" * 80
-                )
-            raise
-        
-        self._initialized = True
-    
-    async def _handle_message(self, msg):
-        """Handle incoming response messages."""
-        try:
-            response = json.loads(msg.data.decode())
-            
-            # Extract run_id and command_id from header
-            header = response.get('header', {})
-            resp_run_id = header.get('run_id')
-            resp_command_id = header.get('command_id')
-            resp_command = header.get('command', 'unknown')
-            
-            # Extract response status from response.response.status
-            response_data = response.get('response', {})
-            status = response_data.get('status')
-            
-            # Look up pending response
-            key = f"{resp_run_id}:{resp_command_id}"
-            if key in self._pending_responses:
-                pending = self._pending_responses[key]
-                
-                # Print response clearly
-                print("\n" + "=" * 80)
-                print("RESPONSE RECEIVED:")
-                print(f"  Command: {resp_command}")
-                print(f"  Command ID: {resp_command_id}")
-                print(f"  Run ID: {resp_run_id}")
-                print(f"  Status: {status.upper()}")
-                
-                if status == 'success':
-                    print("  Result: SUCCESS")
-                    pending['result']['result'] = True
-                elif status == 'error':
-                    error_msg = response_data.get('error', 'Unknown error')
-                    print(f"  Result: ERROR - {error_msg}")
-                    pending['result']['result'] = False
-                
-                print("\nFull Response:")
-                print(json.dumps(response, indent=2))
-                print("=" * 80 + "\n")
-                
-                # Signal that response was received
-                pending['event'].set()
-                del self._pending_responses[key]
-            
-            # Always acknowledge the message
-            await msg.ack()
-        except (json.JSONDecodeError, KeyError, AttributeError) as e:
-            logger.error("Error processing response message: %s", e)
-            try:
-                await msg.ack()
-            except Exception:
-                pass
-        except Exception as e:  # pylint: disable=broad-except
-            logger.error("Unexpected error processing response message: %s", e)
-            try:
-                await msg.ack()
-            except Exception:
-                pass
-    
-    def register_pending(self, run_id: str, command_id: str) -> Tuple[asyncio.Event, Dict[str, Any]]:
-        """
-        Register a pending response and return event and result container.
-        
-        Returns:
-            Tuple of (event, result_container)
-        """
-        key = f"{run_id}:{command_id}"
-        event = asyncio.Event()
-        result_container = {'result': None}
-        self._pending_responses[key] = {
-            'event': event,
-            'result': result_container
-        }
-        return event, result_container
-    
-    async def cleanup(self):
-        """Clean up subscriptions."""
-        if self._queue_consumer:
-            try:
-                await self._queue_consumer.unsubscribe()
-            except Exception:
-                pass
-
-
-async def setup_response_subscription(handler: ResponseHandler, run_id: str, command_id: str):
-    """
-    Register a pending response with the shared response handler.
-    
-    Args:
-        handler: Shared ResponseHandler instance
-        run_id: Run ID to wait for
-        command_id: Command ID to wait for
-    
-    Returns:
-        Tuple of (None, response_received_event, result_container_dict)
-        Note: First element is None since we use shared handler
-    """
-    response_received, result_container = handler.register_pending(run_id, command_id)
-    return None, response_received, result_container
-
-
-async def wait_for_response_with_subscription(
-    sub, response_received: asyncio.Event, result_container: dict, timeout: float = 60.0
-) -> bool:
-    """
-    Wait for response using a pre-setup subscription.
-    
-    This should be used after setup_response_subscription() to avoid race conditions.
-    
-    Args:
-        sub: NATS subscription (from setup_response_subscription) - can be None for shared handler
-        response_received: Event that will be set when response arrives
-        result_container: Dict with 'result' key that will contain the result
-        timeout: Maximum time to wait in seconds
-    
-    Returns:
-        True if success, False if error
-    """
-    logger.info("Waiting for response (timeout: %s)...", timeout)
-    
-    try:
-        # Wait for response with timeout
-        try:
-            await asyncio.wait_for(response_received.wait(), timeout=timeout)
-        except asyncio.TimeoutError as exc:
-            raise TimeoutError(f"Timeout waiting for response after {timeout}s") from exc
-        
-        # Give a small delay to ensure any pending messages are processed
-        await asyncio.sleep(0.1)
-        
-        # Return result
-        return result_container['result']
-    finally:
-        # Only try to unsubscribe if sub is not None (shared handler uses None)
-        if sub is not None:
-            try:
-                await sub.unsubscribe()
-            except BadSubscriptionError:
-                # Subscription might already be invalid (e.g., due to timeout cancellation)
-                logger.debug("Subscription already invalid, skipping unsubscribe")
-            except Exception as e:  # pylint: disable=broad-except
-                # Other unexpected errors during unsubscribe
-                logger.debug("Error during unsubscribe: %s", e)
 
 
 async def send_execute_command(
     js: JetStreamContext,
-    handler: ResponseHandler,
+    handler,
     machine_id: str,
     payload: dict,
     run_id: str,
@@ -303,50 +77,39 @@ async def send_execute_command(
     """
     subject = f"{NAMESPACE}.{machine_id}.cmd.queue"
     
-    # Register pending response BEFORE publishing to avoid race condition
-    sub, response_received, result_container = await setup_response_subscription(
-        handler, run_id, command_id
+    # Print command being sent
+    command_name = payload.get('header', {}).get('command', 'unknown')
+    print("\n" + "=" * 80)
+    print("SENDING COMMAND:")
+    print(f"  Command: {command_name}")
+    print(f"  Command ID: {command_id}")
+    print(f"  Run ID: {run_id}")
+    print("\nFull Payload:")
+    print(json.dumps(payload, indent=2))
+    print("=" * 80)
+    
+    # Publish to JetStream (execute commands use JetStream)
+    pub_ack = await js.publish(
+        subject,
+        json.dumps(payload).encode()
     )
     
+    logger.info("Command sent successfully. Sequence: %s", pub_ack.seq)
+    print(f"Command published (sequence: {pub_ack.seq}), waiting for response...\n")
+    
+    # Wait for response message using shared handler
     try:
-        # Print command being sent
-        command_name = payload.get('header', {}).get('command', 'unknown')
-        print("\n" + "=" * 80)
-        print("SENDING COMMAND:")
-        print(f"  Command: {command_name}")
-        print(f"  Command ID: {command_id}")
-        print(f"  Run ID: {run_id}")
-        print("\nFull Payload:")
-        print(json.dumps(payload, indent=2))
-        print("=" * 80)
-        
-        # Publish to JetStream (execute commands use JetStream)
-        pub_ack = await js.publish(
-            subject,
-            json.dumps(payload).encode()
-        )
-        
-        logger.info("Command sent successfully. Sequence: %s", pub_ack.seq)
-        print(f"Command published (sequence: {pub_ack.seq}), waiting for response...\n")
-        
-        # Wait for response message
-        try:
-            result = await wait_for_response_with_subscription(
-                sub, response_received, result_container, timeout=120.0
-            )
-            return result
-        except TimeoutError as e:
-            print(f"\n❌ TIMEOUT: {e}\n")
-            logger.error("Timeout waiting for response: %s", e)
-            return False
-    except Exception:  # pylint: disable=broad-except
-        # Cleanup is handled by shared handler, no need to unsubscribe here
-        raise
+        result = await wait_for_response(handler, run_id, command_id, timeout=120.0)
+        return result
+    except TimeoutError as e:
+        print(f"\n❌ TIMEOUT: {e}\n")
+        logger.error("Timeout waiting for response: %s", e)
+        return False
     
 
 async def send_pause_command(
     js: JetStreamContext,
-    handler: ResponseHandler,
+    handler,
     machine_id: str,
     payload: dict,
     run_id: str
@@ -367,38 +130,27 @@ async def send_pause_command(
     subject = f"{NAMESPACE}.{machine_id}.cmd.immediate"
     command_id = payload.get('header', {}).get('command_id', 'pause')
     
-    # Register pending response BEFORE publishing to avoid race condition
-    sub, response_received, result_container = await setup_response_subscription(
-        handler, run_id, command_id
+    logger.info("Sending pause command to %s for run_id: %s", subject, run_id)
+    
+    pub_ack = await js.publish(
+        subject,
+        json.dumps(payload).encode()
     )
     
+    logger.info("Pause command sent successfully. Sequence: %s", pub_ack.seq)
+    
+    # Wait for response message using shared handler
     try:
-        logger.info("Sending pause command to %s for run_id: %s", subject, run_id)
-        
-        pub_ack = await js.publish(
-            subject,
-            json.dumps(payload).encode()
-        )
-        
-        logger.info("Pause command sent successfully. Sequence: %s", pub_ack.seq)
-        
-        # Wait for response message
-        try:
-            result = await wait_for_response_with_subscription(
-                sub, response_received, result_container, timeout=30.0
-            )
-            return result
-        except TimeoutError as e:
-            logger.error("Timeout waiting for pause response: %s", e)
-            return False
-    except Exception:  # pylint: disable=broad-except
-        # Cleanup is handled by shared handler, no need to unsubscribe here
-        raise
+        result = await wait_for_response(handler, run_id, command_id, timeout=30.0)
+        return result
+    except TimeoutError as e:
+        logger.error("Timeout waiting for pause response: %s", e)
+        return False
 
 
 async def send_cancel_command(
     js: JetStreamContext,
-    handler: ResponseHandler,
+    handler,
     machine_id: str,
     payload: dict,
     run_id: str
@@ -419,33 +171,22 @@ async def send_cancel_command(
     subject = f"{NAMESPACE}.{machine_id}.cmd.immediate"
     command_id = payload.get('header', {}).get('command_id', 'cancel')
     
-    # Register pending response BEFORE publishing to avoid race condition
-    sub, response_received, result_container = await setup_response_subscription(
-        handler, run_id, command_id
+    logger.info("Sending cancel command to %s for run_id: %s", subject, run_id)
+    
+    pub_ack = await js.publish(
+        subject,
+        json.dumps(payload).encode()
     )
     
+    logger.info("Cancel command sent successfully. Sequence: %s", pub_ack.seq)
+    
+    # Wait for response message using shared handler
     try:
-        logger.info("Sending cancel command to %s for run_id: %s", subject, run_id)
-        
-        pub_ack = await js.publish(
-            subject,
-            json.dumps(payload).encode()
-        )
-        
-        logger.info("Cancel command sent successfully. Sequence: %s", pub_ack.seq)
-        
-        # Wait for response message
-        try:
-            result = await wait_for_response_with_subscription(
-                sub, response_received, result_container, timeout=30.0
-            )
-            return result
-        except TimeoutError as e:
-            logger.error("Timeout waiting for cancel response: %s", e)
-            return False
-    except Exception:  # pylint: disable=broad-except
-        # Cleanup is handled by shared handler, no need to unsubscribe here
-        raise
+        result = await wait_for_response(handler, run_id, command_id, timeout=30.0)
+        return result
+    except TimeoutError as e:
+        logger.error("Timeout waiting for cancel response: %s", e)
+        return False
 
 
 async def main():
@@ -509,8 +250,8 @@ async def main():
         js = nc.jetstream()
         logger.info("Connected to NATS")
         
-        # Initialize shared response handler with durable consumers
-        handler = ResponseHandler(js, MACHINE_ID)
+        # Initialize shared response handler
+        handler = get_shared_handler(js, MACHINE_ID)
         await handler.initialize()
         
         for step in generated_sequence:

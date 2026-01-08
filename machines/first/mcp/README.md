@@ -9,7 +9,7 @@ MCP (Model Context Protocol) server for generating protocols and workflows for t
 Since you are using fastmcp, the easiest way to test tools is to use its built-in developer interface. This launches a web UI where you can list tools and run them interactively.
 
 ```bash
-cd services/first/mcp
+cd machines/first/mcp
 uv run fastmcp dev server.py
 ```
 
@@ -25,7 +25,7 @@ See the main [First Edge Service README](../README.md) for Docker deployment ins
 The MCP server runs as a separate container and can be started independently:
 
 ```bash
-cd services/first/mcp
+cd machines/first/mcp
 docker compose up -d
 ```
 

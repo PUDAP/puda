@@ -12,11 +12,11 @@ This is a **monorepo** that manages multiple related packages and services in a 
 - Easier refactoring across package boundaries
 - Single lockfile for dependency management
 
-## Services
+## Machines
 
-Services are standalone applications that run on machines and handle device control and communication.
+Machine services are standalone applications that run on physical machines and handle device control and communication.
 
-### `services/first/`
+### `machines/first/`
 
 Service for the "first" machine. Integrates motion control, deck management, liquid handling, and camera capabilities.
 
@@ -28,7 +28,7 @@ Service for the "first" machine. Integrates motion control, deck management, liq
   - Telemetry publishing (position, health, heartbeat)
   - Hardware initialization and lifecycle management
 
-### `services/opentron/`
+### `machines/opentron/`
 
 Services for Opentrons robot integration.
 
@@ -36,6 +36,14 @@ Services for Opentrons robot integration.
   - NATS client implementation
   - Robot control and status reporting
 - **`mcp/`**: MCP (Model Context Protocol) server for Opentrons integration
+
+## Services
+
+Application services that run independently of physical machines.
+
+### `services/logger/`
+
+Logger service that listens to NATS response streams and logs command responses to PostgreSQL database.
 
 ## Infrastructure
 
@@ -96,7 +104,7 @@ NATS-based communication library for machine-to-machine messaging.
 PUDA uses a monorepo architecture with:
 
 - **UV Workspace** (Python): Manages Python packages and services
-  - Workspace members: `libs/*` and `services/*/*`
+  - Workspace members: `libs/*`, `services/*/*`, and `machines/*/*`
   - Single `uv.lock` file at the root for all Python dependencies
   - Workspace packages can depend on each other using `tool.uv.sources`
 
@@ -105,7 +113,7 @@ PUDA uses a monorepo architecture with:
 
 ### Working with Workspace Dependencies
 
-Workspace packages automatically reference each other. For example, `services/first/edge` depends on `puda-drivers` and `puda-comms`:
+Workspace packages automatically reference each other. For example, `machines/first/edge` depends on `puda-drivers` and `puda-comms`:
 
 ```toml
 [tool.uv.sources]
@@ -135,11 +143,11 @@ See [`docs/uv.md`](docs/uv.md) for detailed information about working with UV wo
 2. **Run a service**:
    ```bash
    # From repository root
-   uv run --package first-edge python services/first/edge/main.py
+   uv run --package first-edge python machines/first/edge/first.py
    
    # Or navigate to the service directory
-   cd services/first/edge
-   uv run python main.py
+   cd machines/first/edge
+   uv run python first.py
    ```
 
 3. **Add a dependency to a workspace package**:
@@ -165,13 +173,15 @@ puda/
 ├── pyproject.toml     # Root UV workspace configuration
 ├── uv.lock           # Shared lockfile for all Python dependencies
 ├── pnpm-workspace.yaml # pnpm workspace configuration
-├── services/          # Application services (workspace members)
+├── machines/          # Machine services (workspace members)
 │   ├── first/         # First machine service
 │   │   ├── edge/      # Edge service (workspace member)
 │   │   └── mcp/       # MCP server (workspace member)
 │   └── opentron/      # Opentrons robot services
 │       ├── edge/      # Edge service (workspace member)
 │       └── mcp/       # MCP server (workspace member)
+├── services/          # Application services (workspace members)
+│   └── logger/        # Logger service (workspace member)
 ├── infra/             # Infrastructure deployment configs
 │   ├── nats/          # NATS messaging infrastructure
 │   └── postgres/      # PostgreSQL database setup

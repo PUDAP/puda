@@ -10,6 +10,7 @@ dependencies = [
 [tool.uv.workspace]
 members = [
     "libs/*",
-    "services/*/*"
+    "services/*",
+    "machines/*/*"
 ]
 

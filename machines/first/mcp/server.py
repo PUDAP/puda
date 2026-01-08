@@ -1,24 +1,44 @@
 """
-MCP Server for First Machine Service
+MCP Server for First Machine
 
 Provides tools for generating protocols and workflows for the First lab automation machine.
 """
 
 import json
 import os
+from typing import List
 import traceback
-from typing import List, Dict, Any
+import nats
+from nats.js.errors import NotFoundError
 from dotenv import load_dotenv
 from fastmcp import FastMCP
-from pydantic import BaseModel
 from openrouter import OpenRouter
 from puda_drivers import labware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
-# Load environment variables from .env file
+# Load environment variables from .env file in current working directory
+# For Docker: env vars are already loaded by docker-compose
+# For local dev: looks for .env in the directory where the script is run from
 load_dotenv()
 
-# Define port as an environment variable with default
-PORT = int(os.getenv('FIRST_MCP_PORT', '8001'))
+# MCP Server
+MACHINE_ID = os.getenv('MACHINE_ID', 'first')
+KV_BUCKET_NAME = f"MACHINE_STATE_{MACHINE_ID.replace('.', '-')}"
+
+# capitalize first letter of machine id
+SERVER_NAME = f"{MACHINE_ID.capitalize()}MCP"
+SERVER_VERSION = os.getenv('SERVER_VERSION', '0.1.0')
+SERVER_PORT = int(os.getenv('SERVER_PORT', '8001'))
+
+# NATS servers configuration
+DEFAULT_NATS_SERVERS = (
+    'nats://192.168.50.201:4222,'
+    'nats://192.168.50.201:4223,'
+    'nats://192.168.50.201:4224'
+)
+NATS_SERVERS_ENV = os.getenv('NATS_SERVERS', DEFAULT_NATS_SERVERS)
+NATS_SERVERS = [s.strip() for s in NATS_SERVERS_ENV.split(',')]
 
 # Define model name as an environment variable with default
 OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', "minimax/minimax-m2")
@@ -30,53 +50,26 @@ openrouter_client = OpenRouter(
 
 # Initialize FastMCP server
 mcp = FastMCP(
-    name="FirstMCP",
-    version="0.1.0",
-    instructions="This MCP server provides tools for generating protocols and workflows for the First machine.",
+    name=SERVER_NAME,
+    version=SERVER_VERSION,
+    instructions=f"This MCP server provides tools for generating protocols and workflows for the {MACHINE_ID} machine.",
 )
 
 
-class ProtocolCommand(BaseModel):
-    """Represents a single command in a protocol."""
-    command_type: str
-    params: Dict[str, Any]
+@mcp.custom_route("/", methods=["GET"])
+async def root(request: Request) -> JSONResponse:
+    """Root endpoint that returns server information."""
+    return JSONResponse({
+        "name": SERVER_NAME,
+        "version": SERVER_VERSION,
+        "status": "running",
+        "mcp_endpoint": "/mcp"
+    })
 
-
-class Protocol(BaseModel):
-    """Represents a complete protocol for the First machine."""
-    protocol_name: str
-    author: str
-    description: str
-    commands: List[ProtocolCommand]
-
-    def to_json_sequence(self) -> str:
-        """Convert the protocol to JSON command sequence format for NATS.
-        
-        Returns a JSON array of command objects matching the format used in sample_routine.py:
-        [
-            {
-                "command": "load_deck",
-                "params": { "deck_layout": {...} }
-            },
-            {
-                "command": "attach_tip",
-                "params": { "slot": "A3", "well": "G8" }
-            },
-            ...
-        ]
-        """
-        sequence = []
-        
-        # Convert all commands to JSON format
-        for cmd in self.commands:
-            command_obj = {
-                "command": cmd.command_type,
-                "params": cmd.params
-            }
-            sequence.append(command_obj)
-        
-        return json.dumps(sequence, indent=2)
-
+@mcp.custom_route("/health", methods=["GET"])
+async def health(request: Request) -> JSONResponse:
+    """Health check endpoint."""
+    return JSONResponse({"status": "healthy"})
 
 def _get_available_commands_data() -> str:
     """Returns a JSON object describing all available First machine commands and their parameters."""
@@ -208,6 +201,57 @@ def _get_available_commands_data() -> str:
 
 
 @mcp.tool(
+    name="get_machine_status",
+    description="Get the current status of the machine from NATS Key-Value store"
+)
+async def get_machine_status() -> dict:
+    """Get the current status of the machine from NATS Key-Value store.
+    
+    Retrieves the machine status stored in the NATS JetStream Key-Value bucket.
+    The status includes the current state and operational information for the machine.
+    
+    Returns:
+        dict: Machine status information including state and operational data.
+        
+    Raises:
+        Exception: If the machine status cannot be found in the KV store.
+    """
+    # 1. Connect to NATS (The "Client" is just this line)
+    nc = await nats.connect(
+        servers=NATS_SERVERS,
+        reconnect_time_wait=2,
+        max_reconnect_attempts=-1,
+    )
+    
+    try:
+        # 2. Access the Key-Value Store (JetStream)
+        js = nc.jetstream()
+        kv = await js.key_value(KV_BUCKET_NAME)
+
+        entry = await kv.get(MACHINE_ID)
+        
+        if entry:
+            status = json.loads(entry.value.decode())
+            return status
+        else:
+            return {"error": f"Could not find status for {MACHINE_ID}"}
+        
+    except NotFoundError as e:
+        return {"error": f"KV bucket or key not found for {MACHINE_ID}: {e}"}
+    except json.JSONDecodeError as e:
+        return {"error": f"Failed to parse status JSON for {MACHINE_ID}: {e}"}
+    except (KeyError, AttributeError) as e:
+        return {"error": f"Invalid status data format for {MACHINE_ID}: {e}"}
+    except Exception as e:  # pylint: disable=broad-except
+        # Catch-all for any unexpected errors (NATS connection, network, etc.)
+        return {"error": f"Unexpected error retrieving status for {MACHINE_ID}: {e}"}
+        
+    finally:
+        # 4. Clean up
+        await nc.close()
+
+
+@mcp.tool(
     name="get_available_commands",
     description="Get a list of all available commands for the First machine with their parameters"
 )
@@ -226,45 +270,39 @@ async def get_available_labware() -> List[str]:
 
 
 @mcp.tool(
-    name="natural_language_to_protocol",
-    description="Convert natural language instructions into a First machine protocol"
+    name="natural_language_to_commands",
+    description="Convert natural language instructions into a commands sequence for the First machine"
 )
 async def natural_language_to_commands(
-    name: str,
-    author: str,
-    description: str,
     instructions: str
 ) -> str:
-    """Convert natural language instructions into a First machine protocol."""
+    """Convert natural language instructions into a commands sequence for the First machine."""
     try:
         # Create a prompt for the DeepSeek model to extract structured protocol information
+        commands_json = _get_available_commands_data()
+        labware_lines = [f"{labware.StandardLabware(lw)}" for lw in labware.get_available_labware()]
         prompt = f"""
         You are an expert in creating First machine protocols. Convert the following natural language instructions into a structured JSON representation of a First machine protocol.
         
         Here's information about available labware types:
-        - {labware.get_available_labware()}
+        {"\n".join(labware_lines)}
         
         Here's information about available commands:
-        - {_get_available_commands_data()}
+        - {commands_json}
         
         Instructions to convert:
         {instructions}
         
         Return your answer as a valid JSON object with the following structure:
-        {{
-            "name": "{name}",
-            "author": "{author}",
-            "description": "{description}",
-            "commands": [
-                {{
-                    "command_type": "command_type",
-                    "params": {{
-                        "param1": "value1",
-                        "param2": "value2"
-                    }}
+        commands: [
+            {{
+                "command": "command_type",
+                "params": {{
+                    "param1": "value1",
+                    "param2": "value2"
                 }}
-            ]
-        }}
+            }}
+        ]
         """
 
         # Call the OpenRouter API
@@ -286,5 +324,5 @@ async def natural_language_to_commands(
 
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=PORT)
+    mcp.run(transport="streamable-http", host="0.0.0.0", port=SERVER_PORT)
 

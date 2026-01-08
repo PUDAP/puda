@@ -20,7 +20,7 @@ You can use `npx nx list` to get a list of installed plugins. Then, run `npx nx 
 
 To create a new python service, e.g `opentron`, 
 ```
-nx generate @nxlv/python:uv-project opentron --directory services/opentron --useNxReleaseLegacyVersioning=false
+nx generate @nxlv/python:uv-project opentron --directory machines/opentron --useNxReleaseLegacyVersioning=false
 ```
 
 or use the plugin's generator to create new projects. For example, to create a new React app or library:
