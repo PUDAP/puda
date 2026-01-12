@@ -1,9 +1,14 @@
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from typing import Dict, Any
+from dotenv import load_dotenv
 from puda_drivers.machines import First
 from puda_comms import MachineClient, ExecutionState
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -13,9 +18,6 @@ logging.basicConfig(
 # Higher level logging for drivers
 logging.getLogger("puda_drivers").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
-
-MACHINE_ID = "first"
-
 
 @asynccontextmanager
 async def execution_lifecycle(client: MachineClient, run_id: str, command: str):
@@ -60,15 +62,23 @@ async def execution_lifecycle(client: MachineClient, run_id: str, command: str):
 
 async def main():
     # 1. Initialize Objects
+    machine_id = os.getenv("MACHINE_ID", "first")
+    # Get NATS servers from environment variable (comma-separated list)
+    nats_servers_env = os.getenv(
+        "NATS_SERVERS",
+        "nats://192.168.50.201:4222,nats://192.168.50.201:4223,nats://192.168.50.201:4224"
+    )
+    nats_servers = [s.strip() for s in nats_servers_env.split(",")]
+    
     client = MachineClient(
-        servers=["nats://192.168.50.201:4222", "nats://192.168.50.201:4223", "nats://192.168.50.201:4224"],
-        machine_id=MACHINE_ID
+        servers=nats_servers,
+        machine_id=machine_id
     )
     
     first_machine = First(
-        qubot_port="/dev/ttyACM0",
-        sartorius_port="/dev/ttyUSB0",
-        camera_index=0,
+        qubot_port=os.getenv("QUBOT_PORT", "/dev/ttyACM0"),
+        sartorius_port=os.getenv("SARTORIUS_PORT", "/dev/ttyUSB0"),
+        camera_index=int(os.getenv("CAMERA_INDEX", "0")),
     )
     
     # Shared execution state for cancellation
@@ -222,7 +232,7 @@ async def main():
     await client.subscribe_queue(handle_execute)
     await client.subscribe_immediate(handle_immediate)
 
-    logger.info("Machine %s Ready. Publishing telemetry...", MACHINE_ID)
+    logger.info("Machine %s Ready. Publishing telemetry...", machine_id)
     await client.publish_status({'state': 'idle', 'run_id': None})
     # Get the get_position method from the first_machine object
     get_position = getattr(first_machine, 'get_position')
