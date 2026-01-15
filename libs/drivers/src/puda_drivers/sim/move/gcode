@@ -159,7 +159,8 @@ class GCodeController(SerialController):
         This sends the M400 command which waits for all moves in the queue to complete
         before continuing. This ensures that position updates are accurate.
         """
-        self.execute("M400")
+        #self.execute("M400")
+        self.logger.info("Waiting for move to complete (M400 command).")
 
     def _validate_axis(self, axis: str) -> str:
         """
@@ -296,7 +297,8 @@ class GCodeController(SerialController):
             home_target = "All"
 
         self._logger.info("[%s] homing axis/axes: %s **", cmd, home_target)
-        self.execute(cmd)
+        #self.execute(cmd)
+        self.logger.info("Waiting for move to complete (G28 command).\n", home_target)
         self._logger.info("Homing of %s completed.\n", home_target)
 
         # Update internal position (optimistic zeroing)
@@ -447,7 +449,7 @@ class GCodeController(SerialController):
             self._logger.warning(
                 "Move command issued without any axis movement. Skipping transmission."
             )
-            return
+            return self._current_position
         
         if needs_z_move and needs_a_move:
             self._logger.warning(
@@ -456,7 +458,8 @@ class GCodeController(SerialController):
             raise ValueError("Move command issued with both Z and A movement. This is not supported.")
 
         # Step 0: Ensure absolute mode is active
-        self.execute("G90")
+        #self.execute("G90")
+        self.logger.info("Waiting for move to complete (G90 command).")
 
         # Step 1: Move Z and A to SAFE_MOVE_HEIGHT if XY movement is needed
         if needs_x_move or needs_y_move:
@@ -464,7 +467,8 @@ class GCodeController(SerialController):
                 "Safe move: Raising Z and A to safe height (%s) before XY movement", self.SAFE_MOVE_HEIGHT
             )
             move_cmd = f"G1 Z-5 A-5 F{self._z_feed}"
-            self.execute(move_cmd)
+            #self.execute(move_cmd)
+            self.logger.info("Waiting for move to complete (G1 Z-5 A-5 F%s command).", self._z_feed)
             self._wait_for_move()
             self._current_position.z = self.SAFE_MOVE_HEIGHT
             self._current_position.a = self.SAFE_MOVE_HEIGHT
@@ -484,7 +488,8 @@ class GCodeController(SerialController):
             move_cmd += f" F{feed}"
 
             self._logger.debug("Executing XY move command: %s", move_cmd)
-            self.execute(move_cmd)
+            #self.execute(move_cmd)
+            self.logger.info("Waiting for move to complete (G1 %s command).", move_cmd)
             self._wait_for_move()
 
             # Update position for moved axes
@@ -496,12 +501,14 @@ class GCodeController(SerialController):
         # Step 3: Move Z and A back to original position (or target if specified)
         if needs_z_move:
             move_cmd = f"G1 Z{position.z} F{self._z_feed}"
-            self.execute(move_cmd)
+            #self.execute(move_cmd)
+            self.logger.info("Waiting for move to complete (G1 %s command).", move_cmd)
             self._wait_for_move()
             self._current_position.z = position.z
         elif needs_a_move:
             move_cmd = f"G1 A{position.a} F{self._z_feed}"
-            self.execute(move_cmd)
+            #self.execute(move_cmd)
+            self.logger.info("Waiting for move to complete (G1 %s command).", move_cmd)
             self._wait_for_move()
             self._current_position.a = position.a
         self._logger.debug("New internal position: %s", self._current_position)
@@ -529,7 +536,8 @@ class GCodeController(SerialController):
         # with a 1 second timeout - if it takes longer, fall back to internal position
         try:
             res: str = await asyncio.wait_for(
-                asyncio.to_thread(self.execute, "M114"),
+                #asyncio.to_thread(self.execute, "M114"),
+                asyncio.to_thread(self.logger.info, "Waiting for move to complete (M114 command)."),
                 timeout=1.0
             )
             
@@ -642,7 +650,10 @@ class GCodeController(SerialController):
             Machine information string from the device
         """
         self._logger.info("Querying machine information (M115).")
-        return self.execute("M115")
+        #return self.execute("M115")
+        self.logger.info("Waiting for move to complete (M115 command).")
+        self._wait_for_move()
+        return self._current_position
 
     def get_internal_position(self) -> Position:
         """
@@ -653,3 +664,4 @@ class GCodeController(SerialController):
         """
         self._logger.debug("Returning internal position: %s", self._current_position)
         return self._current_position.copy()
+
