@@ -48,7 +48,7 @@ class SerialController(ABC):
         self._serial = None
         self.port_name = port_name
         self.baudrate = baudrate
-        self.timeout = timeout
+        self._timeout = timeout
         self._logger = logger
         
         # lock to prevent concurrent access to the serial port
@@ -75,7 +75,7 @@ class SerialController(ABC):
             self._serial = serial.Serial(
                 port=self.port_name,
                 baudrate=self.baudrate,
-                timeout=self.timeout,
+                timeout=self._timeout,
             )
             self._serial.flush()
             self._logger.info("Successfully connected to %s.", self.port_name)
@@ -107,19 +107,19 @@ class SerialController(ABC):
 
     def _send_command(self, command: str) -> None:
         """
-        Sends a custom protocol command.
+        Sends a command to the device.
         Note: This method should be called while holding self._lock to ensure
         atomic command/response pairing.
         """
+        self._logger.info("-> Sending: %r", command)
+
         if not self.is_connected or not self._serial:
             self._logger.error(
                 "Attempt to send command '%s' failed: Device not connected.",
                 command,
             )
             # Retain raising an error for being disconnected, as that's a connection state issue
-            raise serial.SerialException("Device not connected. Call connect() first.")
-
-        self._logger.info("-> Sending: %r", command)
+            raise serial.SerialException("Device disconnected. Call connect() first.")
 
         try:
             self._serial.reset_input_buffer()  # clear input buffer
@@ -140,7 +140,7 @@ class SerialController(ABC):
             )
             return None
 
-    def _read_response(self) -> str:
+    def _read_response(self, timeout: int = None) -> str:
         """
         Generic, blocking read that respects timeout and returns
         all data that arrived within the timeout period.
@@ -148,10 +148,13 @@ class SerialController(ABC):
         if not self.is_connected or not self._serial:
             raise serial.SerialException("Device not connected.")
 
+        if timeout is None:
+            timeout = self._timeout
+
         start_time = time.time()
         response = b""
 
-        while time.time() - start_time < self.timeout:
+        while time.time() - start_time < timeout:
             if self._serial.in_waiting > 0:
                 # Read all available bytes
                 response += self._serial.read(self._serial.in_waiting)
@@ -168,14 +171,12 @@ class SerialController(ABC):
 
         # Timeout reached - check what we got
         if not response:
-            self._logger.error("No response within %s seconds.", self.timeout)
+            self._logger.error("No response within %s seconds.", timeout)
             raise serial.SerialTimeoutException(
-                f"No response received within {self.timeout} seconds."
+                f"No response received within {timeout} seconds."
             )
 
-        # Decode once and check the decoded string
         decoded_response = response.decode("utf-8", errors="ignore").strip()
-        
         if "ok" in decoded_response.lower():
             self._logger.debug("<- Received response: %r", decoded_response)
         elif "err" in decoded_response.lower():
@@ -193,10 +194,12 @@ class SerialController(ABC):
     def _build_command(self, command: str, value: Optional[str] = None) -> str:
         """
         Build a command string according to the device protocol.
+        
+        There might be special starting and ending characters for devices
         """
-        pass
+        raise NotImplementedError
 
-    def execute(self, command: str, value: Optional[str] = None) -> str:
+    def execute(self, command: str, value: Optional[str] = None, timeout: int = None) -> str:
         """
         Send a command and read the response atomically.
         
@@ -218,22 +221,10 @@ class SerialController(ABC):
             serial.SerialException: If device is not connected or communication fails
             serial.SerialTimeoutException: If no response is received within timeout
         """
+        if timeout is None:
+            timeout = self._timeout
         # Hold the lock for the entire send+read operation to ensure atomicity
         # This prevents concurrent commands from mixing up responses
         with self._lock:
-            # Increase timeout by 60 seconds for G28 (homing) command
-            original_timeout = self.timeout
-            if "G28" in command.upper():
-                self.timeout = original_timeout + 60
-                # Also update the serial connection's timeout if connected
-                if self.is_connected and self._serial:
-                    self._serial.timeout = self.timeout
-            
-            try:
-                self._send_command(self._build_command(command, value))
-                return self._read_response()
-            finally:
-                # Restore original timeout
-                self.timeout = original_timeout
-                if self.is_connected and self._serial:
-                    self._serial.timeout = original_timeout
+            self._send_command(self._build_command(command, value))
+            return self._read_response(timeout=timeout)
