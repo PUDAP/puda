@@ -20,7 +20,7 @@ logging.getLogger("puda_drivers").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 @asynccontextmanager
-async def execution_lifecycle(client: MachineClient, run_id: str, command: str):
+async def execution_lifecycle(client: MachineClient, controller: First, run_id: str, command: str):
     """
     Context manager for handling command execution lifecycle.
     
@@ -36,7 +36,7 @@ async def execution_lifecycle(client: MachineClient, run_id: str, command: str):
         command: Command name
     """
     logger.info("Executing: %s (run_id: %s)", command, run_id)
-    await client.publish_status({'state': 'busy', 'run_id': run_id})
+    await client.publish_state({'state': 'busy', 'run_id': run_id, 'deck': controller.deck.to_dict()})
     
     try:
         yield  # This is where the actual command runs
@@ -95,12 +95,23 @@ async def main():
         if not await exec_state.acquire_execution(run_id):
             logger.warning("Cannot execute %s (run_id: %s): another command is running or cancelled", 
                          command, run_id)
-            await client.publish_status({'state': 'error', 'run_id': None})
+            await client.publish_state(
+                {
+                    'state': 'error',
+                    'run_id': None,
+                    'deck': first_machine.deck.to_dict()
+                }
+            )
             await client.publish_log('ERROR', f'Cannot execute {command}: another command is running')
             return False
 
         try:
-            async with execution_lifecycle(client, run_id, command):
+            async with execution_lifecycle(
+                client=client,
+                controller=first_machine,
+                run_id=run_id,
+                command=command
+            ):
                 # A. Safe Dispatching
                 # Check if command exists on the object
                 #time.sleep(5)
@@ -168,7 +179,12 @@ async def main():
                 return False
             
             try:
-                async with execution_lifecycle(client, run_id, command):
+                async with execution_lifecycle(
+                    client=client,
+                    controller=first_machine,
+                    run_id=run_id,
+                    command=command
+                ):
                     # Add machine-specific pause logic here if needed
                     pass
                 return True
@@ -233,7 +249,6 @@ async def main():
     await client.subscribe_immediate(handle_immediate)
 
     logger.info("Machine %s Ready. Publishing telemetry...", machine_id)
-    await client.publish_status({'state': 'idle', 'run_id': None})
     # Get the get_position method from the first_machine object
     get_position = getattr(first_machine, 'get_position')
 
@@ -249,7 +264,7 @@ async def main():
                     await client.subscribe_queue(handle_execute)
                     await client.subscribe_immediate(handle_immediate)
                     logger.info("Reconnected and re-subscribed")
-                    await client.publish_status({'state': 'idle', 'run_id': None})
+                    await client.publish_state({'state': 'idle', 'run_id': None, 'deck': first_machine.deck.to_dict()})
                 else:
                     logger.error("Reconnection failed, retrying in 5 seconds...")
                     await asyncio.sleep(5)

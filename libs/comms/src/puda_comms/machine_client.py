@@ -356,27 +356,24 @@ class MachineClient:
         """Publish system health vitals (CPU, memory, temperature, etc.)."""
         await self._publish_telemetry(self.tlm_health, vitals)
     
-    async def publish_status(self, status_data: Dict[str, Any]):
+    async def publish_state(self, data: Dict[str, Any]):
         """
-        Update machine status in KV store.
+        Overwrites machine state in nats KV store.
         
         Args:
-            status_data: Dictionary with status data (e.g., {'state': 'idle', 'run_id': 'abc123'})
-                - state: 'idle', 'busy', or 'error'
-                - run_id: Current run_id if busy/error, None if idle
+            status_data: Dictionary with state data
         """
         if not self.kv:
-            logger.warning("KV store not available, skipping status update")
+            logger.warning("KV store not available, skipping state update")
             return
         
         try:
-            message = {'timestamp': self._format_timestamp(), **status_data}
+            message = {'timestamp': self._format_timestamp(), **data}
             await self.kv.put(self.machine_id, json.dumps(message).encode())
-            logger.info("Updated status in KV store: state=%s, run_id=%s", 
-                       status_data.get('state'), status_data.get('run_id'))
+            logger.info("Updated state in KV store: %s", message)
         except Exception as e:
             logger.error("Error updating status in KV store: %s", e)
-    
+            
     # ==================== COMMANDS (JetStream, exactly-once with run_id) ====================
     
     
@@ -483,7 +480,7 @@ class MachineClient:
                 logger.info("Skipping cancelled command: run_id=%s, command_id=%s, command=%s", run_id, command_id, command)
                 await msg.ack()
                 await self._publish_command_response(msg, 'error', 'Command cancelled', response_stream=self.STREAM_RESPONSE_QUEUE)
-                await self.publish_status({'state': 'idle', 'run_id': run_id})
+                await self.publish_state({'state': 'idle', 'run_id': run_id})
                 return
             
             # Check if paused (for queue messages)
@@ -496,7 +493,7 @@ class MachineClient:
                         logger.info("Command cancelled while paused: run_id=%s, command_id=%s, command=%s", run_id, command_id, command)
                         await msg.ack()
                         await self._publish_command_response(msg, 'error', 'Command cancelled', response_stream=self.STREAM_RESPONSE_QUEUE)
-                        await self.publish_status({'state': 'idle', 'run_id': run_id})
+                        await self.publish_state({'state': 'idle', 'run_id': run_id})
                         return
             
             # Execute handler with auto-heartbeat (task might take a while for machine to complete)
@@ -507,24 +504,24 @@ class MachineClient:
             if success:
                 await msg.ack()
                 await self._publish_command_response(msg, 'success', response_stream=self.STREAM_RESPONSE_QUEUE)
-                await self.publish_status({'state': 'idle', 'run_id': run_id})
+                await self.publish_state({'state': 'idle', 'run_id': run_id})
             else:
                 await msg.term()
                 await self._publish_command_response(msg, 'error', 'Handler returned False', response_stream=self.STREAM_RESPONSE_QUEUE)
-                await self.publish_status({'state': 'error', 'run_id': run_id})
+                await self.publish_state({'state': 'error', 'run_id': run_id})
 
         except asyncio.CancelledError:
             # Handler was cancelled (e.g., via task cancellation)
             logger.info("Handler execution cancelled: run_id=%s, command_id=%s, command=%s", run_id, command_id, command)
             await msg.ack()
             await self._publish_command_response(msg, 'error', 'Command cancelled', response_stream=self.STREAM_RESPONSE_QUEUE)
-            await self.publish_status({'state': 'idle', 'run_id': run_id})
+            await self.publish_state({'state': 'idle', 'run_id': run_id})
         
         except json.JSONDecodeError as e:
             logger.error("JSON Decode Error. Terminating message.")
             await msg.term()
             await self._publish_command_response(msg, 'error', f'JSON decode error: {e}', response_stream=self.STREAM_RESPONSE_QUEUE)
-            await self.publish_status({'state': 'error', 'run_id': run_id})
+            await self.publish_state({'state': 'error', 'run_id': run_id})
         
         except Exception as e:
             # Check if cancelled before sending error response
@@ -532,13 +529,13 @@ class MachineClient:
                 logger.info("Command cancelled during execution (exception occurred): run_id=%s, command_id=%s, command=%s", run_id, command_id, command)
                 await msg.ack()
                 await self._publish_command_response(msg, 'error', 'Command cancelled', response_stream=self.STREAM_RESPONSE_QUEUE)
-                await self.publish_status({'state': 'idle', 'run_id': run_id})
+                await self.publish_state({'state': 'idle', 'run_id': run_id})
             else:
                 # Terminate all errors to prevent infinite redelivery loops
                 logger.error("Handler failed (terminating message): %s", e)
                 await msg.term()
                 await self._publish_command_response(msg, 'error', str(e), response_stream=self.STREAM_RESPONSE_QUEUE)
-                await self.publish_status({'state': 'error', 'run_id': run_id})
+                await self.publish_state({'state': 'error', 'run_id': run_id})
     
     async def process_immediate_cmd(self, msg: Msg, handler: Callable[[Dict[str, Any]], Awaitable[bool]]) -> None:
         """Process immediate commands (pause, cancel, resume, etc.)."""
@@ -556,7 +553,7 @@ class MachineClient:
                     if not self._is_paused:
                         self._is_paused = True
                         logger.info("Queue paused")
-                        await self.publish_status({'state': 'paused', 'run_id': run_id})
+                        await self.publish_state({'state': 'paused', 'run_id': run_id})
                 await self._publish_command_response(msg, 'success', response_stream=self.STREAM_RESPONSE_IMMEDIATE)
                 return
             
@@ -565,7 +562,7 @@ class MachineClient:
                     if self._is_paused:
                         self._is_paused = False
                         logger.info("Queue resumed")
-                        await self.publish_status({'state': 'idle', 'run_id': None})
+                        await self.publish_state({'state': 'idle', 'run_id': None})
                         
                 print(f"Publishing command: {msg.data}")
                 await self._publish_command_response(msg, 'success', response_stream=self.STREAM_RESPONSE_IMMEDIATE)
@@ -575,7 +572,7 @@ class MachineClient:
                 if run_id:
                     self._cancelled_run_ids.add(run_id)
                     logger.info("Cancelling all commands with run_id: %s", run_id)
-                    await self.publish_status({'state': 'idle', 'run_id': None})
+                    await self.publish_state({'state': 'idle', 'run_id': None})
                 await self._publish_command_response(msg, 'success', response_stream=self.STREAM_RESPONSE_IMMEDIATE)
                 return
             
@@ -592,13 +589,13 @@ class MachineClient:
             logger.error("JSON Decode Error in immediate command: %s", e)
             await msg.term()
             await self._publish_command_response(msg, 'error', f'JSON decode error: {e}', response_stream=self.STREAM_RESPONSE_IMMEDIATE)
-            await self.publish_status({'state': 'error', 'run_id': None})
+            await self.publish_state({'state': 'error', 'run_id': None})
         
         except Exception as e:
             logger.error("Error processing immediate command (terminating message): %s", e)
             await msg.term()
             await self._publish_command_response(msg, 'error', str(e), response_stream=self.STREAM_RESPONSE_IMMEDIATE)
-            await self.publish_status({'state': 'error', 'run_id': None})
+            await self.publish_state({'state': 'error', 'run_id': None})
     
     async def subscribe_queue(self, handler: Callable[[Dict[str, Any]], Awaitable[bool]]):
         """
