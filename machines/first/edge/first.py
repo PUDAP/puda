@@ -25,13 +25,13 @@ async def execution_lifecycle(client: MachineClient, controller: First, run_id: 
     Context manager for handling command execution lifecycle.
     
     Manages status updates and error handling for command execution:
-    - Sets status to 'busy' at start
+    - Sets status to 'busy' at start (with deck information)
+    - Publishes final state (idle/error) with deck information after completion
     - Logs command completion or errors
-    - Note: Final status updates (idle/error) are handled by process_queue_cmd
-      in machine_client.py to avoid duplicate updates
     
     Args:
         client: NATS client instance
+        controller: First machine controller instance
         run_id: Run ID for the command
         command: Command name
     """
@@ -42,19 +42,19 @@ async def execution_lifecycle(client: MachineClient, controller: First, run_id: 
         yield  # This is where the actual command runs
         
         # Success path
-        # Note: Final status update is handled by process_queue_cmd in machine_client.py
+        await client.publish_state({'state': 'idle', 'run_id': run_id, 'deck': controller.deck.to_dict()})
         await client.publish_log('INFO', f'Command {command} completed')
         
     except asyncio.CancelledError:
         # Cancellation path
-        # Note: Final status update is handled by process_queue_cmd in machine_client.py
+        await client.publish_state({'state': 'idle', 'run_id': run_id, 'deck': controller.deck.to_dict()})
         logger.info("Command %s (run_id: %s) was cancelled", command, run_id)
         await client.publish_log('INFO', f'Command {command} was cancelled')
         raise  # Re-raise CancelledError
         
     except Exception as e:
         # Failure path
-        # Note: Final status update is handled by process_queue_cmd in machine_client.py
+        await client.publish_state({'state': 'error', 'run_id': run_id, 'deck': controller.deck.to_dict()})
         logger.error("Execution error: %s", e, exc_info=True)
         await client.publish_log('ERROR', f'Command failed: {str(e)}')
         raise  # Re-raise to let the caller return False
@@ -155,6 +155,8 @@ async def main():
         except Exception as e:
             # Recoverable errors: return False to trigger NAK and redelivery
             logger.error("Execute handler error (recoverable): %s", e, exc_info=True)
+            # Publish error state before returning False (execution_lifecycle already completed successfully)
+            await client.publish_state({'state': 'error', 'run_id': run_id, 'deck': first_machine.deck.to_dict()})
             return False
         finally:
             exec_state.release_execution()
@@ -244,9 +246,34 @@ async def main():
     first_machine.startup()
     logger.info("Hardware initialized")
 
-    # Default subscriptions
-    await client.subscribe_queue(handle_execute)
-    await client.subscribe_immediate(handle_immediate)
+    async def setup_subscriptions():
+        """Set up NATS subscriptions for queue and immediate commands."""
+        await client.subscribe_queue(handle_execute)
+        await client.subscribe_immediate(handle_immediate)
+
+    async def ensure_connection() -> bool:
+        """
+        Ensure NATS connection is active, reconnect if needed.
+        
+        Returns:
+            True if connected (or successfully reconnected), False if reconnection failed.
+        """
+        if client.nc is None or client.js is None:
+            logger.warning("Connection lost, attempting to reconnect...")
+            if await client.connect():
+                # Re-subscribe after reconnection
+                await setup_subscriptions()
+                logger.info("Reconnected and re-subscribed")
+                await client.publish_state({'state': 'idle', 'run_id': None, 'deck': first_machine.deck.to_dict()})
+                return True
+            else:
+                logger.error("Reconnection failed, retrying in 5 seconds...")
+                await asyncio.sleep(5)
+                return False
+        return True
+
+    # Initial subscriptions
+    await setup_subscriptions()
 
     logger.info("Machine %s Ready. Publishing telemetry...", machine_id)
     # Get the get_position method from the first_machine object
@@ -256,19 +283,8 @@ async def main():
     while True:
         try:
             # Ensure we're still connected, reconnect if needed
-            # Check connection by verifying NATS client and JetStream are available
-            if client.nc is None or client.js is None:
-                logger.warning("Connection lost, attempting to reconnect...")
-                if await client.connect():
-                    # Re-subscribe after reconnection
-                    await client.subscribe_queue(handle_execute)
-                    await client.subscribe_immediate(handle_immediate)
-                    logger.info("Reconnected and re-subscribed")
-                    await client.publish_state({'state': 'idle', 'run_id': None, 'deck': first_machine.deck.to_dict()})
-                else:
-                    logger.error("Reconnection failed, retrying in 5 seconds...")
-                    await asyncio.sleep(5)
-                    continue
+            if not await ensure_connection():
+                continue
 
             # Telemetry Loop (Keeps the script running)
             try:

@@ -63,18 +63,15 @@ async def watch_status(js: JetStreamContext, machine_id: str, interval: float = 
     
     while True:
         try:
-            status = await read_status(js, machine_id)
+            state = await read_status(js, machine_id)
             timestamp = datetime.now().strftime('%H:%M:%S')
             
-            if status is None:
+            if state is None:
                 print(f"[{timestamp}] Status: Not found in KV store")
             else:
-                # Display status every time
-                state = status.get('state', 'unknown')
-                run_id = status.get('run_id')
-                status_timestamp = status.get('timestamp', 'unknown')
-                
-                print(f"[{timestamp}] State: {state:6s} | Run ID: {run_id or 'None':36s} | Updated: {status_timestamp}")
+                # Display all KV entries
+                kv_items = ', '.join([f"{k}: {v}" for k, v in state.items()])
+                print(f"[{timestamp}] {kv_items}")
             
             await asyncio.sleep(interval)
             

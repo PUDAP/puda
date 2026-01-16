@@ -361,7 +361,7 @@ class MachineClient:
         Overwrites machine state in nats KV store.
         
         Args:
-            status_data: Dictionary with state data
+            data: Dictionary with state data
         """
         if not self.kv:
             logger.warning("KV store not available, skipping state update")
@@ -480,7 +480,7 @@ class MachineClient:
                 logger.info("Skipping cancelled command: run_id=%s, command_id=%s, command=%s", run_id, command_id, command)
                 await msg.ack()
                 await self._publish_command_response(msg, 'error', 'Command cancelled', response_stream=self.STREAM_RESPONSE_QUEUE)
-                await self.publish_state({'state': 'idle', 'run_id': run_id})
+                # Note: Final state update should be published by the handler with machine-specific data
                 return
             
             # Check if paused (for queue messages)
@@ -493,7 +493,7 @@ class MachineClient:
                         logger.info("Command cancelled while paused: run_id=%s, command_id=%s, command=%s", run_id, command_id, command)
                         await msg.ack()
                         await self._publish_command_response(msg, 'error', 'Command cancelled', response_stream=self.STREAM_RESPONSE_QUEUE)
-                        await self.publish_state({'state': 'idle', 'run_id': run_id})
+                        # Note: Final state update should be published by the handler with machine-specific data
                         return
             
             # Execute handler with auto-heartbeat (task might take a while for machine to complete)
@@ -504,24 +504,26 @@ class MachineClient:
             if success:
                 await msg.ack()
                 await self._publish_command_response(msg, 'success', response_stream=self.STREAM_RESPONSE_QUEUE)
-                await self.publish_state({'state': 'idle', 'run_id': run_id})
+                # Note: Final state update should be published by the handler with machine-specific data
             else:
                 await msg.term()
                 await self._publish_command_response(msg, 'error', 'Handler returned False', response_stream=self.STREAM_RESPONSE_QUEUE)
-                await self.publish_state({'state': 'error', 'run_id': run_id})
+                # Note: Final state update should be published by the handler with machine-specific data
 
         except asyncio.CancelledError:
             # Handler was cancelled (e.g., via task cancellation)
             logger.info("Handler execution cancelled: run_id=%s, command_id=%s, command=%s", run_id, command_id, command)
             await msg.ack()
             await self._publish_command_response(msg, 'error', 'Command cancelled', response_stream=self.STREAM_RESPONSE_QUEUE)
-            await self.publish_state({'state': 'idle', 'run_id': run_id})
+            # Note: Final state update should be published by the handler with machine-specific data
         
         except json.JSONDecodeError as e:
             logger.error("JSON Decode Error. Terminating message.")
             await msg.term()
             await self._publish_command_response(msg, 'error', f'JSON decode error: {e}', response_stream=self.STREAM_RESPONSE_QUEUE)
-            await self.publish_state({'state': 'error', 'run_id': run_id})
+            # Note: Final state update should be published by the handler with machine-specific data
+            # For JSON decode errors, handler wasn't called, so we can't rely on it
+            # This is a rare case - consider if handler should be called with None payload
         
         except Exception as e:
             # Check if cancelled before sending error response
@@ -529,13 +531,13 @@ class MachineClient:
                 logger.info("Command cancelled during execution (exception occurred): run_id=%s, command_id=%s, command=%s", run_id, command_id, command)
                 await msg.ack()
                 await self._publish_command_response(msg, 'error', 'Command cancelled', response_stream=self.STREAM_RESPONSE_QUEUE)
-                await self.publish_state({'state': 'idle', 'run_id': run_id})
+                # Note: Final state update should be published by the handler with machine-specific data
             else:
                 # Terminate all errors to prevent infinite redelivery loops
                 logger.error("Handler failed (terminating message): %s", e)
                 await msg.term()
                 await self._publish_command_response(msg, 'error', str(e), response_stream=self.STREAM_RESPONSE_QUEUE)
-                await self.publish_state({'state': 'error', 'run_id': run_id})
+                # Note: Final state update should be published by the handler with machine-specific data
     
     async def process_immediate_cmd(self, msg: Msg, handler: Callable[[Dict[str, Any]], Awaitable[bool]]) -> None:
         """Process immediate commands (pause, cancel, resume, etc.)."""
