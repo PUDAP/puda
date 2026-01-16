@@ -150,7 +150,7 @@ class SharedResponseHandler:
                     print("  Result: SUCCESS")
                     pending['result']['result'] = True
                 elif status == 'error':
-                    error_msg = result_data.get('error', 'Unknown error')
+                    error_msg = result_data.get('message', 'Unknown error')
                     print(f"  Result: ERROR - {error_msg}")
                     pending['result']['result'] = False
                 

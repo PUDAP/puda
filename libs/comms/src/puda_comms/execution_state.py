@@ -24,7 +24,7 @@ class ExecutionState:
         self._current_run_id: Optional[str] = None
         self._cancelled = False
     
-    async def acquire_execution(self, run_id: str) -> bool:
+    async def acquire_lock(self, run_id: str) -> bool:
         """
         Acquire the execution lock for a command.
         
@@ -41,7 +41,7 @@ class ExecutionState:
         self._current_run_id = run_id
         return True
     
-    def release_execution(self):
+    def release_lock(self):
         """Release the execution lock."""
         self._current_run_id = None
         self._current_task = None
