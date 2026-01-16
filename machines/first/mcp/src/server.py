@@ -8,9 +8,9 @@ from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from .utils.config import Config
+from .config import Config
 from .dependencies import lifespan
-from .tools import get_machine_status, generate_machine_commands
+from .tools import get_machine_state
 from .resources import get_available_labware_resource, get_available_commands_data
 
 
@@ -24,16 +24,26 @@ mcp = FastMCP(
 
 # Register tools using explicit registration pattern
 mcp.tool(
-    name="get_machine_status",
+    name="get_machine_state",
     description="Get the current status of the machine from NATS Key-Value store"
-)(get_machine_status)
+)(get_machine_state)
 
-mcp.tool(
-    name="generate_machine_commands",
-    description="Generate machine commands from natural language instructions for the First machine"
-)(generate_machine_commands)
+# mcp.tool(
+#     name="generate_machine_commands",
+#     description="Generate machine commands from natural language instructions for the First machine"
+# )(generate_machine_commands)
 
 # Register resources using explicit registration pattern
+def get_machine_id() -> str:
+    """Return the machine ID."""
+    return Config.MACHINE_ID
+
+mcp.resource(
+    uri="resource://first/machine_id",
+    name="Machine ID",
+    description="The ID of the machine"
+)(get_machine_id)
+
 mcp.resource(
     uri="resource://first/labware",
     name="Available Labware",

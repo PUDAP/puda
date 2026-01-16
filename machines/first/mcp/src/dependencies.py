@@ -5,13 +5,11 @@ Global instances, lifespan management, and dependency injection helpers.
 This follows FastAPI/Starlette conventions for dependency management.
 """
 
-import os
 from contextlib import asynccontextmanager
 from typing import Optional
 import nats
 from nats.js.client import JetStreamContext
-from openrouter import OpenRouter
-from .utils.config import Config
+from .config import Config
 
 
 # 1. Container class for global singletons (avoids global statement)
@@ -20,7 +18,6 @@ class Dependencies:
     nats_client: Optional[nats.NATS] = None
     nats_js: Optional[JetStreamContext] = None
     nats_kv = None
-    llm_client: Optional[OpenRouter] = None
 
 
 # Global instance of the dependencies container
@@ -33,11 +30,11 @@ async def lifespan(_app):
     """
     Manages the lifecycle of external connections.
     
-    Startup: Connects to NATS and initializes OpenRouter client.
+    Startup: Connects to NATS.
     Shutdown: Closes all connections gracefully.
     """
     # --- STARTUP PHASE ---
-    print("🚀 Starting up: Connecting to NATS and OpenRouter...")
+    print("🚀 Starting up: Connecting to NATS...")
     
     # Connect NATS
     try:
@@ -56,11 +53,6 @@ async def lifespan(_app):
         # Decide here if you want to raise error and stop server startup
         raise
 
-    # Initialize OpenRouter Client
-    api_key = os.getenv('OPENROUTER_API_KEY', '')
-    _deps.llm_client = OpenRouter(api_key=api_key)
-    print("✅ OpenRouter Client Initialized")
-
     # Yield control back to the application to handle requests
     yield
 
@@ -74,10 +66,6 @@ async def lifespan(_app):
         _deps.nats_js = None
         _deps.nats_kv = None
     print("💤 NATS Connection Closed")
-    
-    # Close LLM Client (OpenRouter doesn't require explicit cleanup, but reset reference)
-    _deps.llm_client = None
-    print("💤 OpenRouter Client Closed")
 
 
 # 3. Helper functions to get these dependencies in your tools
@@ -121,18 +109,4 @@ def get_nats_kv():
     if _deps.nats_kv is None:
         raise RuntimeError("NATS Key-Value store not initialized")
     return _deps.nats_kv
-
-
-def get_openrouter_client() -> OpenRouter:
-    """Get the OpenRouter client instance.
-    
-    Returns:
-        OpenRouter: The OpenRouter client instance
-        
-    Raises:
-        RuntimeError: If OpenRouter client is not initialized
-    """
-    if _deps.llm_client is None:
-        raise RuntimeError("OpenRouter client not initialized")
-    return _deps.llm_client
 

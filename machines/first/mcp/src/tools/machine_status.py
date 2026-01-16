@@ -6,11 +6,11 @@ Tool for retrieving machine status from NATS Key-Value store.
 
 import json
 from nats.js.errors import NotFoundError
-from ..utils.config import Config
+from ..config import Config
 from ..dependencies import get_nats_kv
 
 
-async def get_machine_status() -> dict:
+async def get_machine_state() -> dict:
     """Get the current status of the machine from NATS Key-Value store.
     
     Retrieves the machine status stored in the NATS JetStream Key-Value bucket.

@@ -33,8 +33,3 @@ class Config:
     )
     NATS_SERVERS_ENV: str = os.getenv('NATS_SERVERS', DEFAULT_NATS_SERVERS)
     NATS_SERVERS: list = [s.strip() for s in NATS_SERVERS_ENV.split(',')]
-    
-    # OpenRouter configuration
-    OPENROUTER_MODEL: str = os.getenv('OPENROUTER_MODEL', "minimax/minimax-m2")
-    OPENROUTER_API_KEY: str = os.getenv('OPENROUTER_API_KEY', '')
-

@@ -1,13 +1,12 @@
 """
-Protocol Generation Tool
+Protocol Generation Tool (should be in the backend instead of mcp)
 
 Tool for converting natural language instructions into machine commands.
 """
 
 import traceback
 from puda_drivers import labware
-from ..utils.config import Config
-from ..dependencies import get_openrouter_client
+from ..config import Config
 from ..resources.commands import get_available_commands_data
 
 
@@ -57,22 +56,7 @@ async def generate_machine_commands(instructions: str) -> str:
         ]
         """
 
-        # Get OpenRouter client from dependencies
-        openrouter_client = get_openrouter_client()
-        
-        # Call the OpenRouter API
-        response = openrouter_client.chat.send(
-            model=Config.OPENROUTER_MODEL,
-            messages=[
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7
-        )
-        
-        # Extract the JSON from the response
-        json_content = response.choices[0].message.content
-        
-        return json_content
+        return ""
     except Exception as e:
         error_details = traceback.format_exc()
         return f"Error generating protocol: {str(e)}\n\nDetails: {error_details}."
