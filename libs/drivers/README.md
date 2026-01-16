@@ -237,6 +237,9 @@ uv run pytest tests/ --cov=puda_drivers --cov-report=html
 # Build distribution packages
 uv build
 
+# cd to puda project root
+cd ...
+
 # Publish to PyPI
 uv publish
 # Username: __token__

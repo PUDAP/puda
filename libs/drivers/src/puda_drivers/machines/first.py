@@ -176,6 +176,8 @@ class First:
             "pipette": sartorius_position,
         }
         
+    ### Labware management ###
+        
     def load_labware(self, slot: str, labware_name: str):
         """
         Load a labware object into a slot.
@@ -190,7 +192,33 @@ class First:
         self._logger.info("Loading labware '%s' into slot '%s'", labware_name, slot)
         self.deck.load_labware(slot=slot, labware_name=labware_name)
         self._logger.debug("Labware '%s' loaded into slot '%s'", labware_name, slot)
+
+    def remove_labware(self, slot: str):
+        """
+        Remove labware from a slot.
+        
+        Args:
+            slot: Slot name (e.g., 'A1', 'B2')
+        
+        Raises:
+            KeyError: If slot is not found in deck
+        """
+        self.deck.empty_slot(slot=slot)
+        self._logger.debug("Slot '%s' emptied", slot)
     
+    def get_deck(self):
+        """
+        Get the current deck layout.
+        
+        Returns:
+            Dictionary mapping slot names (e.g., "A1") to labware classes.
+        
+        Raises:
+            None
+        """
+        return self.deck.to_dict()
+
+        
     def load_deck(self, deck_layout: Dict[str, Type[StandardLabware]]):
         """
         Load multiple labware into the deck at once.
@@ -210,6 +238,8 @@ class First:
         for slot, labware_name in deck_layout.items():
             self.load_labware(slot=slot, labware_name=labware_name)
         self._logger.info("Deck layout loaded successfully")
+        
+    ### Liquid handling ###
         
     def attach_tip(self, slot: str, well: Optional[str] = None):
         """

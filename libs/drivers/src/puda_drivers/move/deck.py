@@ -30,6 +30,20 @@ class Deck:
         if slot.upper() not in self.slots:
             raise KeyError(f"Slot {slot} not found in deck")
         self.slots[slot.upper()] = StandardLabware(labware_name=labware_name)
+    
+    def empty_slot(self, slot: str):
+        """
+        Empty a slot (remove labware from it).
+        
+        Args:
+            slot: Slot name (e.g., 'A1', 'B2')
+        
+        Raises:
+            KeyError: If slot is not found in deck
+        """
+        if slot.upper() not in self.slots:
+            raise KeyError(f"Slot {slot} not found in deck")
+        self.slots[slot.upper()] = None
         
     def __str__(self):
         """

@@ -1,6 +1,6 @@
 [project]
 name = "puda-drivers"
-version = "0.0.16"
+version = "0.0.17"
 description = "Hardware drivers for the PUDA platform."
 readme = "README.md"
 authors = [
@@ -30,5 +30,5 @@ requires = ["hatchling >= 1.26"]
 build-backend = "hatchling.build"
 
 [project.urls]
-Homepage = "https://github.com/PUDAP/puda-drivers"
-Issues = "https://github.com/PUDAP/puda-drivers/issues"
+Homepage = "https://github.com/PUDAP/puda"
+Issues = "https://github.com/PUDAP/puda/issues"
