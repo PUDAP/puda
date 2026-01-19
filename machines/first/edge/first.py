@@ -1,12 +1,10 @@
 import asyncio
 import logging
 import os
-from contextlib import asynccontextmanager
-from typing import Dict, Any
 from dotenv import load_dotenv
 from puda_drivers.machines import First
 from puda_comms import MachineClient, ExecutionState
-from puda_comms.models import CommandResponse, CommandResponseStatus, CommandResponseCode
+from puda_comms.models import CommandResponse, CommandResponseStatus, CommandResponseCode, NATSMessage
 
 # Load environment variables from .env file
 load_dotenv()
@@ -19,47 +17,6 @@ logging.basicConfig(
 # Higher level logging for drivers
 logging.getLogger("puda_drivers").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
-
-@asynccontextmanager
-async def execution_lifecycle(client: MachineClient, controller: First, run_id: str, command: str):
-    """
-    Context manager for handling command execution lifecycle.
-    
-    Manages status updates and error handling for command execution:
-    - Sets status to 'busy' at start (with deck information)
-    - Publishes final state (idle/error) with deck information after completion
-    - Logs command completion or errors
-    
-    Args:
-        client: NATS client instance
-        controller: First machine controller instance
-        run_id: Run ID for the command
-        command: Command name
-    """
-    logger.info("Executing: %s (run_id: %s)", command, run_id)
-    await client.publish_state({'state': 'busy', 'run_id': run_id, 'deck': controller.deck.to_dict()})
-    
-    try:
-        yield  # This is where the actual command runs
-        
-        # Success path
-        await client.publish_state({'state': 'idle', 'run_id': run_id, 'deck': controller.deck.to_dict()})
-        await client.publish_log('INFO', f'Command {command} completed')
-        
-    except asyncio.CancelledError:
-        # Cancellation path
-        await client.publish_state({'state': 'idle', 'run_id': run_id, 'deck': controller.deck.to_dict()})
-        logger.info("Command %s (run_id: %s) was cancelled", command, run_id)
-        await client.publish_log('INFO', f'Command {command} was cancelled')
-        raise  # Re-raise CancelledError
-        
-    except Exception as e:
-        # Failure path
-        await client.publish_state({'state': 'error', 'run_id': run_id, 'deck': controller.deck.to_dict()})
-        logger.error("Execution error: %s", e, exc_info=True)
-        await client.publish_log('ERROR', f'Command failed: {str(e)}')
-        raise  # Re-raise to let the caller return False
-
 
 async def main():
     # 1. Initialize Objects
@@ -86,16 +43,23 @@ async def main():
     exec_state = ExecutionState()
 
     # 2. Setup Handlers
-    async def handle_execute(payload: Dict[str, Any]) -> CommandResponse:
-        header = payload.get('header', {})
-        command = header.get('command')
-        run_id = header.get('run_id')
-        params = payload.get('params', {})
+    async def handle_execute(message: NATSMessage) -> CommandResponse:
+        if message.command is None:
+            logger.error("Received message with no command")
+            return CommandResponse(
+                status=CommandResponseStatus.ERROR,
+                code=CommandResponseCode.EXECUTION_ERROR,
+                message="No command in message"
+            )
+
+        run_id = message.header.run_id
+        command_name = message.command.name
+        params = message.command.params
 
         # Try to acquire execution lock
         if not await exec_state.acquire_lock(run_id):
             logger.warning("Cannot execute %s (run_id: %s): another command is running or cancelled", 
-                         command, run_id)
+                           command_name, run_id)
             await client.publish_state(
                 {
                     'state': 'error',
@@ -103,173 +67,181 @@ async def main():
                     'deck': first_machine.deck.to_dict()
                 }
             )
-            await client.publish_log('ERROR', f'Cannot execute {command}: another command is running')
+            await client.publish_log('ERROR', f'Cannot execute {command_name}: another command is running')
             return CommandResponse(
                 status=CommandResponseStatus.ERROR,
                 code=CommandResponseCode.EXECUTION_LOCKED,
-                message=f'Cannot execute {command}: another command is running or cancelled'
+                message=f'Cannot execute {command_name}: another command is running or cancelled'
             )
 
         try:
-            async with execution_lifecycle(
-                client=client,
-                controller=first_machine,
-                run_id=run_id,
-                command=command
-            ):
-                # A. Safe Dispatching
-                # Check if command exists on the object
-                handler = getattr(first_machine, command, None)
+            # Start execution lifecycle
+            logger.info("Executing: %s (run_id: %s)", command_name, run_id)
+            await client.publish_state({'state': 'busy', 'run_id': run_id, 'deck': first_machine.deck.to_dict()})
+            
+            # A. Safe Dispatching
+            # Check if command exists on the object
+            handler = getattr(first_machine, command_name, None)
 
-                # Security: Ensure it's a method and not private (starts with _)
-                if not callable(handler) or command.startswith('_'):
-                    raise ValueError(f"Unknown or restricted command: {command}")
+            # Security: Ensure it's a method and not private (starts with _)
+            if not callable(handler) or command_name.startswith('_'):
+                logger.error("Unknown or restricted command: %s", command_name)
+                await client.publish_state({'state': 'error', 'run_id': run_id, 'deck': first_machine.deck.to_dict()})
+                return CommandResponse(
+                    status=CommandResponseStatus.ERROR,
+                    code=CommandResponseCode.UNKNOWN_COMMAND,
+                    message=f"Unknown or restricted command: {command_name}"
+                )
 
-                # B. Execution
-                # Wrap synchronous First machine methods in an executor so the async wrapper can be cancelled.
-                # Note: The synchronous code in the executor will continue until it completes,
-                # but we can cancel the async wrapper and prevent further status updates.
-                async def execute_handler():
-                    # Run the synchronous handler in a thread pool
-                    loop = asyncio.get_event_loop()
-                    return await loop.run_in_executor(None, lambda: handler(**params))
+            # B. Execution
+            # Wrap synchronous First machine methods in an executor so the async wrapper can be cancelled.
+            # Note: The synchronous code in the executor will continue until it completes,
+            # but we can cancel the async wrapper and prevent further status updates.
+            async def execute_handler():
+                # Run the synchronous handler in a thread pool
+                loop = asyncio.get_event_loop()
+                return await loop.run_in_executor(None, lambda: handler(**params))
+            
+            # Create and track the task
+            task = asyncio.create_task(execute_handler())
+            exec_state.set_current_task(task)
+            
+            try:
+                await task
+            except asyncio.CancelledError:
+                logger.info("Handler execution cancelled (run_id: %s)", run_id)
+                raise
                 
-                # Create and track the task
-                task = asyncio.create_task(execute_handler())
-                exec_state.set_current_task(task)
-                
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    logger.info("Handler execution cancelled (run_id: %s)", run_id)
-                    raise
-                    
+            # Success path (only reached if no exception occurred)
+            await client.publish_state({'state': 'idle', 'run_id': run_id, 'deck': first_machine.deck.to_dict()})
+            await client.publish_log('INFO', f'Command {command_name} completed')
             return CommandResponse(status=CommandResponseStatus.SUCCESS)
 
         except asyncio.CancelledError:
-            # Already handled by execution_lifecycle
+            await client.publish_state({'state': 'idle', 'run_id': run_id, 'deck': first_machine.deck.to_dict()})
             return CommandResponse(
                 status=CommandResponseStatus.ERROR,
                 code=CommandResponseCode.COMMAND_CANCELLED,
                 message='Command was cancelled'
             )
-        except (ValueError, TypeError, AttributeError) as e:
-            # Non-recoverable errors: invalid state, wrong parameters, etc.
-            # Re-raise to terminate the message (no redelivery)
-            logger.error("Execute handler error (non-recoverable): %s", e, exc_info=True)
-            raise
         except Exception as e:
             # Recoverable errors: return error response with specific error message
             logger.error("Execute handler error (recoverable): %s", e, exc_info=True)
-            # Publish error state (execution_lifecycle already completed successfully)
             await client.publish_state({'state': 'error', 'run_id': run_id, 'deck': first_machine.deck.to_dict()})
-            # Return error response with specific error message
             return CommandResponse(
                 status=CommandResponseStatus.ERROR,
-                code=CommandResponseCode.HANDLER_ERROR,
+                code=CommandResponseCode.EXECUTION_ERROR,
                 message=str(e)
             )
         finally:
             exec_state.release_lock()
 
-    async def handle_immediate(payload: Dict[str, Any]) -> CommandResponse:
+    async def handle_immediate(message: NATSMessage) -> CommandResponse:
         """
         Handle immediate commands (pause, cancel, resume, etc.).
         Note: pause, resume, and cancel are handled by the client's built-in logic,
         but this handler can add custom logic on the machine side if needed.
         """
-        header = payload.get('header', {})
-        command = header.get('command', '').lower()
-        run_id = header.get('run_id')
+        if message.command is None:
+            logger.error("Received immediate message with no command")
+            return CommandResponse(
+                status=CommandResponseStatus.ERROR,
+                code=CommandResponseCode.EXECUTION_ERROR,
+                message="No command in message"
+            )
+        
+        command_name = message.command.name.lower()
+        run_id = message.header.run_id
 
         # Built-in commands (pause, resume, cancel) are handled by the client
         # This handler is called for other immediate commands or for custom logic
-        if command == 'pause':
-            # Custom pause logic if needed (beyond built-in handling)
-            # Try to acquire execution lock for custom pause actions
-            if not await exec_state.acquire_lock(run_id):
-                logger.warning("Cannot pause (run_id: %s): another command is running", run_id)
-                return CommandResponse(
-                    status=CommandResponseStatus.ERROR,
-                    code=CommandResponseCode.EXECUTION_LOCKED,
-                    message='Cannot pause: another command is running'
-                )
-            
-            try:
-                async with execution_lifecycle(
-                    client=client,
-                    controller=first_machine,
-                    run_id=run_id,
-                    command=command
-                ):
+        match command_name:
+            case 'pause':
+                # Custom pause logic if needed (beyond built-in handling)
+                # Try to acquire execution lock for custom pause actions
+                if not await exec_state.acquire_lock(run_id):
+                    logger.warning("Cannot pause (run_id: %s): another command is running", run_id)
+                    return CommandResponse(
+                        status=CommandResponseStatus.ERROR,
+                        code=CommandResponseCode.EXECUTION_LOCKED,
+                        message='Cannot pause: another command is running'
+                    )
+                
+                try:
                     # Add machine-specific pause logic here if needed
-                    pass
-                return CommandResponse(status=CommandResponseStatus.SUCCESS)
-            except Exception as e:
-                return CommandResponse(
-                    status=CommandResponseStatus.ERROR,
-                    code=CommandResponseCode.PAUSE_ERROR,
-                    message=str(e)
-                )
-            finally:
-                exec_state.release_lock()
-                
-        elif command == 'resume':
-            # Custom resume logic if needed (beyond built-in handling)
-            try:
-                pass
-                return CommandResponse(status=CommandResponseStatus.SUCCESS)
-            except Exception as e:
-                return CommandResponse(
-                    status=CommandResponseStatus.ERROR,
-                    code=CommandResponseCode.RESUME_ERROR,
-                    message=str(e)
-                )
-            finally:
-                exec_state.release_lock()
-        
-        elif command == 'cancel':
-            # Custom cancel logic if needed (beyond built-in handling)
-            try:
-                # Try to cancel the current execution
-                cancelled = await exec_state.cancel_current_execution(run_id)
-                
-                if cancelled:
-                    logger.info("Successfully cancelled execution (run_id: %s)", run_id)
-                    await client.publish_log('INFO', f'Command cancelled (run_id: {run_id})')
                     return CommandResponse(status=CommandResponseStatus.SUCCESS)
-                else:
-                    # No execution to cancel, or run_id doesn't match
-                    current_task = exec_state.get_current_task()
-                    current_run_id = exec_state.get_current_run_id()
+                except Exception as e:
+                    return CommandResponse(
+                        status=CommandResponseStatus.ERROR,
+                        code=CommandResponseCode.PAUSE_ERROR,
+                        message=str(e)
+                    )
+                finally:
+                    exec_state.release_lock()
                     
-                    if current_task is None:
-                        logger.warning("Cancel requested but no command is currently executing (run_id: %s)", run_id)
-                        await client.publish_log('WARNING', f'Cancel requested but no command running (run_id: {run_id})')
-                        return CommandResponse(
-                            status=CommandResponseStatus.ERROR,
-                            code=CommandResponseCode.NO_EXECUTION,
-                            message='No command is currently executing'
-                        )
-                    else:
-                        logger.warning("Cancel run_id %s doesn't match current run_id %s", 
-                                     run_id, current_run_id)
-                        await client.publish_log('ERROR', f'Cancel run_id mismatch (requested: {run_id}, current: {current_run_id})')
-                        return CommandResponse(
-                            status=CommandResponseStatus.ERROR,
-                            code=CommandResponseCode.RUN_ID_MISMATCH,
-                            message=f'Cancel run_id mismatch (requested: {run_id}, current: {current_run_id})'
-                        )
-            except Exception as e:
-                logger.error("Cancel handler error: %s", e, exc_info=True)
-                return CommandResponse(
-                    status=CommandResponseStatus.ERROR,
-                    code=CommandResponseCode.CANCEL_ERROR,
-                    message=str(e)
-                )
+            case 'resume':
+                if not await exec_state.acquire_lock(run_id):
+                    logger.warning("Cannot pause (run_id: %s): another command is running", run_id)
+                    return CommandResponse(
+                        status=CommandResponseStatus.ERROR,
+                        code=CommandResponseCode.EXECUTION_LOCKED,
+                        message='Cannot pause: another command is running'
+                    )
+                try:
+                    # Custom resume logic if needed (beyond built-in handling)
+                    return CommandResponse(status=CommandResponseStatus.SUCCESS)
+                except Exception as e:
+                    return CommandResponse(
+                        status=CommandResponseStatus.ERROR,
+                        code=CommandResponseCode.RESUME_ERROR,
+                        message=str(e)
+                    )
+                finally:
+                    exec_state.release_lock()
             
-        # For other immediate commands, return success (handled by built-in logic or user)
-        return CommandResponse(status=CommandResponseStatus.SUCCESS)
+            case 'cancel':
+                # Custom cancel logic if needed (beyond built-in handling)
+                try:
+                    # Try to cancel the current execution
+                    cancelled = await exec_state.cancel_current_execution(run_id)
+                    
+                    if cancelled:
+                        logger.info("Successfully cancelled execution (run_id: %s)", run_id)
+                        await client.publish_log('INFO', f'Command cancelled (run_id: {run_id})')
+                        return CommandResponse(status=CommandResponseStatus.SUCCESS)
+                    else:
+                        # No execution to cancel, or run_id doesn't match
+                        current_task = exec_state.get_current_task()
+                        current_run_id = exec_state.get_current_run_id()
+                        
+                        if current_task is None:
+                            logger.warning("Cancel requested but no command is currently executing (run_id: %s)", run_id)
+                            await client.publish_log('WARNING', f'Cancel requested but no command running (run_id: {run_id})')
+                            return CommandResponse(
+                                status=CommandResponseStatus.ERROR,
+                                code=CommandResponseCode.NO_EXECUTION,
+                                message='No command is currently executing'
+                            )
+                        else:
+                            logger.warning("Cancel run_id %s doesn't match current run_id %s", 
+                                         run_id, current_run_id)
+                            await client.publish_log('ERROR', f'Cancel run_id mismatch (requested: {run_id}, current: {current_run_id})')
+                            return CommandResponse(
+                                status=CommandResponseStatus.ERROR,
+                                code=CommandResponseCode.RUN_ID_MISMATCH,
+                                message=f'Cancel run_id mismatch (requested: {run_id}, current: {current_run_id})'
+                            )
+                except Exception as e:
+                    logger.error("Cancel handler error: %s", e, exc_info=True)
+                    return CommandResponse(
+                        status=CommandResponseStatus.ERROR,
+                        code=CommandResponseCode.CANCEL_ERROR,
+                        message=str(e)
+                    )
+                
+            case _:
+                # For other immediate commands, return success (handled by built-in logic or user)
+                return CommandResponse(status=CommandResponseStatus.SUCCESS)
 
     # 3. Connect and Start Up (with retry logic)
     while True:

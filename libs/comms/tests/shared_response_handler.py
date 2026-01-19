@@ -2,7 +2,7 @@
 Shared response handler for test scripts.
 Manages response message handling using pull consumers for both queue and immediate responses.
 Uses pull consumers to avoid workqueue stream uniqueness constraints.
-Routes responses to waiting commands based on run_id and command_id.
+Routes responses to waiting commands based on run_id and step_number.
 """
 import asyncio
 import json
@@ -19,7 +19,7 @@ class SharedResponseHandler:
     """
     Manages response message handling using pull consumers.
     Uses pull consumers to avoid workqueue stream uniqueness constraints.
-    Routes responses to waiting commands based on run_id and command_id.
+    Routes responses to waiting commands based on run_id and step_number.
     Handles both queue and immediate responses.
     """
     def __init__(self, js: JetStreamContext, machine_id: str):
@@ -123,10 +123,10 @@ class SharedResponseHandler:
         try:
             response = json.loads(msg.data.decode())
             
-            # Extract run_id and command_id from header
+            # Extract run_id and step_number from header
             header = response.get('header', {})
             resp_run_id = header.get('run_id')
-            resp_command_id = header.get('command_id')
+            step_number = header.get('step_number')
             resp_command = header.get('command', 'unknown')
             
             # Extract result status from response.response.status
@@ -134,7 +134,7 @@ class SharedResponseHandler:
             status = result_data.get('status')
             
             # Look up pending response
-            key = f"{resp_run_id}:{resp_command_id}"
+            key = f"{resp_run_id}:{step_number}"
             if key in self._pending_responses:
                 pending = self._pending_responses[key]
                 
@@ -142,7 +142,7 @@ class SharedResponseHandler:
                 print("\n" + "=" * 80)
                 print("RESPONSE RECEIVED:")
                 print(f"  Command: {resp_command}")
-                print(f"  Command ID: {resp_command_id}")
+                print(f"  Command ID: {step_number}")
                 print(f"  Run ID: {resp_run_id}")
                 print(f"  Status: {status.upper()}")
                 
@@ -177,18 +177,18 @@ class SharedResponseHandler:
             except Exception:
                 pass
     
-    def register_pending(self, run_id: str, command_id: str) -> Tuple[asyncio.Event, Dict[str, Any]]:
+    def register_pending(self, run_id: str, step_number: str) -> Tuple[asyncio.Event, Dict[str, Any]]:
         """
         Register a pending response and return event and result container.
         
         Args:
             run_id: Run ID for the command
-            command_id: Command ID for the command
+            step_number: Command ID for the command
         
         Returns:
             Tuple of (event, result_container)
         """
-        key = f"{run_id}:{command_id}"
+        key = f"{run_id}:{step_number}"
         event = asyncio.Event()
         result_container = {'result': None}
         self._pending_responses[key] = {
@@ -197,15 +197,15 @@ class SharedResponseHandler:
         }
         return event, result_container
     
-    def remove_pending(self, run_id: str, command_id: str):
+    def remove_pending(self, run_id: str, step_number: str):
         """
         Remove a pending response registration.
         
         Args:
             run_id: Run ID for the command
-            command_id: Command ID for the command
+            step_number: Command ID for the command
         """
-        key = f"{run_id}:{command_id}"
+        key = f"{run_id}:{step_number}"
         if key in self._pending_responses:
             del self._pending_responses[key]
     
@@ -250,7 +250,7 @@ def get_shared_handler(js: JetStreamContext, machine_id: str) -> SharedResponseH
 async def wait_for_response(
     handler: SharedResponseHandler,
     run_id: str,
-    command_id: str,
+    step_number: str,
     timeout: float = 60.0
 ) -> bool:
     """
@@ -259,17 +259,17 @@ async def wait_for_response(
     Args:
         handler: SharedResponseHandler instance
         run_id: Run ID to wait for
-        command_id: Command ID to wait for
+        step_number: Command ID to wait for
         timeout: Maximum time to wait in seconds
     
     Returns:
         True if success, False if error
     """
-    logger.info("Waiting for response (run_id: %s, command_id: %s, timeout: %s)...", 
-                run_id, command_id, timeout)
+    logger.info("Waiting for response (run_id: %s, step_number: %s, timeout: %s)...", 
+                run_id, step_number, timeout)
     
     # Register pending response
-    response_received, result_container = handler.register_pending(run_id, command_id)
+    response_received, result_container = handler.register_pending(run_id, step_number)
     
     try:
         # Wait for response with timeout
@@ -285,6 +285,6 @@ async def wait_for_response(
         return result_container['result']
     except TimeoutError:
         # Remove from pending if timeout
-        handler.remove_pending(run_id, command_id)
+        handler.remove_pending(run_id, step_number)
         raise
 

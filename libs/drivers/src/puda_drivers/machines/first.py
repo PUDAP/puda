@@ -141,10 +141,10 @@ class First:
         self._logger.info("Homing gantry...")
         self.qubot.home()
         
-        # Initialize the pipette (all pipette operations need to wait 5 seconds for completion)
+        # Initialize the pipette
         self._logger.info("Initializing pipette...")
         self.pipette.initialize()
-        time.sleep(5)
+        time.sleep(3) # need to wait for the pipette to initialize
         self._logger.info("Machine startup complete - ready for operations")
         
     def shutdown(self):
@@ -280,7 +280,7 @@ class First:
         self.qubot.home(axis="Z")
         self._logger.debug("Z axis homed after tip attachment")
         
-    def drop_tip(self, slot: str, well: str, height_from_bottom: float = 0.0):
+    def drop_tip(self, *, slot: str, well: str, height_from_bottom: float = 0.0):
         """
         Drop a tip into a slot.
         
@@ -315,7 +315,7 @@ class First:
         self.pipette.set_tip_attached(attached=False)
         self._logger.info("Tip dropped successfully")
         
-    def aspirate_from(self, slot:str, well:str, amount:int, height_from_bottom: float = 0.0):
+    def aspirate_from(self, *, slot: str, well: str, amount: int, height_from_bottom: float = 0.0):
         """
         Aspirate a volume of liquid from a slot.
         
@@ -348,7 +348,7 @@ class First:
         time.sleep(5)
         self._logger.info("Aspiration completed: %d µL from slot '%s', well '%s'", amount, slot, well)
         
-    def dispense_to(self, slot:str, well:str, amount:int, height_from_bottom: float = 0.0):
+    def dispense_to(self, *, slot: str, well: str, amount: int, height_from_bottom: float = 0.0):
         """
         Dispense a volume of liquid to a slot.
         
@@ -529,8 +529,8 @@ class First:
         )
     
     def capture_image(
-        self, 
-        save: bool = False, 
+        self,
+        save: bool = False,
         filename: Optional[Union[str, Path]] = None
     ) -> np.ndarray:
         """

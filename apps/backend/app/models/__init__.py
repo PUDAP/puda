@@ -1,9 +1,9 @@
 """Pydantic models for the backend application."""
-from .agent import AgentRequest, AgentResponse, UsageMetadata
+from .chat import ChatRequest, ChatResponse, UsageMetadata
 
 __all__ = [
-    "AgentRequest",
-    "AgentResponse",
-    "UsageMetadata",
+    "ChatRequest",
+    "ChatResponse",
+    "UsageMetadata"
 ]
 

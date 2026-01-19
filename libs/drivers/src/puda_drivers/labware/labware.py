@@ -3,9 +3,8 @@
 import json
 import inspect
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
 from abc import ABC
-from typing import List
 from puda_drivers.core import Position
 
 
