@@ -199,50 +199,7 @@ The `CommandService` provides a high-level interface for sending commands to mac
 
 ### Recommended Usage: Async Context Manager
 
-The recommended way to use `CommandService` is with an async context manager, which automatically handles connection and disconnection:
-
-```python
-import uuid
-import asyncio
-import logging
-from puda_comms import CommandService
-from puda_comms.models import CommandRequest, CommandResponseStatus, NATSMessage
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-async def send_command():
-    run_id = str(uuid.uuid4())
-    
-    # Using async context manager - automatically connects and disconnects
-    async with CommandService() as service:
-        request = CommandRequest(
-            name="attach_tip",
-            params={"slot": "A3", "well": "G8"},
-            step_number=2
-        )
-        reply: NATSMessage = await service.send_queue_command(
-            request=request,
-            machine_id="first",
-            run_id=run_id
-        )
-        
-        if reply is None:
-            logger.error("Command failed or timed out")
-            return
-        
-        if reply.response is not None and reply.response.status == CommandResponseStatus.SUCCESS:
-            logger.info("Command completed successfully")
-        else:
-            logger.warning("Command failed with code: %s, message: %s", 
-                         reply.response.code if reply.response else None,
-                         reply.response.message if reply.response else None)
-
-asyncio.run(send_command())
-```
+The recommended way to use `CommandService` is with an async context manager, which automatically handles connection and disconnection. See [`tests/commands.py`](tests/commands.py) for complete examples.
 
 ### Command Types
 
@@ -295,90 +252,7 @@ You can send multiple commands in sequence using `send_queue_commands()`, which 
 
 **Loading Commands from JSON (Recommended for LLM-generated commands):**
 
-When generating commands from an LLM or loading from external sources, you can store commands in a JSON file and load them:
-
-```python
-import json
-from pathlib import Path
-from puda_comms.models import CommandRequest
-
-# Load commands from JSON file
-def load_commands() -> list[dict]:
-    """Load commands from JSON file."""
-    commands_path = Path(__file__).parent / "commands.json"
-    with open(commands_path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-async def send_batch_from_json(run_id: str):
-    """Example: Send batch commands loaded from JSON."""
-    async with CommandService() as service:
-        # Load commands from JSON and convert to CommandRequest objects
-        command_dicts = load_commands()
-        requests = [CommandRequest(**cmd) for cmd in command_dicts]
-        
-        reply: NATSMessage = await service.send_queue_commands(
-            requests=requests,
-            machine_id="first",
-            run_id=run_id
-        )
-        
-        if reply is None:
-            logger.error("Batch commands failed or timed out")
-        elif reply.response and reply.response.status == CommandResponseStatus.SUCCESS:
-            logger.info("All commands completed successfully!")
-        else:
-            logger.error("Batch commands failed")
-```
-
-Example `commands.json`:
-```json
-[
-  {
-    "name": "load_deck",
-    "params": {
-      "deck_layout": {
-        "C1": "trash_bin",
-        "A3": "opentrons_96_tiprack_300ul"
-      }
-    },
-    "step_number": 1
-  },
-  {
-    "name": "attach_tip",
-    "params": {
-      "slot": "A3",
-      "well": "G8"
-    },
-    "step_number": 2
-  },
-  {
-    "name": "aspirate_from",
-    "params": {
-      "slot": "C2",
-      "well": "A1",
-      "amount": 100
-    },
-    "step_number": 3
-  },
-  {
-    "name": "dispense_to",
-    "params": {
-      "slot": "C2",
-      "well": "B4",
-      "amount": 100
-    },
-    "step_number": 4
-  },
-  {
-    "name": "drop_tip",
-    "params": {
-      "slot": "C1",
-      "well": "A1"
-    },
-    "step_number": 5
-  }
-]
-```
+When generating commands from an LLM or loading from external sources, you can store commands in a JSON file and load them. See [`tests/batch_commands.py`](tests/batch_commands.py) for a complete example.
 
 ### Error Handling
 

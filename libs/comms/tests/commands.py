@@ -197,30 +197,30 @@ async def example_cancel(run_id: str):
     # Automatically disconnects here, even on exceptions or signals
 
 
-async def example_get_position(run_id: str):
-    """Example: Get current machine position using context manager."""
+async def example_get_deck(run_id: str):
+    """Example: Get current deck layout using context manager."""
     # Using async context manager - automatically connects and disconnects
     async with CommandService() as service:
         machine_id = "first"
         
         request = CommandRequest(
-            name="get_position",
+            name="get_deck",
             step_number=1
         )
         reply: NATSMessage = await service.send_queue_command(request=request, machine_id=machine_id, run_id=run_id)
         
         if reply is None:
-            logger.error("Get position command failed or timed out")
+            logger.error("Get deck command failed or timed out")
             return
         
         if reply.response is not None and reply.response.status == CommandResponseStatus.SUCCESS:
-            position_data = reply.response.data
-            if position_data:
-                logger.info("Current position: %s", position_data)
+            deck_data = reply.response.data
+            if deck_data:
+                logger.info("Current deck layout: %s", deck_data)
             else:
-                logger.info("Get position completed successfully (no position data returned)")
+                logger.info("Get deck completed successfully (no deck data returned)")
         else:
-            logger.error("Get position failed: code=%s, message=%s", 
+            logger.error("Get deck failed: code=%s, message=%s", 
                         reply.response.code if reply.response else None,
                         reply.response.message if reply.response else None)
     # Automatically disconnects here, even on exceptions or signals
@@ -229,9 +229,11 @@ if __name__ == "__main__":
     TEST_RUN_ID = str(uuid.uuid4())
     # Run examples
     # asyncio.run(load_labware(TEST_RUN_ID))
+    # asyncio.run(example_get_deck(TEST_RUN_ID))
     # asyncio.run(remove_labware(TEST_RUN_ID))
+    # asyncio.run(example_get_deck(TEST_RUN_ID))
+
     # asyncio.run(example_command_sequence(TEST_RUN_ID))
     # asyncio.run(example_pause(TEST_RUN_ID))
     # asyncio.run(example_resume(TEST_RUN_ID))
     # asyncio.run(example_cancel(TEST_RUN_ID))
-    asyncio.run(example_get_position(TEST_RUN_ID))

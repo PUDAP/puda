@@ -4,6 +4,7 @@
     "params": {
       "deck_layout": {
         "C1": "trash_bin",
+        "C2": "polyelectric_8_wellplate_30000ul",
         "A3": "opentrons_96_tiprack_300ul"
       }
     },
