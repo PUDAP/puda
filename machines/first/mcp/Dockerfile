@@ -15,6 +15,7 @@ COPY pyproject.toml uv.lock ./
 COPY libs/drivers ./libs/drivers/
 COPY machines/first/mcp/pyproject.toml ./machines/first/mcp/
 COPY machines/first/mcp/server.py ./machines/first/mcp/
+COPY machines/first/mcp/src ./machines/first/mcp/src/
 
 # Install dependencies using uv
 RUN uv sync --frozen --package first-mcp --no-dev

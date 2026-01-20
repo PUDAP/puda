@@ -18,14 +18,6 @@ Hardware drivers for the PUDA (Physical Unified Device Architecture) platform. T
 pip install puda-drivers
 ```
 
-### From Source
-
-```bash
-git clone https://github.com/zhao-bears/puda-drivers.git
-cd puda-drivers
-pip install -e .
-```
-
 ## Quick Start
 
 ### Logging Configuration
@@ -213,11 +205,40 @@ uv add --package puda-drivers some-package
 
 **Note:** Workspace packages are automatically installed in editable mode, so code changes are immediately available without reinstalling.
 
+### Testing
+
+Run tests using pytest with `uv run`:
+
+```bash
+# Run all tests
+uv run pytest tests/
+
+# Run a specific test file
+uv run pytest tests/test_deck.py
+
+# Run a specific test class
+uv run pytest tests/test_deck.py::TestDeckToDict
+
+# Run a specific test function
+uv run pytest tests/test_deck.py::TestDeckToDict::test_to_dict_empty_deck
+
+# Run with verbose output
+uv run pytest tests/ -v
+
+# Run with coverage report
+uv run pytest tests/ --cov=puda_drivers --cov-report=html
+```
+
+**Note:** Make sure you're in the `libs/drivers` directory or use the full path to the tests directory when running pytest commands.
+
 ### Building and Publishing
 
 ```bash
 # Build distribution packages
 uv build
+
+# cd to puda project root
+cd ...
 
 # Publish to PyPI
 uv publish

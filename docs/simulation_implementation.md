@@ -476,8 +476,8 @@ machine = SimFirst()
 machine.startup()
 machine.load_labware("A1", "Opentrons96TipRack300")
 machine.attach_tip("A1", "A1")
-machine.aspirate_from("B1", "A1", amount=100)
-machine.dispense_to("C1", "A1", amount=100)
+machine.aspirate_from(slot="B1", well="A1", amount=100)
+machine.dispense_to(slot="C1", well="A1", amount=100)
 machine.shutdown()
 ```
 

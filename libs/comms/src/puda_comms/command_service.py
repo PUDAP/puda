@@ -1,0 +1,635 @@
+"""
+Service for sending commands to machines via NATS. Should take in AI generated commands as CommandRequest models.
+
+This service handles:
+- Connecting to NATS servers
+- Parsing and sending commands to the correct topics (queue/immediate)
+- Waiting for and handling responses
+- Managing command lifecycle (run_id, step_number, etc.)
+"""
+import asyncio
+import json
+import logging
+import os
+import signal
+from datetime import datetime, timezone
+from typing import Dict, Any, Optional, Tuple
+import nats
+from nats.js.client import JetStreamContext
+from nats.aio.msg import Msg
+from puda_comms.models import CommandRequest, CommandResponse, CommandResponseStatus, NATSMessage, MessageHeader, MessageType
+
+logger = logging.getLogger(__name__)
+
+# Constants
+NAMESPACE = "puda"
+STREAM_COMMAND_QUEUE = "COMMAND_QUEUE"
+STREAM_COMMAND_IMMEDIATE = "COMMAND_IMMEDIATE"
+STREAM_RESPONSE_QUEUE = "RESPONSE_QUEUE"
+STREAM_RESPONSE_IMMEDIATE = "RESPONSE_IMMEDIATE"
+
+
+class ResponseHandler:
+    """
+    Handles response messages from a specific machine.
+    Routes responses to waiting commands based on run_id and step_number.
+    """
+    
+    def __init__(self, js: JetStreamContext, machine_id: str):
+        self.js = js
+        self.machine_id = machine_id
+        self._pending_responses: Dict[str, Tuple[asyncio.Event, CommandResponse]] = {}
+        self._queue_consumer = None
+        self._immediate_consumer = None
+        self._initialized = False
+    
+    async def initialize(self):
+        """Initialize the response handler by subscribing to response streams."""
+        if self._initialized:
+            return
+        
+        # push consumers with ephemeral subscriptions
+        queue_subject = f"{NAMESPACE}.{self.machine_id}.cmd.response.queue"
+        immediate_subject = f"{NAMESPACE}.{self.machine_id}.cmd.response.immediate" 
+        
+        try:
+            # Create ephemeral consumers for response streams
+            self._queue_consumer = await self.js.subscribe(
+                queue_subject,
+                stream=STREAM_RESPONSE_QUEUE,
+                cb=lambda msg: asyncio.create_task(self._handle_message(msg))
+            )
+            
+            self._immediate_consumer = await self.js.subscribe(
+                immediate_subject,
+                stream=STREAM_RESPONSE_IMMEDIATE,
+                cb=lambda msg: asyncio.create_task(self._handle_message(msg))
+            )
+            
+            logger.info("Response handler initialized for machine: %s", self.machine_id)
+            self._initialized = True
+            
+        except Exception as e:
+            logger.error("Failed to initialize response handler: %s", e)
+            raise
+    
+    async def _handle_message(self, msg: Msg):
+        """Handle incoming response messages."""
+        try:
+            message = NATSMessage.model_validate_json(msg.data)
+            command = message.command.name
+            run_id = message.header.run_id
+            step_number = message.command.step_number
+            
+            # Check if we have required fields for matching
+            if run_id is None or step_number is None:
+                logger.error(
+                    "Response missing required fields: command=%s, step_number=%s, run_id=%s - putting back in queue",
+                    command, step_number, run_id
+                )
+                await msg.nak()
+                return
+            
+            # Look up pending response
+            key = f"{run_id}:{step_number}"
+            if key in self._pending_responses:
+                
+                logger.info(
+                    "Response received: command=%s, step_number=%s, run_id=%s, status=%s",
+                    command, step_number, run_id, message.response.status
+                )
+                if message.response.status == CommandResponseStatus.ERROR:
+                    logger.warning("Command failed: %s", message.response.message)
+                
+                # Get the pending response
+                pending = self._pending_responses[key]
+                # Store the full NATSMessage JSON structure
+                pending['response'] = message.model_dump()
+                # Signal that response was received
+                # Don't delete here - let get_response() delete it after retrieval
+                pending['event'].set()
+                
+                # Acknowledge the message since we matched it
+                await msg.ack()
+            else:
+                # No matching pending command - acknowledge to remove from queue
+                # This response is likely from a previous run or different session
+                logger.debug(
+                    "Unmatched response (acknowledging): command=%s, step_number=%s, run_id=%s",
+                    command, step_number, run_id
+                )
+                await msg.ack()
+            
+        except (json.JSONDecodeError, KeyError, AttributeError) as e:
+            logger.error("Error processing response message: %s", e)
+            try:
+                await msg.ack()
+            except Exception:
+                pass
+        except Exception as e:
+            logger.error("Unexpected error processing response message: %s", e)
+            try:
+                await msg.ack()
+            except Exception:
+                pass
+    
+    def register_pending(self, run_id: str, step_number: int) -> asyncio.Event:
+        """
+        Register a pending response and return event.
+        
+        Args:
+            run_id: Run ID for the command
+            step_number: Step number for the command
+        
+        Returns:
+            Event that will be set when the response is received
+        """
+        key = f"{run_id}:{str(step_number)}"
+        event = asyncio.Event()
+        # Store None initially, will be updated with the response
+        self._pending_responses[key] = {
+            'event': event,
+            'response': None
+        }
+        return event
+    
+    def get_response(self, run_id: str, step_number: int) -> Optional[Dict[str, Any]]:
+        """
+        Get the response for a pending command.
+        
+        Args:
+            run_id: Run ID for the command
+            step_number: Step number for the command
+        
+        Returns:
+            The NATSMessage dict structure if available, None otherwise
+        """
+        key = f"{run_id}:{str(step_number)}"
+        if key in self._pending_responses:
+            response = self._pending_responses[key].get('response')
+            # Delete after retrieval to clean up
+            del self._pending_responses[key]
+            return response
+        return None
+    
+    def remove_pending(self, run_id: str, step_number: int):
+        """Remove a pending response registration."""
+        key = f"{run_id}:{str(step_number)}"
+        if key in self._pending_responses:
+            del self._pending_responses[key]
+    
+    async def cleanup(self):
+        """Clean up subscriptions."""
+        if self._queue_consumer:
+            try:
+                await self._queue_consumer.unsubscribe()
+            except Exception:
+                pass
+        
+        if self._immediate_consumer:
+            try:
+                await self._immediate_consumer.unsubscribe()
+            except Exception:
+                pass
+
+
+class CommandService:
+    """
+    Service for sending commands to machines via NATS.
+    
+    Handles connection management, command parsing, and response handling.
+    Can send commands to multiple machines.
+    
+    Supports async context manager usage for automatic cleanup:
+        async with CommandService() as service:
+            await service.send_queue_command(...)
+        # Automatically disconnects on exit
+    
+    Automatically registers signal handlers (SIGTERM, SIGINT) for graceful shutdown.
+    """
+    
+    # ==================== Initialization ====================
+    
+    def __init__(
+        self,
+        servers: Optional[list[str]] = None
+    ):
+        """
+        Initialize NATS service.
+        
+        Args:
+            servers: List of NATS server URLs. If None, reads from NATS_SERVERS env var.
+        """
+        if servers is None:
+            nats_servers_env = os.getenv(
+                "NATS_SERVERS",
+                "nats://192.168.50.201:4222,nats://192.168.50.201:4223,nats://192.168.50.201:4224"
+            )
+            servers = [s.strip() for s in nats_servers_env.split(",")]
+        
+        self.servers = servers
+        self.nc: Optional[nats.NATS] = None
+        self.js: Optional[JetStreamContext] = None
+        self._response_handlers: Dict[str, ResponseHandler] = {} # stores response handlers for each machine
+        self._connected = False
+        
+        # Always register signal handlers for graceful shutdown
+        self._register_signal_handlers()
+    
+    # ==================== Context Manager ====================
+    
+    async def __aenter__(self):
+        """Async context manager entry."""
+        await self.connect()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        await self.disconnect()
+        return False  # Don't suppress exceptions
+    
+    # ==================== Connection Management ====================
+    
+    async def connect(self) -> bool:
+        """
+        Connect to NATS servers.
+        
+        Returns:
+            True if connected successfully, False otherwise
+        """
+        if self._connected:
+            return True
+        
+        try:
+            self.nc = await nats.connect(servers=self.servers)
+            self.js = self.nc.jetstream()
+            
+            self._connected = True
+            logger.info("Connected to NATS servers: %s", self.servers)
+            return True
+            
+        except Exception as e:
+            logger.error("Failed to connect to NATS: %s", e)
+            self._connected = False
+            return False
+    
+    async def _get_response_handler(self, machine_id: str) -> ResponseHandler:
+        """
+        Get or create a response handler for the specified machine.
+        
+        Args:
+            machine_id: Machine identifier
+        
+        Returns:
+            ResponseHandler instance for the machine
+        """
+        if machine_id not in self._response_handlers:
+            handler = ResponseHandler(self.js, machine_id)
+            await handler.initialize()
+            self._response_handlers[machine_id] = handler
+        
+        return self._response_handlers[machine_id]
+    
+    async def disconnect(self):
+        """Disconnect from NATS servers and cleanup."""
+        if not self._connected:
+            return
+        
+        # Cleanup all response handlers
+        for handler in self._response_handlers.values():
+            await handler.cleanup()
+        self._response_handlers.clear()
+        
+        if self.nc:
+            await self.nc.close()
+            self.nc = None
+            self.js = None
+        
+        self._connected = False
+        logger.info("Disconnected from NATS")
+    
+    # ==================== Public Command Methods ====================
+    
+    async def send_queue_command(
+        self,
+        *,
+        request: CommandRequest,
+        machine_id: str,
+        run_id: str,
+        timeout: int = 120
+    ) -> Optional[NATSMessage]:
+        """
+        Send a queue command to the machine and wait for response.
+        
+        Args:
+            request: CommandRequest model containing command details
+            machine_id: Machine ID to send the command to
+            run_id: Run ID for the command
+            timeout: Maximum time to wait for response in seconds
+        
+        Returns:
+            CommandResponse if successful, None if failed or timeout
+        """
+        if not self._connected or not self.js:
+            raise RuntimeError("Not connected to NATS. Call connect() first.")
+        
+        # Determine subject
+        subject = f"{NAMESPACE}.{machine_id}.cmd.queue"
+        
+        logger.info(
+            "Sending queue command: machine_id=%s, command=%s, run_id=%s, step_number=%s",
+            machine_id, request.name, run_id, request.step_number
+        )
+        
+        # Get or create response handler for this machine
+        response_handler = await self._get_response_handler(machine_id)
+        # Register pending response
+        response_event = response_handler.register_pending(run_id, request.step_number)
+        
+        # Build payload
+        payload = self._build_command_payload(request, machine_id, run_id)
+
+        try:
+            # Publish to JetStream
+            pub_ack = await self.js.publish(
+                subject,
+                payload.model_dump_json().encode()
+            )
+            
+            logger.info("Command published (step_number: %s), waiting for response...", request.step_number)
+            
+            # Wait for response with timeout
+            try:
+                await asyncio.wait_for(response_event.wait(), timeout=timeout)
+            except asyncio.TimeoutError:
+                logger.error("Timeout waiting for response after %s seconds", timeout)
+                response_handler.remove_pending(run_id, request.step_number)
+                return None
+            
+            # Give a small delay to ensure any pending messages are processed
+            await asyncio.sleep(0.1)
+            
+            # Get the response
+            response_data = response_handler.get_response(run_id, request.step_number)
+            if response_data is None:
+                return None
+            
+            return NATSMessage.model_validate(response_data)
+
+        except Exception as e:
+            logger.error("Error sending queue command: %s", e)
+            response_handler.remove_pending(run_id, request.step_number)
+            return None
+    
+    async def send_queue_commands(
+        self,
+        *,
+        requests: list[CommandRequest],
+        machine_id: str,
+        run_id: str,
+        timeout: int = 120
+    ) -> Optional[NATSMessage]:
+        """
+        Send multiple queue commands sequentially and wait for responses.
+        
+        Sends commands one by one, waiting for each response before sending the next.
+        If any command fails or times out, stops immediately and returns the error response.
+        If all commands succeed, returns the last command's response.
+        
+        Args:
+            requests: List of CommandRequest models to send sequentially
+            machine_id: Machine ID to send the commands to
+            run_id: Run ID for all commands
+            timeout: Maximum time to wait for each response in seconds
+        
+        Returns:
+            NATSMessage of the failed command if any command fails, or the last
+            command's response if all succeed. Returns None if a command times out.
+        """
+        if not self._connected or not self.js:
+            raise RuntimeError("Not connected to NATS. Call connect() first.")
+        
+        if not requests:
+            logger.warning("No commands to send")
+            return None
+        
+        logger.info(
+            "Sending %d queue commands sequentially: machine_id=%s, run_id=%s",
+            len(requests),
+            machine_id,
+            run_id
+        )
+        
+        last_response: Optional[NATSMessage] = None
+        
+        for idx, request in enumerate(requests, start=1):
+            logger.info(
+                "Sending command %d/%d: %s (step %s)",
+                idx,
+                len(requests),
+                request.name,
+                request.step_number
+            )
+            
+            response = await self.send_queue_command(
+                request=request,
+                machine_id=machine_id,
+                run_id=run_id,
+                timeout=timeout
+            )
+            
+            # Check if command failed (None means timeout or exception)
+            if response is None:
+                logger.error(
+                    "Command %d/%d failed or timed out: %s (step %s)",
+                    idx,
+                    len(requests),
+                    request.name,
+                    request.step_number
+                )
+                return None
+            
+            # Check if command returned an error status
+            if response.response is not None:
+                if response.response.status == CommandResponseStatus.ERROR:
+                    logger.error(
+                        "Command %d/%d failed with error: %s (step %s) - code: %s, message: %s",
+                        idx,
+                        len(requests),
+                        request.name,
+                        request.step_number,
+                        response.response.code,
+                        response.response.message
+                    )
+                    return response
+                
+                # Command succeeded, store as last response
+                last_response = response
+                logger.info(
+                    "Command %d/%d succeeded: %s (step %s)",
+                    idx,
+                    len(requests),
+                    request.name,
+                    request.step_number
+                )
+            else:
+                # Response exists but has no response data (shouldn't happen, but handle it)
+                logger.warning(
+                    "Command %d/%d returned response with no response data: %s (step %s)",
+                    idx,
+                    len(requests),
+                    request.name,
+                    request.step_number
+                )
+                return response
+        
+        logger.info(
+            "All %d commands completed successfully",
+            len(requests)
+        )
+        return last_response
+    
+    async def send_immediate_command(
+        self,
+        *,
+        request: CommandRequest,
+        machine_id: str,
+        run_id: str,
+        timeout: int = 120
+    ) -> Optional[NATSMessage]:
+        """
+        Send an immediate command (pause, resume, cancel) to the machine.
+        
+        Args:
+            request: CommandRequest model containing command details
+            machine_id: Machine ID to send the command to
+            run_id: Run ID for the command
+            timeout: Maximum time to wait for response in seconds
+        
+        Returns:
+            NATSMessage if successful, None if failed or timeout
+        """
+        if not self._connected or not self.js:
+            raise RuntimeError("Not connected to NATS. Call connect() first.")
+        
+        
+        # Determine subject
+        subject = f"{NAMESPACE}.{machine_id}.cmd.immediate"
+        
+        logger.info(
+            "Sending immediate command: machine_id=%s, command=%s, run_id=%s, step_number=%s",
+            machine_id, request.name, run_id, request.step_number
+        )
+        
+        # Get or create response handler for this machine
+        response_handler = await self._get_response_handler(machine_id)
+        
+        # Register pending response
+        response_received = response_handler.register_pending(run_id, request.step_number)
+        
+        # Build payload
+        payload = self._build_command_payload(request, machine_id, run_id)
+
+        try:
+            # Publish to JetStream
+            pub_ack = await self.js.publish(
+                subject,
+                payload.model_dump_json().encode()
+            )
+            
+            logger.info("Command published, waiting for response...")
+            
+            # Wait for response with timeout
+            try:
+                await asyncio.wait_for(response_received.wait(), timeout=timeout)
+            except asyncio.TimeoutError:
+                logger.error("Timeout waiting for response after %s seconds", timeout)
+                response_handler.remove_pending(run_id, request.step_number)
+                return None
+            
+            # Give a small delay to ensure any pending messages are processed
+            await asyncio.sleep(0.1)
+            
+            # Get the response
+            response_data = response_handler.get_response(run_id, request.step_number)
+            if response_data is None:
+                return None
+            
+            return NATSMessage.model_validate(response_data)
+            
+        except Exception as e:
+            logger.error("Error sending immediate command: %s", e)
+            response_handler.remove_pending(run_id, request.step_number)
+            return None
+    
+    # ==================== Private Helper Methods ====================
+    
+    def _register_signal_handlers(self):
+        """Register signal handlers for graceful shutdown."""
+        def signal_handler(signum, _frame):
+            """Handle shutdown signals by scheduling disconnect."""
+            logger.info("Received signal %s, initiating graceful shutdown...", signum)
+            try:
+                # Try to get the running event loop
+                loop = asyncio.get_running_loop()
+                # Schedule disconnect as a task in the running loop
+                def schedule_disconnect():
+                    asyncio.create_task(self.disconnect())
+                loop.call_soon_threadsafe(schedule_disconnect)
+            except RuntimeError:
+                # No running loop, create a new one and run disconnect
+                asyncio.run(self.disconnect())
+            except Exception as e:
+                logger.error("Error during signal handler disconnect: %s", e)
+        
+        # Register handlers for SIGTERM and SIGINT
+        signal.signal(signal.SIGTERM, signal_handler)
+        signal.signal(signal.SIGINT, signal_handler)
+        logger.debug("Signal handlers registered for SIGTERM and SIGINT")
+    
+    async def _get_response_handler(self, machine_id: str) -> ResponseHandler:
+        """
+        Get or create a response handler for the specified machine.
+        
+        Args:
+            machine_id: Machine identifier
+        
+        Returns:
+            ResponseHandler instance for the machine
+        """
+        if machine_id not in self._response_handlers:
+            handler = ResponseHandler(self.js, machine_id)
+            await handler.initialize()
+            self._response_handlers[machine_id] = handler
+        
+        return self._response_handlers[machine_id]
+    
+    def _build_command_payload(
+        self,
+        command_request: CommandRequest,
+        machine_id: str,
+        run_id: str
+    ) -> NATSMessage:
+        """
+        Build a command payload in the expected format.
+        
+        Args:
+            command_request: CommandRequest model containing command details
+            machine_id: Machine ID for the command
+            run_id: Run ID for the command
+        
+        Returns:
+            NATSMessage object ready for NATS transmission
+        """
+        header = MessageHeader(
+            message_type=MessageType.COMMAND,
+            version="1.0",
+            timestamp=datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+            machine_id=machine_id,
+            run_id=run_id
+        )
+        
+        return NATSMessage(
+            header=header,
+            command=command_request
+        )

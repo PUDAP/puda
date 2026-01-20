@@ -7,10 +7,11 @@ services:
     container_name: first-edge
     restart: unless-stopped
     # Mount USB devices for serial communication and camera access
+    # Note: Device paths should match QUBOT_PORT, SARTORIUS_PORT, and CAMERA_INDEX env vars
     devices:
-      - /dev/ttyACM0:/dev/ttyACM0
-      - /dev/ttyUSB0:/dev/ttyUSB0
-      - /dev/video0:/dev/video0
+      - ${QUBOT_PORT:-/dev/ttyACM0}:${QUBOT_PORT:-/dev/ttyACM0}  # Qubot port (set QUBOT_PORT env var to override)
+      - ${SARTORIUS_PORT:-/dev/ttyUSB0}:${SARTORIUS_PORT:-/dev/ttyUSB0}  # Sartorius port (set SARTORIUS_PORT env var to override)
+      - /dev/video${CAMERA_INDEX:-0}:/dev/video${CAMERA_INDEX:-0}  # Camera device (set CAMERA_INDEX env var to override)
     # Alternative: Use privileged mode if device mounting doesn't work
     # privileged: true
     # Mount workspace for development (optional - allows live code changes)
@@ -18,8 +19,9 @@ services:
     # volumes:
     #   - ../../libs:/app/libs:ro
     #   - ./first.py:/app/machines/first/edge/first.py:ro
-    # Note: NATS servers are hardcoded in first.py
-    # To make them configurable, update first.py to use environment variables
+    # Environment variables for device configuration
+    env_file:
+      - .env  # Path relative to compose.yml location (machines/first/edge/.env)
     healthcheck:
       test: ["CMD", "uv", "run", "python", "-c", "import sys; sys.exit(0)"]
       interval: 30s

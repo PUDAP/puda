@@ -1,6 +1,6 @@
 [project]
 name = "puda-drivers"
-version = "0.0.16"
+version = "0.0.17"
 description = "Hardware drivers for the PUDA platform."
 readme = "README.md"
 authors = [
@@ -22,6 +22,7 @@ dependencies = [
     "nats-py>=2.12.0",
     "opencv-python>=4.12.0.88",
     "pyserial~=3.5",
+    "pytest>=9.0.2",
 ]
 
 [build-system]
@@ -29,5 +30,5 @@ requires = ["hatchling >= 1.26"]
 build-backend = "hatchling.build"
 
 [project.urls]
-Homepage = "https://github.com/PUDAP/puda-drivers"
-Issues = "https://github.com/PUDAP/puda-drivers/issues"
+Homepage = "https://github.com/PUDAP/puda"
+Issues = "https://github.com/PUDAP/puda/issues"

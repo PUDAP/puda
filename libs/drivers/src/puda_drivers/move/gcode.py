@@ -296,7 +296,7 @@ class GCodeController(SerialController):
             home_target = "All"
 
         self._logger.info("[%s] homing axis/axes: %s **", cmd, home_target)
-        self.execute(cmd)
+        self.execute(command=cmd, timeout=90) # 90 seconds timeout for homing
         self._logger.info("Homing of %s completed.\n", home_target)
 
         # Update internal position (optimistic zeroing)

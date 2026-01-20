@@ -1,15 +1,24 @@
 """
 Basic default NATS Client for Generic Machines
 Handles commands, telemetry, and events following the puda.{machine_id}.{category}.{sub_category} pattern
+Specific methods to a single machine should be implemented in the machine-edge client
 """
 import asyncio
 from contextlib import asynccontextmanager
 import json
 import logging
-from typing import Dict, Any, Optional, Callable, Tuple, Awaitable
+from typing import Dict, Any, Optional, Callable, Awaitable
 from datetime import datetime, timezone
 import nats
-from puda_comms.types import CommandResponseStatus
+from puda_comms.models import (
+    CommandResponseStatus,
+    CommandResponse,
+    CommandResponseCode,
+    NATSMessage,
+    CommandRequest,
+    MessageType,
+    ImmediateCommand,
+)
 from nats.js.client import JetStreamContext
 from nats.js.api import StreamConfig
 from nats.js.errors import NotFoundError
@@ -82,8 +91,8 @@ class MachineClient:
         self.tlm_health = f"{namespace}.{machine_id_safe}.tlm.health"
         
         # Command subjects (JetStream, exactly-once)
-        self.cmd_queue = f"{namespace}.{machine_id_safe}.cmd.queue"
-        self.cmd_immediate = f"{namespace}.{machine_id_safe}.cmd.immediate"
+        self.cmd_queue = f"{namespace}.{machine_id_safe}.cmd.queue" # should be pull consumer
+        self.cmd_immediate = f"{namespace}.{machine_id_safe}.cmd.immediate" # push consumer
         
         # Response subjects (JetStream streams)
         self.response_queue = f"{namespace}.{machine_id_safe}.cmd.response.queue"
@@ -104,19 +113,6 @@ class MachineClient:
         """Format current timestamp as ISO 8601 UTC string."""
         return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     
-    def _parse_message(self, data: bytes) -> Tuple[Dict[str, Any], Optional[str], Optional[str]]:
-        """
-        Parse message payload and extract header information.
-        
-        Returns:
-            Tuple of (payload, run_id, command_id)
-        """
-        payload = json.loads(data.decode())
-        header = payload.get('header', {})
-        run_id = header.get('run_id')
-        command_id = header.get('command_id', 'unknown')
-        return payload, run_id, command_id
-    
     async def _publish_telemetry(self, subject: str, data: Dict[str, Any]) -> bool:
         """Publish telemetry message to core NATS."""
         if not self.nc:
@@ -125,7 +121,7 @@ class MachineClient:
         
         try:
             message = {'timestamp': self._format_timestamp(), **data}
-            await self.nc.publish(subject, json.dumps(message).encode())
+            await self.nc.publish(subject=subject, payload=json.dumps(message).encode())
             logger.debug("Published to %s", subject)
             return True
         except Exception as e:
@@ -140,7 +136,7 @@ class MachineClient:
         
         try:
             message = {'timestamp': self._format_timestamp(), **data}
-            await self.nc.publish(subject, json.dumps(message).encode())
+            await self.nc.publish(subject=subject, payload=json.dumps(message).encode())
             logger.debug("Published to %s", subject)
             return True
         except Exception as e:
@@ -171,7 +167,7 @@ class MachineClient:
                     subjects=[subject_pattern],
                     retention=retention
                 )
-                await self.js.update_stream(updated_config)
+                await self.js.update_stream(config=updated_config)
                 logger.info("Successfully updated %s stream", stream_name)
         except NotFoundError:
             # Stream doesn't exist, create it
@@ -356,27 +352,24 @@ class MachineClient:
         """Publish system health vitals (CPU, memory, temperature, etc.)."""
         await self._publish_telemetry(self.tlm_health, vitals)
     
-    async def publish_status(self, status_data: Dict[str, Any]):
+    async def publish_state(self, data: Dict[str, Any]):
         """
-        Update machine status in KV store.
+        Overwrites machine state in nats KV store.
         
         Args:
-            status_data: Dictionary with status data (e.g., {'state': 'idle', 'run_id': 'abc123'})
-                - state: 'idle', 'busy', or 'error'
-                - run_id: Current run_id if busy/error, None if idle
+            data: Dictionary with state data
         """
         if not self.kv:
-            logger.warning("KV store not available, skipping status update")
+            logger.warning("KV store not available, skipping state update")
             return
         
         try:
-            message = {'timestamp': self._format_timestamp(), **status_data}
+            message = {'timestamp': self._format_timestamp(), **data}
             await self.kv.put(self.machine_id, json.dumps(message).encode())
-            logger.info("Updated status in KV store: state=%s, run_id=%s", 
-                       status_data.get('state'), status_data.get('run_id'))
+            logger.info("Updated state in KV store: %s", message)
         except Exception as e:
             logger.error("Error updating status in KV store: %s", e)
-    
+            
     # ==================== COMMANDS (JetStream, exactly-once with run_id) ====================
     
     
@@ -408,204 +401,271 @@ class MachineClient:
     async def _publish_command_response(
         self,
         msg: Msg,
-        status: CommandResponseStatus,
-        error: Optional[str] = None,
-        response_stream: str = None
+        response: CommandResponse,
+        subject: str
     ):
         """
         Publish command response message to JetStream response stream.
         
         Args:
             msg: NATS message
-            status: Status of the command (success, error)
-            error: Error message if status is error
-            response_stream: Which response stream to use (STREAM_RESPONSE_QUEUE or STREAM_RESPONSE_IMMEDIATE)
+            response: CommandResponse object containing status, code, message, and completed_at
+            subject: NATS subject to publish the response to
         """
         if not self.js:
             return
         
-        if response_stream is None:
-            response_stream = self.STREAM_RESPONSE_QUEUE
-        
         try:
-            payload, run_id, command_id = self._parse_message(msg.data)
-            if not run_id:
-                return
+            original_message = NATSMessage.model_validate_json(msg.data)
             
-            # Append response to the original payload
-            payload['result'] = {
-                'status': status,
-                'completed_at': self._format_timestamp(),
-            }
-            
-            if error:
-                payload['result']['error'] = error
-            
-            response_data = json.dumps(payload).encode()
-            
-            # Determine response subject based on stream type
-            if response_stream == self.STREAM_RESPONSE_QUEUE:
-                response_subject = self.response_queue
-                stream_name = self.STREAM_RESPONSE_QUEUE
-            elif response_stream == self.STREAM_RESPONSE_IMMEDIATE:
-                response_subject = self.response_immediate
-                stream_name = self.STREAM_RESPONSE_IMMEDIATE
-            else:
-                raise ValueError(f"Invalid response_stream: {response_stream}. Must be {self.STREAM_RESPONSE_QUEUE} or {self.STREAM_RESPONSE_IMMEDIATE}")
+            # Create response message with RESPONSE type
+            response_header = original_message.header.model_copy(
+                update={
+                    'message_type': MessageType.RESPONSE,
+                    'timestamp': self._format_timestamp()
+                }
+            )
+            response_message = original_message.model_copy(
+                update={'header': response_header, 'response': response}
+            )
             
             # Publish to JetStream response stream
-            await self.js.publish(response_subject, response_data)
-            logger.info("Published command response to JetStream: stream=%s, subject=%s, run_id=%s, command_id=%s, status=%s", 
-                       stream_name, response_subject, run_id, command_id, status)
+            await self.js.publish(subject=subject, payload=response_message.model_dump_json().encode())
+            logger.info("Published command response to JetStream: %s", response_message.model_dump_json())
         except Exception as e:
             logger.error("Error publishing command response: %s", e)
     
     async def process_queue_cmd(
         self, 
         msg: Msg,
-        handler: Callable[[Dict[str, Any]], Awaitable[bool]]
+        handler: Callable[[CommandRequest], Awaitable[CommandResponse]]
     ) -> None:
         """
         Handle the lifecycle of a single message: Parse -> Handle -> Ack/Nak/Term.
         
         Args:
             msg: NATS message
-            handler: Handler function to process the message
+            handler: Handler function that processes the message and returns CommandResponse
         """
         try:
-            # Parse payload
-            payload, run_id, command_id = self._parse_message(msg.data)
-            header = payload.get('header', {})
-            command = header.get('command', 'unknown')
+            # Parse message
+            message = NATSMessage.model_validate_json(msg.data)
+            run_id = message.header.run_id
+            step_number = message.command.step_number
+            command = message.command.name
             
             # Check if cancelled
             if run_id and run_id in self._cancelled_run_ids:
-                logger.info("Skipping cancelled command: run_id=%s, command_id=%s, command=%s", run_id, command_id, command)
+                logger.info("Skipping cancelled command: run_id=%s, step_number=%s, command=%s", run_id, step_number, command)
                 await msg.ack()
-                await self._publish_command_response(msg, 'error', 'Command cancelled', response_stream=self.STREAM_RESPONSE_QUEUE)
-                await self.publish_status({'state': 'idle', 'run_id': run_id})
+                await self._publish_command_response(
+                    msg=msg,
+                    response=CommandResponse(
+                        status=CommandResponseStatus.ERROR,
+                        code=CommandResponseCode.COMMAND_CANCELLED,
+                        message='Command cancelled'
+                    ),
+                    subject=self.response_queue
+                )
+                # Note: Final state update should be published by the handler with machine-specific data
                 return
             
             # Check if paused (for queue messages)
             async with self._pause_lock:
+                if self._is_paused:
+                    await self._publish_command_response(
+                        msg,
+                        CommandResponse(
+                            status=CommandResponseStatus.ERROR,
+                            code=CommandResponseCode.MACHINE_PAUSED,
+                            message='Machine paused'
+                        ),
+                        subject=self.response_queue
+                    )
+                    return
                 while self._is_paused:
                     await msg.in_progress()
                     await asyncio.sleep(1)
                     # Re-check cancelled state in case it was cancelled while paused
                     if run_id and run_id in self._cancelled_run_ids:
-                        logger.info("Command cancelled while paused: run_id=%s, command_id=%s, command=%s", run_id, command_id, command)
+                        logger.info("Command cancelled while paused: run_id=%s, step_number=%s, command=%s", run_id, step_number, command)
                         await msg.ack()
-                        await self._publish_command_response(msg, 'error', 'Command cancelled', response_stream=self.STREAM_RESPONSE_QUEUE)
-                        await self.publish_status({'state': 'idle', 'run_id': run_id})
+                        await self._publish_command_response(
+                            msg=msg,
+                            response=CommandResponse(
+                                status=CommandResponseStatus.ERROR,
+                                code=CommandResponseCode.COMMAND_CANCELLED,
+                                message='Command cancelled'
+                            ),
+                            subject=self.response_queue
+                        )
+                        # Note: Final state update should be published by the handler with machine-specific data
                         return
             
             # Execute handler with auto-heartbeat (task might take a while for machine to complete)
+            # The handler should be defined in the machine-specific edge module.
             async with self._keep_message_alive(msg):
-                success = await handler(payload)
+                response: CommandResponse = await handler(message)
             
-            # Finalize message state
-            if success:
+            # Finalize message state based on response
+            if response.status == CommandResponseStatus.SUCCESS:
                 await msg.ack()
-                await self._publish_command_response(msg, 'success', response_stream=self.STREAM_RESPONSE_QUEUE)
-                await self.publish_status({'state': 'idle', 'run_id': run_id})
             else:
                 await msg.term()
-                await self._publish_command_response(msg, 'error', 'Handler returned False', response_stream=self.STREAM_RESPONSE_QUEUE)
-                await self.publish_status({'state': 'error', 'run_id': run_id})
+            
+            await self._publish_command_response(
+                msg=msg,
+                response=response,
+                subject=self.response_queue
+            )
+            # Note: Final state update should be published by the handler with machine-specific data
 
         except asyncio.CancelledError:
             # Handler was cancelled (e.g., via task cancellation)
-            logger.info("Handler execution cancelled: run_id=%s, command_id=%s, command=%s", run_id, command_id, command)
+            logger.info("Handler execution cancelled: run_id=%s, step_number=%s, command=%s", run_id, step_number, command)
             await msg.ack()
-            await self._publish_command_response(msg, 'error', 'Command cancelled', response_stream=self.STREAM_RESPONSE_QUEUE)
-            await self.publish_status({'state': 'idle', 'run_id': run_id})
+            await self._publish_command_response(
+                msg=msg,
+                response=CommandResponse(
+                    status=CommandResponseStatus.ERROR,
+                    code=CommandResponseCode.COMMAND_CANCELLED,
+                    message='Command cancelled'
+                ),
+                subject=self.response_queue
+            )
+            # Note: Final state update should be published by the handler with machine-specific data
         
         except json.JSONDecodeError as e:
             logger.error("JSON Decode Error. Terminating message.")
             await msg.term()
-            await self._publish_command_response(msg, 'error', f'JSON decode error: {e}', response_stream=self.STREAM_RESPONSE_QUEUE)
-            await self.publish_status({'state': 'error', 'run_id': run_id})
+            await self._publish_command_response(
+                msg=msg,
+                response=CommandResponse(
+                    status=CommandResponseStatus.ERROR,
+                    code=CommandResponseCode.JSON_DECODE_ERROR,
+                    message=f'JSON decode error: {e}'
+                ),
+                subject=self.response_queue
+            )
+            # Note: Final state update should be published by the handler with machine-specific data
+            # For JSON decode errors, handler wasn't called, so we can't rely on it
+            # This is a rare case - consider if handler should be called with None payload
         
         except Exception as e:
             # Check if cancelled before sending error response
             if run_id and run_id in self._cancelled_run_ids:
-                logger.info("Command cancelled during execution (exception occurred): run_id=%s, command_id=%s, command=%s", run_id, command_id, command)
+                logger.info("Command cancelled during execution (exception occurred): run_id=%s, step_number=%s, command=%s", run_id, step_number, command)
                 await msg.ack()
-                await self._publish_command_response(msg, 'error', 'Command cancelled', response_stream=self.STREAM_RESPONSE_QUEUE)
-                await self.publish_status({'state': 'idle', 'run_id': run_id})
+                await self._publish_command_response(
+                    msg=msg,
+                    response=CommandResponse(
+                        status=CommandResponseStatus.ERROR,
+                        code=CommandResponseCode.COMMAND_CANCELLED,
+                        message='Command cancelled'
+                    ),
+                    subject=self.response_queue
+                )
+                # Note: Final state update should be published by the handler with machine-specific data
             else:
                 # Terminate all errors to prevent infinite redelivery loops
                 logger.error("Handler failed (terminating message): %s", e)
                 await msg.term()
-                await self._publish_command_response(msg, 'error', str(e), response_stream=self.STREAM_RESPONSE_QUEUE)
-                await self.publish_status({'state': 'error', 'run_id': run_id})
+                await self._publish_command_response(
+                    msg=msg,
+                    response=CommandResponse(
+                        status=CommandResponseStatus.ERROR,
+                        code=CommandResponseCode.EXECUTION_ERROR,
+                        message=str(e)
+                    ),
+                    subject=self.response_queue
+                )
+                # Note: Final state update should be published by the handler with machine-specific data
     
-    async def process_immediate_cmd(self, msg: Msg, handler: Callable[[Dict[str, Any]], Awaitable[bool]]) -> None:
+    async def process_immediate_cmd(self, msg: Msg, handler: Callable[[CommandRequest], Awaitable[CommandResponse]]) -> None:
         """Process immediate commands (pause, cancel, resume, etc.)."""
         try:
-            payload, run_id, _ = self._parse_message(msg.data)
+            message = NATSMessage.model_validate_json(msg.data)
             # Ack immediately after successful parse
             await msg.ack()
             
-            header = payload.get('header', {})
-            command = header.get('command', '').lower()
-            
             # Handle built-in commands
-            if command == 'pause':
-                async with self._pause_lock:
-                    if not self._is_paused:
-                        self._is_paused = True
-                        logger.info("Queue paused")
-                        await self.publish_status({'state': 'paused', 'run_id': run_id})
-                await self._publish_command_response(msg, 'success', response_stream=self.STREAM_RESPONSE_IMMEDIATE)
+            if message.command is None:
+                logger.error("Received message with no command")
                 return
             
-            elif command == 'resume':
-                async with self._pause_lock:
-                    if self._is_paused:
-                        self._is_paused = False
-                        logger.info("Queue resumed")
-                        await self.publish_status({'state': 'idle', 'run_id': None})
-                        
-                print(f"Publishing command: {msg.data}")
-                await self._publish_command_response(msg, 'success', response_stream=self.STREAM_RESPONSE_IMMEDIATE)
-                return
+            command_name = message.command.name.lower()
             
-            elif command == 'cancel':
-                if run_id:
-                    self._cancelled_run_ids.add(run_id)
-                    logger.info("Cancelling all commands with run_id: %s", run_id)
-                    await self.publish_status({'state': 'idle', 'run_id': None})
-                await self._publish_command_response(msg, 'success', response_stream=self.STREAM_RESPONSE_IMMEDIATE)
-                return
+            match command_name:
+                case ImmediateCommand.PAUSE:
+                    async with self._pause_lock:
+                        if not self._is_paused:
+                            self._is_paused = True
+                            logger.info("Queue paused")
+                            await self.publish_state({'state': 'paused', 'run_id': message.header.run_id})
+                    # Call handler and use its response
+                    response: CommandResponse = await handler(message)
+                
+                case ImmediateCommand.RESUME:
+                    async with self._pause_lock:
+                        if self._is_paused:
+                            self._is_paused = False
+                            logger.info("Queue resumed")
+                            await self.publish_state({'state': 'idle', 'run_id': None})
+                    # Call handler and use its response
+                    response: CommandResponse = await handler(message)
+                
+                case ImmediateCommand.CANCEL:
+                    if message.header.run_id:
+                        self._cancelled_run_ids.add(message.header.run_id)
+                        logger.info("Cancelling all commands with run_id: %s", message.header.run_id)
+                        await self.publish_state({'state': 'idle', 'run_id': None})
+                    # Call handler and use its response
+                    response: CommandResponse = await handler(message)
+                
+                case _:
+                    # For other immediate commands, call the user-provided handler
+                    response: CommandResponse = await handler(message)
             
-            # For other immediate commands, call the user-provided handler
-            async with self._keep_message_alive(msg):
-                success = await handler(payload)
-            
-            if success:
-                await self._publish_command_response(msg, 'success', response_stream=self.STREAM_RESPONSE_IMMEDIATE)
-            else:
-                await self._publish_command_response(msg, 'error', 'Handler returned False', response_stream=self.STREAM_RESPONSE_IMMEDIATE)
+            await self._publish_command_response(
+                msg=msg,
+                response=response,
+                subject=self.response_immediate
+            )
         
         except json.JSONDecodeError as e:
             logger.error("JSON Decode Error in immediate command: %s", e)
-            await msg.term()
-            await self._publish_command_response(msg, 'error', f'JSON decode error: {e}', response_stream=self.STREAM_RESPONSE_IMMEDIATE)
-            await self.publish_status({'state': 'error', 'run_id': None})
+            # msg.ack() was already called, so we just need to publish error response
+            await self._publish_command_response(
+                msg=msg,
+                response=CommandResponse(
+                        status=CommandResponseStatus.ERROR,
+                        code=CommandResponseCode.JSON_DECODE_ERROR,
+                        message=f'JSON decode error: {e}'
+                    ),
+                subject=self.response_immediate
+            )
+            await self.publish_state({'state': 'error', 'run_id': None})
         
         except Exception as e:
-            logger.error("Error processing immediate command (terminating message): %s", e)
-            await msg.term()
-            await self._publish_command_response(msg, 'error', str(e), response_stream=self.STREAM_RESPONSE_IMMEDIATE)
-            await self.publish_status({'state': 'error', 'run_id': None})
+            # msg.ack() was already called, so we just publish error response
+            logger.error("Error processing immediate command: %s", e)
+            await self._publish_command_response(
+                msg=msg,
+                response=CommandResponse(
+                    status=CommandResponseStatus.ERROR,
+                    code=CommandResponseCode.EXECUTION_ERROR,
+                    message=str(e)
+                ),
+                subject=self.response_immediate
+            )
+            await self.publish_state({'state': 'error', 'run_id': None})
     
-    async def subscribe_queue(self, handler: Callable[[Dict[str, Any]], Awaitable[bool]]):
+    async def subscribe_queue(self, handler: Callable[[NATSMessage], Awaitable[CommandResponse]]):
         """
         Subscribe to queue commands with default consumer.
         
         Args:
-            handler: Async function that processes command payloads (payload) -> bool
+            handler: Async function that processes command payloads and returns CommandResponse
         """
         if not self.js:
             logger.error("JetStream not available for queue subscription")
@@ -648,7 +708,7 @@ class MachineClient:
         logger.info("Subscribed to queue commands: %s (durable: cmd_queue_%s, stream: %s)", 
                    self.cmd_queue, self.machine_id, self.STREAM_COMMAND_QUEUE)
     
-    async def subscribe_immediate(self, handler: Callable):
+    async def subscribe_immediate(self, handler: Callable[[NATSMessage], Awaitable[CommandResponse]]):
         """
         Subscribe to immediate commands with default consumer.
         

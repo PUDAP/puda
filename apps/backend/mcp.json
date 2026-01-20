@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/tmp"
+      ],
+      "transport": "stdio",
+      "enabled": true,
+      "description": "Access to local filesystem"
+    },
+    "first-mcp": {
+      "url": "http://100.86.162.126:8001/mcp",
+      "transport": "streamable-http",
+      "enabled": true,
+      "description": "First machine MCP server"
+    }
+  }
+} 

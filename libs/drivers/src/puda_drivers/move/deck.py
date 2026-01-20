@@ -1,5 +1,6 @@
 # src/puda_drivers/move/deck.py
 
+import json
 from puda_drivers.labware import StandardLabware
 
 
@@ -29,6 +30,20 @@ class Deck:
         if slot.upper() not in self.slots:
             raise KeyError(f"Slot {slot} not found in deck")
         self.slots[slot.upper()] = StandardLabware(labware_name=labware_name)
+    
+    def empty_slot(self, slot: str):
+        """
+        Empty a slot (remove labware from it).
+        
+        Args:
+            slot: Slot name (e.g., 'A1', 'B2')
+        
+        Raises:
+            KeyError: If slot is not found in deck
+        """
+        if slot.upper() not in self.slots:
+            raise KeyError(f"Slot {slot} not found in deck")
+        self.slots[slot.upper()] = None
         
     def __str__(self):
         """
@@ -45,3 +60,22 @@ class Deck:
     def __getitem__(self, key):
         """Allows syntax for: my_deck['B4']"""
         return self.slots[key.upper()]
+ 
+    def to_dict(self) -> dict:
+        """
+        Return the deck layout as a dictionary.
+        """
+        deck_data = {}
+        for slot, labware in self.slots.items():
+            if labware is None:
+                deck_data[slot] = None
+            else:
+                deck_data[slot] = labware.name
+        return deck_data
+
+    def to_json(self) -> str:
+        """
+        Return the deck layout as a JSON string.
+        """
+        # Re-use the logic from to_dict() so you don't have to update it in two places
+        return json.dumps(self.to_dict(), indent=2)

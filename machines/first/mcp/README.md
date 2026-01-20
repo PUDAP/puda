@@ -2,6 +2,13 @@
 
 MCP (Model Context Protocol) server for generating protocols and workflows for the First lab automation machine.
 
+## Resources
+
+The server provides the following resources:
+
+- **`resource://first/commands`** - A JSON object describing all available First machine commands and their parameters, including examples and documentation.
+- **`resource://first/labware`** - A JSON array of all available labware types for the First machine.
+
 ## Development
 
 ### 1. The FastMCP Dev GUI (Recommended)
@@ -14,9 +21,10 @@ uv run fastmcp dev server.py
 ```
 
 This will start a development server with a web interface where you can:
-- View all available tools
+- View all available tools and resources
 - Test tools interactively
 - See tool responses and errors
+- Access resources
 
 ## Docker Deployment
 
