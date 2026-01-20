@@ -16,7 +16,7 @@ import uuid
 import asyncio
 import logging
 from puda_comms import CommandService
-from puda_comms.models import CommandRequest, CommandResponseStatus, NATSMessage
+from puda_comms.models import CommandRequest, CommandResponseStatus, NATSMessage, ImmediateCommand
 
 # Configure logging
 logging.basicConfig(
@@ -148,7 +148,7 @@ async def example_pause(run_id: str):
         machine_id = "first"
         
         pause_request = CommandRequest(
-            name="pause",
+            name=ImmediateCommand.PAUSE,
             step_number=1
         )
         reply: NATSMessage = await service.send_immediate_command(request=pause_request, machine_id=machine_id, run_id=run_id)
@@ -167,7 +167,7 @@ async def example_resume(run_id: str):
         machine_id = "first"
         
         resume_request = CommandRequest(
-            name="resume",
+            name=ImmediateCommand.RESUME,
             step_number=1
         )
         reply:NATSMessage = await service.send_immediate_command(request=resume_request, machine_id=machine_id, run_id=run_id)
@@ -186,7 +186,7 @@ async def example_cancel(run_id: str):
         machine_id = "first"
         
         cancel_request = CommandRequest(
-            name="cancel",
+            name=ImmediateCommand.CANCEL,
             step_number=1
         )
         reply = await service.send_immediate_command(request=cancel_request, machine_id=machine_id, run_id=run_id)
@@ -196,6 +196,35 @@ async def example_cancel(run_id: str):
             logger.error("Cancel command failed or timed out")
     # Automatically disconnects here, even on exceptions or signals
 
+
+async def example_get_position(run_id: str):
+    """Example: Get current machine position using context manager."""
+    # Using async context manager - automatically connects and disconnects
+    async with CommandService() as service:
+        machine_id = "first"
+        
+        request = CommandRequest(
+            name="get_position",
+            step_number=1
+        )
+        reply: NATSMessage = await service.send_queue_command(request=request, machine_id=machine_id, run_id=run_id)
+        
+        if reply is None:
+            logger.error("Get position command failed or timed out")
+            return
+        
+        if reply.response is not None and reply.response.status == CommandResponseStatus.SUCCESS:
+            position_data = reply.response.data
+            if position_data:
+                logger.info("Current position: %s", position_data)
+            else:
+                logger.info("Get position completed successfully (no position data returned)")
+        else:
+            logger.error("Get position failed: code=%s, message=%s", 
+                        reply.response.code if reply.response else None,
+                        reply.response.message if reply.response else None)
+    # Automatically disconnects here, even on exceptions or signals
+
 if __name__ == "__main__":
     TEST_RUN_ID = str(uuid.uuid4())
     # Run examples
@@ -203,5 +232,6 @@ if __name__ == "__main__":
     # asyncio.run(remove_labware(TEST_RUN_ID))
     # asyncio.run(example_command_sequence(TEST_RUN_ID))
     # asyncio.run(example_pause(TEST_RUN_ID))
-    asyncio.run(example_resume(TEST_RUN_ID))
+    # asyncio.run(example_resume(TEST_RUN_ID))
     # asyncio.run(example_cancel(TEST_RUN_ID))
+    asyncio.run(example_get_position(TEST_RUN_ID))

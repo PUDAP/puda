@@ -1,21 +1,32 @@
-# Puda Comms Models
+# Puda Comms
 
-This module defines the data models used for communication between machines and the command service via NATS messaging.
+A Python module for communication between machines and command services via NATS messaging. Provides client-side services for sending commands, machine-side clients for receiving commands, and data models for structured message exchange.
 
 ## Overview
 
-The models provide a structured way to send commands to machines and receive responses. All models are built using Pydantic for validation and serialization.
+The `puda_comms` module enables asynchronous, reliable communication between command services and machines using NATS (NATS JetStream for guaranteed delivery). It handles:
 
-## Core Models
+- **Command execution**: Send commands to machines and receive responses
+- **Message routing**: Queue commands (sequential execution) and immediate commands (control operations)
+- **State management**: Thread-safe execution state tracking for cancellation and locking
+- **Connection management**: Automatic NATS connection handling with async context managers
 
-### Enums
+## Components
 
-#### `CommandResponseStatus`
+The module consists of four main components:
+
+### 1. Models (`models.py`)
+
+Data models for structured message exchange. All models use Pydantic for validation and serialization.
+
+#### Enums
+
+##### `CommandResponseStatus`
 Status of a command response:
 - `SUCCESS`: Command executed successfully
 - `ERROR`: Command execution failed
 
-#### `CommandResponseCode`
+##### `CommandResponseCode`
 Error codes for command responses:
 - `COMMAND_CANCELLED`: Command was cancelled before completion
 - `JSON_DECODE_ERROR`: Failed to decode JSON payload
@@ -29,7 +40,7 @@ Error codes for command responses:
 - `CANCEL_ERROR`: Error occurred while cancelling execution
 - `MACHINE_PAUSED`: Machine is currently paused
 
-#### `MessageType`
+##### `MessageType`
 Type of NATS message:
 - `COMMAND`: Command message sent to machine
 - `RESPONSE`: Response message from machine
@@ -37,9 +48,15 @@ Type of NATS message:
 - `ALERT`: Alert message
 - `MEDIA`: Media message
 
-### Data Models
+##### `ImmediateCommand`
+Command names for immediate/control commands:
+- `PAUSE`: Pause the current execution
+- `RESUME`: Resume a paused execution
+- `CANCEL`: Cancel the current execution
 
-#### `CommandRequest`
+#### Data Models
+
+##### `CommandRequest`
 Represents a command to be sent to a machine.
 
 **Fields:**
@@ -58,7 +75,7 @@ command = CommandRequest(
 )
 ```
 
-#### `CommandResponse`
+##### `CommandResponse`
 Represents the result of a command execution.
 
 **Fields:**
@@ -75,7 +92,7 @@ response = CommandResponse(
 )
 ```
 
-**Error Example**
+**Error Example:**
 ```python
 error_response = CommandResponse(
     status=CommandResponseStatus.ERROR,
@@ -85,7 +102,7 @@ error_response = CommandResponse(
 )
 ```
 
-#### `MessageHeader`
+##### `MessageHeader`
 Header metadata for NATS messages.
 
 **Fields:**
@@ -106,7 +123,7 @@ header = MessageHeader(
 )
 ```
 
-#### `NATSMessage`
+##### `NATSMessage`
 Complete NATS message structure combining header with optional command or response data.
 
 **Fields:**
@@ -118,12 +135,7 @@ Complete NATS message structure combining header with optional command or respon
 - For command messages: include `header` with `message_type=COMMAND` and `command` field
 - For response messages: include `header` with `message_type=RESPONSE` and `response` field
 
-## Example Usage
-
-### Complete Message Example
-
-Here's an example of a complete NATS message with a response:
-
+**Complete Message Example:**
 ```json
 {
   "header": {
@@ -151,19 +163,39 @@ Here's an example of a complete NATS message with a response:
 }
 ```
 
+### 2. CommandService (`command_service.py`)
 
-## Sending Commands
-
-The `CommandService` provides a high-level interface for sending commands to machines via NATS. See [`tests/command_service.py`](tests/command_service.py) for complete examples.
-
-### CommandService Overview
-
-The `CommandService` handles:
+Client-side service for sending commands to machines via NATS. Handles:
 - Connecting to NATS servers
 - Sending commands to machines (queue or immediate)
 - Waiting for and handling responses
 - Managing command lifecycle (run_id, step_number, etc.)
 - Automatic connection cleanup via async context manager
+
+See [Sending Commands](#sending-commands) section for usage examples.
+
+### 3. MachineClient (`machine_client.py`)
+
+Basic default NATS client for generic machines. Handles commands, telemetry, and events following the `puda.{machine_id}.{category}.{sub_category}` pattern. Provides:
+- Subscribing to command streams (queue and immediate) via JetStream with exactly-once delivery
+- Processing incoming commands and sending command responses
+- Publishing telemetry (core NATS, no JetStream)
+- Publishing events (core NATS, fire-and-forget)
+- Connection management and reconnection handling
+
+**Note:** This is a generic client. Machine-specific methods should be implemented in the machine-edge client.
+
+### 4. ExecutionState (`execution_state.py`)
+
+Thread-safe state management for command execution. Provides:
+- Execution lock to prevent concurrent commands
+- Current task tracking for cancellation
+- Run ID matching for cancel operations
+- Thread-safe access to execution state
+
+## Sending Commands
+
+The `CommandService` provides a high-level interface for sending commands to machines via NATS. See [`tests/commands.py`](tests/commands.py) and [`tests/batch_commands.py`](tests/batch_commands.py) for complete examples.
 
 ### Recommended Usage: Async Context Manager
 
@@ -216,71 +248,33 @@ asyncio.run(send_command())
 
 #### Queue Commands
 
-Queue commands are regular commands that are executed in sequence. Use `send_queue_command()` for:
-- Labware operations (`load_labware`, `remove_labware`)
-- Tip operations (`attach_tip`, `drop_tip`)
-- Liquid handling (`aspirate_from`, `dispense_to`)
-- Deck operations (`load_deck`)
+Queue commands are regular commands that are executed in sequence. Use `send_queue_command()` for machine-specific operations.
+
+**Note:** Available commands depend on the machine you are controlling. Different machines support different command sets. See [`puda_drivers`](../drivers/README.md) for information about available commands for each machine type (e.g., `first` machine supports commands like `load_deck`, `attach_tip`, `aspirate_from`, `dispense_to`, `drop_tip`, etc.).
+
+Both `send_queue_command()`, `send_queue_commands()`, and `send_immediate_command()` accept an optional `timeout` parameter (default: 120 seconds):
+
+```python
+# Single command
+reply = await service.send_queue_command(
+    request=request,
+    machine_id="first",
+    run_id=run_id,
+    timeout=60  # Wait up to 60 seconds
+)
+
+# Multiple commands (timeout applies to each command)
+reply = await service.send_queue_commands(
+    requests=commands,
+    machine_id="first",
+    run_id=run_id,
+    timeout=60  # Wait up to 60 seconds per command
+)
+```
 
 **Examples:**
 
-Load labware:
-```python
-async def load_labware(run_id: str):
-    """Example: Send a single command using context manager."""
-    async with CommandService() as service:
-        request = CommandRequest(
-            name="load_labware",
-            params={
-                "slot": "A1",
-                "labware_name": "opentrons_96_tiprack_300ul"
-            },
-            step_number=1
-        )
-        reply: NATSMessage = await service.send_queue_command(
-            request=request,
-            machine_id="first",
-            run_id=run_id
-        )
-        
-        if reply is None:
-            logger.error("Command failed or timed out")
-            return
-        
-        if reply.response is not None and reply.response.status == CommandResponseStatus.SUCCESS:
-            logger.info("Command completed successfully")
-        else:
-            logger.warning("Command failed with code: %s, message: %s", 
-                         reply.response.code, reply.response.message)
-```
-
-Remove labware:
-```python
-async def remove_labware(run_id: str):
-    """Example: Send a single command using context manager."""
-    async with CommandService() as service:
-        request = CommandRequest(
-            name="remove_labware",
-            params={
-                "slot": "A1"
-            },
-            step_number=1
-        )
-        reply: NATSMessage = await service.send_queue_command(
-            request=request,
-            machine_id="first",
-            run_id=run_id
-        )
-        
-        if reply is None:
-            logger.error("Command failed or timed out")
-            return
-        
-        if reply.response is not None and reply.response.status == CommandResponseStatus.SUCCESS:
-            logger.info("Labware removed successfully")
-        else:
-            logger.error("Failed to remove labware: %s", reply.response.message)
-```
+See [`tests/commands.py`](tests/commands.py) for complete examples.
 
 #### Immediate Commands
 
@@ -291,143 +285,99 @@ Immediate commands are control commands that interrupt or modify execution. Use 
 
 **Examples:**
 
-Pause:
-```python
-async def example_pause(run_id: str):
-    """Example: Send pause command using context manager."""
-    async with CommandService() as service:
-        pause_request = CommandRequest(
-            name="pause",
-            step_number=1
-        )
-        reply: NATSMessage = await service.send_immediate_command(
-            request=pause_request,
-            machine_id="first",
-            run_id=run_id
-        )
-        if reply is not None:
-            logger.info("Pause command result: status=%s, message=%s", 
-                      reply.response.status, reply.response.message)
-        else:
-            logger.error("Pause command failed or timed out")
-```
+See [`tests/commands.py`](tests/commands.py) for complete examples.
 
-Resume:
-```python
-async def example_resume(run_id: str):
-    """Example: Send resume command using context manager."""
-    async with CommandService() as service:
-        resume_request = CommandRequest(
-            name="resume",
-            step_number=1
-        )
-        reply: NATSMessage = await service.send_immediate_command(
-            request=resume_request,
-            machine_id="first",
-            run_id=run_id
-        )
-        if reply:
-            logger.info("Resume command result: status=%s, message=%s", 
-                      reply.response.status, reply.response.message)
-        else:
-            logger.error("Resume command failed or timed out")
-```
 
-Cancel:
-```python
-async def example_cancel(run_id: str):
-    """Example: Send cancel command using context manager."""
-    async with CommandService() as service:
-        cancel_request = CommandRequest(
-            name="cancel",
-            step_number=1
-        )
-        reply = await service.send_immediate_command(
-            request=cancel_request,
-            machine_id="first",
-            run_id=run_id
-        )
-        if reply:
-            logger.info("Cancel command result: status=%s, message=%s", 
-                      reply.response.status, reply.response.message)
-        else:
-            logger.error("Cancel command failed or timed out")
-```
 
 ### Sending Command Sequences
 
-You can send multiple commands in sequence by looping through them:
+You can send multiple commands in sequence using `send_queue_commands()`, which sends commands one by one and waits for each response before sending the next. If any command fails or times out, it stops immediately and returns the error response.
+
+**Loading Commands from JSON (Recommended for LLM-generated commands):**
+
+When generating commands from an LLM or loading from external sources, you can store commands in a JSON file and load them:
 
 ```python
-async def example_command_sequence(run_id: str):
-    """Example: Send a sequence of commands using context manager."""
+import json
+from pathlib import Path
+from puda_comms.models import CommandRequest
+
+# Load commands from JSON file
+def load_commands() -> list[dict]:
+    """Load commands from JSON file."""
+    commands_path = Path(__file__).parent / "commands.json"
+    with open(commands_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+async def send_batch_from_json(run_id: str):
+    """Example: Send batch commands loaded from JSON."""
     async with CommandService() as service:
-        commands = [
-            {
-                "name": "load_deck",
-                "params": {
-                    "deck_layout": {
-                        "C1": "trash_bin",
-                        "C2": "polyelectric_8_wellplate_30000ul",
-                        "A3": "opentrons_96_tiprack_300ul"
-                    }
-                },
-                "step_number": 1
-            },
-            {
-                "name": "attach_tip",
-                "params": {"slot": "A3", "well": "G8"},
-                "step_number": 2
-            },
-            {
-                "name": "aspirate_from",
-                "params": {"slot": "P0", "well": "A1", "amount": 100},
-                "step_number": 3
-            },
-            {
-                "name": "dispense_to",
-                "params": {"slot": "C2", "well": "B4", "amount": 100},
-                "step_number": 4
-            },
-            {
-                "name": "drop_tip",
-                "params": {"slot": "C1", "well": "A1"},
-                "step_number": 5
-            }
-        ]
+        # Load commands from JSON and convert to CommandRequest objects
+        command_dicts = load_commands()
+        requests = [CommandRequest(**cmd) for cmd in command_dicts]
         
-        all_succeeded = True
-        for cmd in commands:
-            request = CommandRequest(
-                name=cmd.get('name'),
-                params=cmd.get('params', {}),
-                step_number=cmd.get('step_number')
-            )
-            reply: NATSMessage = await service.send_queue_command(
-                request=request,
-                machine_id="first",
-                run_id=run_id
-            )
-            
-            if reply is None:
-                logger.error("Command failed or timed out: %s (step %s)", 
-                           request.name, request.step_number)
-                all_succeeded = False
-                break
-            
-            if reply.response is not None and reply.response.status != CommandResponseStatus.SUCCESS:
-                logger.error("Command failed: %s (step %s) - code: %s, message: %s", 
-                          request.name, request.step_number, 
-                          reply.response.code, reply.response.message)
-                all_succeeded = False
-                break
-            
-            logger.info("Command succeeded: %s (step %s)", request.name, request.step_number)
+        reply: NATSMessage = await service.send_queue_commands(
+            requests=requests,
+            machine_id="first",
+            run_id=run_id
+        )
         
-        if all_succeeded:
-            logger.info("All commands completed successfully")
+        if reply is None:
+            logger.error("Batch commands failed or timed out")
+        elif reply.response and reply.response.status == CommandResponseStatus.SUCCESS:
+            logger.info("All commands completed successfully!")
         else:
-            logger.error("Command sequence failed")
+            logger.error("Batch commands failed")
+```
+
+Example `commands.json`:
+```json
+[
+  {
+    "name": "load_deck",
+    "params": {
+      "deck_layout": {
+        "C1": "trash_bin",
+        "A3": "opentrons_96_tiprack_300ul"
+      }
+    },
+    "step_number": 1
+  },
+  {
+    "name": "attach_tip",
+    "params": {
+      "slot": "A3",
+      "well": "G8"
+    },
+    "step_number": 2
+  },
+  {
+    "name": "aspirate_from",
+    "params": {
+      "slot": "C2",
+      "well": "A1",
+      "amount": 100
+    },
+    "step_number": 3
+  },
+  {
+    "name": "dispense_to",
+    "params": {
+      "slot": "C2",
+      "well": "B4",
+      "amount": 100
+    },
+    "step_number": 4
+  },
+  {
+    "name": "drop_tip",
+    "params": {
+      "slot": "C1",
+      "well": "A1"
+    },
+    "step_number": 5
+  }
+]
 ```
 
 ### Error Handling
@@ -465,24 +415,6 @@ You can also specify servers explicitly:
 ```python
 service = CommandService(servers=["nats://localhost:4222"])
 ```
-
-### Timeout
-
-Both `send_queue_command()` and `send_immediate_command()` accept an optional `timeout` parameter (default: 30 seconds):
-
-```python
-reply = await service.send_queue_command(
-    request=request,
-    machine_id="first",
-    run_id=run_id,
-    timeout=60  # Wait up to 60 seconds
-)
-```
-
-## Timestamps
-
-All timestamps are automatically generated in ISO 8601 UTC format (`YYYY-MM-DDTHH:MM:SSZ`) when models are created. The `completed_at` field in `CommandResponse` and `timestamp` field in `MessageHeader` both use this format.
-
 ## Validation
 
 All models use Pydantic for validation, ensuring:
@@ -490,4 +422,3 @@ All models use Pydantic for validation, ensuring:
 - Required fields are present
 - Default values are applied correctly
 - JSON serialization/deserialization works correctly
-

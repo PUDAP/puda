@@ -1,10 +1,11 @@
 import asyncio
 import logging
 import os
+from typing import Any
 from dotenv import load_dotenv
 from puda_drivers.machines import First
 from puda_comms import MachineClient, ExecutionState
-from puda_comms.models import CommandResponse, CommandResponseStatus, CommandResponseCode, NATSMessage
+from puda_comms.models import CommandResponse, CommandResponseStatus, CommandResponseCode, NATSMessage, ImmediateCommand
 
 # Load environment variables from .env file
 load_dotenv()
@@ -17,6 +18,39 @@ logging.basicConfig(
 # Higher level logging for drivers
 logging.getLogger("puda_drivers").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+
+
+def _convert_handler_result_to_dict(result: Any) -> dict | None:
+    """
+    Convert handler result to a dictionary format suitable for JSON serialization.
+    
+    Args:
+        result: Handler return value (can be dict, Pydantic model, object with to_dict(), etc.)
+        
+    Returns:
+        Dictionary representation of the result, or None if result is None
+    """
+    if result is None:
+        return None
+    
+    if isinstance(result, dict):
+        return result
+    
+    if hasattr(result, 'model_dump'):
+        # Pydantic model
+        return result.model_dump()
+    
+    if hasattr(result, 'to_dict') and callable(result.to_dict):
+        # Object with to_dict() method (e.g., Position)
+        return result.to_dict()
+    
+    if hasattr(result, '__dict__'):
+        # Object with __dict__
+        return result.__dict__
+    
+    # Primitive type or other - wrap in a dict
+    return {'result': result}
+
 
 async def main():
     # 1. Initialize Objects
@@ -107,7 +141,8 @@ async def main():
             exec_state.set_current_task(task)
             
             try:
-                await task
+                # Capture the handler's return value
+                handler_result = await task
             except asyncio.CancelledError:
                 logger.info("Handler execution cancelled (run_id: %s)", run_id)
                 raise
@@ -115,7 +150,11 @@ async def main():
             # Success path (only reached if no exception occurred)
             await client.publish_state({'state': 'idle', 'run_id': run_id, 'deck': first_machine.deck.to_dict()})
             await client.publish_log('INFO', f'Command {command_name} completed')
-            return CommandResponse(status=CommandResponseStatus.SUCCESS)
+            
+            return CommandResponse(
+                status=CommandResponseStatus.SUCCESS,
+                data=_convert_handler_result_to_dict(handler_result)
+            )
 
         except asyncio.CancelledError:
             await client.publish_state({'state': 'idle', 'run_id': run_id, 'deck': first_machine.deck.to_dict()})
@@ -156,7 +195,7 @@ async def main():
         # Built-in commands (pause, resume, cancel) are handled by the client
         # This handler is called for other immediate commands or for custom logic
         match command_name:
-            case 'pause':
+            case ImmediateCommand.PAUSE:
                 # Custom pause logic if needed (beyond built-in handling)
                 # Try to acquire execution lock for custom pause actions
                 if not await exec_state.acquire_lock(run_id):
@@ -179,7 +218,7 @@ async def main():
                 finally:
                     exec_state.release_lock()
                     
-            case 'resume':
+            case ImmediateCommand.RESUME:
                 if not await exec_state.acquire_lock(run_id):
                     logger.warning("Cannot pause (run_id: %s): another command is running", run_id)
                     return CommandResponse(
@@ -199,7 +238,7 @@ async def main():
                 finally:
                     exec_state.release_lock()
             
-            case 'cancel':
+            case ImmediateCommand.CANCEL:
                 # Custom cancel logic if needed (beyond built-in handling)
                 try:
                     # Try to cancel the current execution

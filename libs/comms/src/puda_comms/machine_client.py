@@ -1,6 +1,7 @@
 """
 Basic default NATS Client for Generic Machines
 Handles commands, telemetry, and events following the puda.{machine_id}.{category}.{sub_category} pattern
+Specific methods to a single machine should be implemented in the machine-edge client
 """
 import asyncio
 from contextlib import asynccontextmanager
@@ -16,6 +17,7 @@ from puda_comms.models import (
     NATSMessage,
     CommandRequest,
     MessageType,
+    ImmediateCommand,
 )
 from nats.js.client import JetStreamContext
 from nats.js.api import StreamConfig
@@ -591,8 +593,10 @@ class MachineClient:
                 logger.error("Received message with no command")
                 return
             
-            match message.command.name.lower():
-                case 'pause':
+            command_name = message.command.name.lower()
+            
+            match command_name:
+                case ImmediateCommand.PAUSE:
                     async with self._pause_lock:
                         if not self._is_paused:
                             self._is_paused = True
@@ -601,7 +605,7 @@ class MachineClient:
                     # Call handler and use its response
                     response: CommandResponse = await handler(message)
                 
-                case 'resume':
+                case ImmediateCommand.RESUME:
                     async with self._pause_lock:
                         if self._is_paused:
                             self._is_paused = False
@@ -610,7 +614,7 @@ class MachineClient:
                     # Call handler and use its response
                     response: CommandResponse = await handler(message)
                 
-                case 'cancel':
+                case ImmediateCommand.CANCEL:
                     if message.header.run_id:
                         self._cancelled_run_ids.add(message.header.run_id)
                         logger.info("Cancelling all commands with run_id: %s", message.header.run_id)

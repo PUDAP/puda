@@ -1,0 +1,47 @@
+[
+  {
+    "name": "load_deck",
+    "params": {
+      "deck_layout": {
+        "C1": "trash_bin",
+        "A3": "opentrons_96_tiprack_300ul"
+      }
+    },
+    "step_number": 1
+  },
+  {
+    "name": "attach_tip",
+    "params": {
+      "slot": "A3",
+      "well": "G8"
+    },
+    "step_number": 2
+  },
+  {
+    "name": "aspirate_from",
+    "params": {
+      "slot": "C2",
+      "well": "A1",
+      "amount": 100
+    },
+    "step_number": 3
+  },
+  {
+    "name": "dispense_to",
+    "params": {
+      "slot": "C2",
+      "well": "B4",
+      "amount": 100
+    },
+    "step_number": 4
+  },
+  {
+    "name": "drop_tip",
+    "params": {
+      "slot": "C1",
+      "well": "A1"
+    },
+    "step_number": 5
+  }
+]
+

@@ -38,6 +38,13 @@ class MessageType(str, Enum):
     MEDIA = 'media'
 
 
+class ImmediateCommand(str, Enum):
+    """Command names for immediate commands."""
+    PAUSE = 'pause'
+    RESUME = 'resume'
+    CANCEL = 'cancel'
+
+
 def _get_current_timestamp() -> str:
     """Get current timestamp in ISO 8601 UTC format."""
     return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -55,8 +62,9 @@ class CommandResponse(BaseModel):
     """Result data in a command response."""
     status: CommandResponseStatus = Field(description="Status of the command response.")
     completed_at: str = Field(default_factory=_get_current_timestamp, description="ISO format timestamp (auto-set on creation)")
-    code: Optional[str] = Field(default=None, description="Error code (e.g., 'COMMAND_CANCELLED', 'HANDLER_ERROR')")
+    code: Optional[CommandResponseCode] = Field(default=None, description="Error code")
     message: Optional[str] = Field(default=None, description="Error message (human-readable description)")
+    data: Optional[Dict[str, Any]] = Field(default=None, description="Optional output data from the command handler")
 
 class MessageHeader(BaseModel):
     """Header for NATS messages."""
