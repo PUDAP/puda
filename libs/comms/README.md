@@ -280,14 +280,30 @@ else:
 
 ### Configuration
 
-The `CommandService` reads NATS server URLs from the `NATS_SERVERS` environment variable, or defaults to:
-```
-nats://192.168.50.201:4222,nats://192.168.50.201:4223,nats://192.168.50.201:4224
+#### NATS Server Configuration
+
+The `CommandService` requires NATS server URLs to be specified explicitly. There are no default values. You must provide servers in one of two ways:
+
+**Option 1: Via environment variable (comma-separated string)**
+
+Set the `NATS_SERVERS` environment variable with comma-separated server URLs:
+
+```bash
+export NATS_SERVERS="nats://192.168.50.201:4222,nats://192.168.50.201:4223,nats://192.168.50.201:4224"
 ```
 
-You can also specify servers explicitly:
+Then parse it when creating a `CommandService`:
 ```python
-service = CommandService(servers=["nats://localhost:4222"])
+import os
+nats_servers = [s.strip() for s in os.getenv("NATS_SERVERS", "").split(",") if s.strip()]
+service = CommandService(servers=nats_servers)
+```
+
+**Option 2: Directly as a list**
+
+Specify servers directly when creating a `CommandService`:
+```python
+service = CommandService(servers=["nats://192.168.50.201:4222", "nats://192.168.50.201:4223", "nats://192.168.50.201:4224"])
 ```
 ## Validation
 

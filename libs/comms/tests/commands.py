@@ -15,6 +15,7 @@ Recommended usage: Use async context manager for automatic cleanup.
 import uuid
 import asyncio
 import logging
+import os
 from puda_comms import CommandService
 from puda_comms.models import CommandRequest, CommandResponseStatus, NATSMessage, ImmediateCommand
 
@@ -27,10 +28,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def get_nats_servers() -> list[str]:
+    """Get NATS servers from environment variable or use default."""
+    nats_servers_env = os.getenv(
+        "NATS_SERVERS",
+        "nats://100.86.162.126:4222,nats://100.86.162.126:4223,nats://100.86.162.126:4224"
+    )
+    return [s.strip() for s in nats_servers_env.split(",")]
+
+
 async def load_labware(run_id: str):
     """Example: Send a single command using context manager."""
     # Using async context manager - automatically connects and disconnects
-    async with CommandService() as service:
+    async with CommandService(servers=get_nats_servers()) as service:
         # Send a single command
         request = CommandRequest(
             name="load_labware",
@@ -55,7 +65,7 @@ async def load_labware(run_id: str):
 async def remove_labware(run_id: str):
     """Example: Send a single command using context manager."""
     # Using async context manager - automatically connects and disconnects
-    async with CommandService() as service:
+    async with CommandService(servers=get_nats_servers()) as service:
         # Remove the labware from the slot
         request = CommandRequest(
             name="remove_labware",
@@ -79,7 +89,7 @@ async def remove_labware(run_id: str):
 async def example_command_sequence(run_id: str):
     """Example: Send a sequence of commands using context manager."""
     # Using async context manager - automatically connects and disconnects
-    async with CommandService() as service:
+    async with CommandService(servers=get_nats_servers()) as service:
         # Define command sequence
         commands = [
             {
@@ -144,7 +154,7 @@ async def example_pause(run_id: str):
     """Example: Send pause command using context manager."""
     # Using async context manager - automatically connects and disconnects
     # Signal handlers are automatically registered for graceful shutdown
-    async with CommandService() as service:
+    async with CommandService(servers=get_nats_servers()) as service:
         machine_id = "first"
         
         pause_request = CommandRequest(
@@ -163,7 +173,7 @@ async def example_resume(run_id: str):
     """Example: Send resume command using context manager."""
     # Using async context manager - automatically connects and disconnects
     # Signal handlers are automatically registered for graceful shutdown
-    async with CommandService() as service:
+    async with CommandService(servers=get_nats_servers()) as service:
         machine_id = "first"
         
         resume_request = CommandRequest(
@@ -182,7 +192,7 @@ async def example_cancel(run_id: str):
     """Example: Send cancel command using context manager."""
     # Using async context manager - automatically connects and disconnects
     # Signal handlers are automatically registered for graceful shutdown
-    async with CommandService() as service:
+    async with CommandService(servers=get_nats_servers()) as service:
         machine_id = "first"
         
         cancel_request = CommandRequest(
@@ -200,7 +210,7 @@ async def example_cancel(run_id: str):
 async def example_get_deck(run_id: str):
     """Example: Get current deck layout using context manager."""
     # Using async context manager - automatically connects and disconnects
-    async with CommandService() as service:
+    async with CommandService(servers=get_nats_servers()) as service:
         machine_id = "first"
         
         request = CommandRequest(
@@ -228,10 +238,10 @@ async def example_get_deck(run_id: str):
 if __name__ == "__main__":
     TEST_RUN_ID = str(uuid.uuid4())
     # Run examples
-    # asyncio.run(load_labware(TEST_RUN_ID))
-    # asyncio.run(example_get_deck(TEST_RUN_ID))
-    # asyncio.run(remove_labware(TEST_RUN_ID))
-    # asyncio.run(example_get_deck(TEST_RUN_ID))
+    asyncio.run(load_labware(TEST_RUN_ID))
+    asyncio.run(example_get_deck(TEST_RUN_ID))
+    asyncio.run(remove_labware(TEST_RUN_ID))
+    asyncio.run(example_get_deck(TEST_RUN_ID))
 
     # asyncio.run(example_command_sequence(TEST_RUN_ID))
     # asyncio.run(example_pause(TEST_RUN_ID))

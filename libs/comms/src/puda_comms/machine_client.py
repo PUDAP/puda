@@ -261,6 +261,7 @@ class MachineClient:
         try:
             self.nc = await nats.connect(
                 servers=self.servers,
+                connect_timeout=10,  # 10 seconds timeout for initial connection
                 reconnect_time_wait=2,
                 max_reconnect_attempts=-1,
                 error_cb=self._error_callback,

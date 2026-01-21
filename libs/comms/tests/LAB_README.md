@@ -10,7 +10,15 @@ Install `uv` (a fast Python package installer and resolver) by following the off
 
 https://docs.astral.sh/uv/getting-started/installation/
 
-### 2. Initialize Your Project
+### 2. Configure NATS Client
+
+Set the NATS server URLs using the `NATS_SERVERS` environment variable. If you are connected to the ASUS_B8 network, use:
+
+```bash
+export NATS_SERVERS="nats://192.168.50.201:4222,nats://192.168.50.201:4223,nats://192.168.50.201:4224"
+```
+
+### 3. Initialize Your Project
 
 Create a new project directory and initialize it with uv:
 
@@ -19,7 +27,7 @@ uv init --app <project_name>
 cd <project_name>
 ```
 
-### 3. Install Dependencies
+### 4. Install Dependencies
 
 Install the required packages:
 
@@ -215,6 +223,6 @@ When running successfully, you'll see:
 
 - **Command not found**: Verify the command name matches exactly with a method from `help(First)`
 - **Parameter errors**: Check that all required parameters are provided and types match
-- **Connection errors**: Ensure the machine is running and accessible via NATS
+- **Connection errors**: Ensure the machine is running and accessible via NATS. If connected to ASUS_B8, make sure `NATS_SERVERS` is set to `192.168.50.201`
 - **Timeout errors**: Some commands may take longer; check if the machine is responsive
 

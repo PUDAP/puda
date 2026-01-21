@@ -90,7 +90,7 @@ async def main():
     try:
         # Connect to NATS
         print("Connecting to NATS servers...")
-        nc = await nats.connect(servers=servers)
+        nc = await nats.connect(servers=servers, connect_timeout=10)
         js = nc.jetstream()
         print("Connected to NATS\n")
         

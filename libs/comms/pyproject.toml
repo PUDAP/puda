@@ -1,6 +1,6 @@
 [project]
 name = "puda-comms"
-version = "0.0.2"
+version = "0.0.3"
 description = "Communication library for the PUDA platform."
 readme = "README.md"
 authors = [

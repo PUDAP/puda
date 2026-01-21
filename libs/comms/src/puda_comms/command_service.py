@@ -10,7 +10,6 @@ This service handles:
 import asyncio
 import json
 import logging
-import os
 import signal
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, Tuple
@@ -178,8 +177,16 @@ class ResponseHandler:
         if key in self._pending_responses:
             del self._pending_responses[key]
     
+    def cancel_all_pending(self):
+        """Cancel all pending responses by setting their events. This wakes up any waiting tasks immediately."""
+        for pending in self._pending_responses.values():
+            pending['event'].set()
+    
     async def cleanup(self):
         """Clean up subscriptions."""
+        # Cancel all pending responses first to wake up waiting tasks
+        self.cancel_all_pending()
+        
         if self._queue_consumer:
             try:
                 await self._queue_consumer.unsubscribe()
@@ -200,11 +207,6 @@ class CommandService:
     Handles connection management, command parsing, and response handling.
     Can send commands to multiple machines.
     
-    Supports async context manager usage for automatic cleanup:
-        async with CommandService() as service:
-            await service.send_queue_command(...)
-        # Automatically disconnects on exit
-    
     Automatically registers signal handlers (SIGTERM, SIGINT) for graceful shutdown.
     """
     
@@ -212,20 +214,19 @@ class CommandService:
     
     def __init__(
         self,
-        servers: Optional[list[str]] = None
+        servers: list[str]
     ):
         """
         Initialize NATS service.
         
         Args:
-            servers: List of NATS server URLs. If None, reads from NATS_SERVERS env var.
+            servers: List of NATS server URLs. Must be a non-empty list.
+        
+        Raises:
+            ValueError: If servers is None or empty.
         """
-        if servers is None:
-            nats_servers_env = os.getenv(
-                "NATS_SERVERS",
-                "nats://192.168.50.201:4222,nats://192.168.50.201:4223,nats://192.168.50.201:4224"
-            )
-            servers = [s.strip() for s in nats_servers_env.split(",")]
+        if servers is None or len(servers) == 0:
+            raise ValueError("Please provide a non-empty list of NATS server URLs")
         
         self.servers = servers
         self.nc: Optional[nats.NATS] = None
@@ -254,24 +255,50 @@ class CommandService:
         """
         Connect to NATS servers.
         
+        Limits connection attempts to 3. After 3 failed attempts, gives up and logs error.
+        
         Returns:
             True if connected successfully, False otherwise
         """
         if self._connected:
             return True
         
-        try:
-            self.nc = await nats.connect(servers=self.servers)
-            self.js = self.nc.jetstream()
-            
-            self._connected = True
-            logger.info("Connected to NATS servers: %s", self.servers)
-            return True
-            
-        except Exception as e:
-            logger.error("Failed to connect to NATS: %s", e)
-            self._connected = False
-            return False
+        max_attempts = 3
+        connect_timeout = 3  # 3 seconds timeout per connection attempt
+        
+        for attempt in range(1, max_attempts + 1):
+            try:
+                logger.info("Connection attempt %d/%d to NATS servers: %s", attempt, max_attempts, self.servers)
+                self.nc = await asyncio.wait_for(
+                    nats.connect(
+                        servers=self.servers,
+                        connect_timeout=connect_timeout,
+                        reconnect_time_wait=2,
+                        max_reconnect_attempts=0  # No reconnection during initial connection
+                    ),
+                    timeout=connect_timeout + 1  # Slightly longer timeout for the wait_for
+                )
+                self.js = self.nc.jetstream()
+                
+                self._connected = True
+                logger.info("Connected to NATS servers")
+                return True
+                
+            except asyncio.TimeoutError:
+                logger.warning("Connection attempt %d/%d timed out after %d seconds", attempt, max_attempts, connect_timeout)
+                if attempt < max_attempts:
+                    logger.info("Retrying connection...")
+                else:
+                    logger.error("Failed to connect after %d attempts. Giving up.", max_attempts)
+            except Exception as e:
+                logger.warning("Connection attempt %d/%d failed: %s", attempt, max_attempts, e)
+                if attempt < max_attempts:
+                    logger.info("Retrying connection...")
+                else:
+                    logger.error("Failed to connect after %d attempts. Giving up.", max_attempts)
+        
+        self._connected = False
+        return False
     
     async def _get_response_handler(self, machine_id: str) -> ResponseHandler:
         """

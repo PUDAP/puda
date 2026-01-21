@@ -17,6 +17,7 @@ import json
 import uuid
 import asyncio
 import logging
+import os
 from pathlib import Path
 from puda_comms import CommandService
 from puda_comms.models import CommandRequest, CommandResponseStatus, NATSMessage
@@ -28,6 +29,15 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def get_nats_servers() -> list[str]:
+    """Get NATS servers from environment variable or use default."""
+    nats_servers_env = os.getenv(
+        "NATS_SERVERS",
+        "nats://100.86.162.126:4222,nats://100.86.162.126:4223,nats://100.86.162.126:4224"
+    )
+    return [s.strip() for s in nats_servers_env.split(",")]
 
 # Load commands from JSON file (useful when generating commands from LLM and loading from JSON)
 COMMANDS_JSON_PATH = Path(__file__).parent / "commands.json"
@@ -44,7 +54,7 @@ async def main():
     """Run batch commands from JSON file."""
     logger.info("Starting batch command tests with run_id: %s", TEST_RUN_ID)
     
-    async with CommandService() as service:
+    async with CommandService(servers=get_nats_servers()) as service:
         # Load commands from JSON and convert to CommandRequest objects
         command_dicts = load_commands()
         requests = [CommandRequest(**cmd) for cmd in command_dicts]
