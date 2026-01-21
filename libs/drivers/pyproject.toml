@@ -18,10 +18,14 @@ classifiers = [
 ]
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
+
 dependencies = [
     "nats-py>=2.12.0",
     "opencv-python>=4.12.0.88",
     "pyserial~=3.5",
+]
+[dependency-groups]
+dev = [
     "pytest>=9.0.2",
 ]
 

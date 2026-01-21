@@ -159,6 +159,8 @@ class First:
         self.camera.disconnect()
         self._logger.info("Machine shutdown complete")
         
+    ### Queue (public commands) ###
+    
     async def get_position(self) -> Dict[str, Union[Dict[str, float], int]]:
         """
         Get the current position of the machine. Both QuBot and Sartorius are queried.
@@ -175,8 +177,18 @@ class First:
             "qubot": qubot_position.to_dict(),
             "pipette": sartorius_position,
         }
+    
+    def get_deck(self):
+        """
+        Get the current deck layout.
         
-    ### Labware management ###
+        Returns:
+            Dictionary mapping slot names (e.g., "A1") to labware classes.
+        
+        Raises:
+            None
+        """
+        return self.deck.to_dict()
         
     def load_labware(self, slot: str, labware_name: str):
         """
@@ -205,19 +217,6 @@ class First:
         """
         self.deck.empty_slot(slot=slot)
         self._logger.debug("Slot '%s' emptied", slot)
-    
-    def get_deck(self):
-        """
-        Get the current deck layout.
-        
-        Returns:
-            Dictionary mapping slot names (e.g., "A1") to labware classes.
-        
-        Raises:
-            None
-        """
-        return self.deck.to_dict()
-
         
     def load_deck(self, deck_layout: Dict[str, Type[StandardLabware]]):
         """
@@ -239,8 +238,6 @@ class First:
             self.load_labware(slot=slot, labware_name=labware_name)
         self._logger.info("Deck layout loaded successfully")
         
-    ### Liquid handling ###
-        
     def attach_tip(self, slot: str, well: Optional[str] = None):
         """
         Attach a tip from a slot.
@@ -258,7 +255,7 @@ class First:
             return
         
         self._logger.info("Attaching tip from slot '%s'%s", slot, f", well '{well}'" if well else "")
-        pos = self.get_absolute_z_position(slot, well)
+        pos = self._get_absolute_z_position(slot, well)
         self._logger.debug("Moving to position %s for tip attachment", pos)
         # return the offset from the origin
         self.qubot.move_absolute(position=pos)
@@ -301,7 +298,7 @@ class First:
             raise ValueError("Tip not attached")
         
         self._logger.info("Dropping tip into slot '%s', well '%s'", slot, well)
-        pos = self.get_absolute_z_position(slot, well)
+        pos = self._get_absolute_z_position(slot, well)
         # add height from bottom
         pos += Position(z=height_from_bottom)
         # move up by the tip length
@@ -337,7 +334,7 @@ class First:
             raise ValueError("Tip not attached")
         
         self._logger.info("Aspirating %d µL from slot '%s', well '%s'", amount, slot, well)
-        pos = self.get_absolute_z_position(slot, well)
+        pos = self._get_absolute_z_position(slot, well)
         # add height from bottom
         pos += Position(z=height_from_bottom)
         self._logger.debug("Moving Z axis to position %s", pos)
@@ -370,7 +367,7 @@ class First:
             raise ValueError("Tip not attached")
         
         self._logger.info("Dispensing %d µL to slot '%s', well '%s'", amount, slot, well)
-        pos = self.get_absolute_z_position(slot, well)
+        pos = self._get_absolute_z_position(slot, well)
         # add height from bottom
         pos += Position(z=height_from_bottom)
         self._logger.debug("Moving Z axis to position %s", pos)
@@ -380,92 +377,6 @@ class First:
         self.pipette.dispense(amount=amount)
         time.sleep(5)
         self._logger.info("Dispense completed: %d µL to slot '%s', well '%s'", amount, slot, well)
-        
-    def get_slot_origin(self, slot: str) -> Position:
-        """
-        Get the origin coordinates of a slot.
-        
-        Args:
-            slot: Slot name (e.g., 'A1', 'B2')
-            
-        Returns:
-            Position for the slot origin
-            
-        Raises:
-            KeyError: If slot name is invalid
-        """
-        slot = slot.upper()
-        if slot not in self.SLOT_ORIGINS:
-            self._logger.error("Invalid slot name: '%s'. Must be one of %s", slot, list(self.SLOT_ORIGINS.keys()))
-            raise KeyError(f"Invalid slot name: {slot}. Must be one of {list(self.SLOT_ORIGINS.keys())}")
-        pos = self.SLOT_ORIGINS[slot]
-        self._logger.debug("Slot origin for '%s': %s", slot, pos)
-        return pos
-    
-    def get_absolute_z_position(self, slot: str, well: Optional[str] = None) -> Position:
-        """
-        Get the absolute position for a slot (and optionally a well within that slot) based on the origin
-        
-        Args:
-            slot: Slot name (e.g., 'A1', 'B2')
-            well: Optional well name within the slot (e.g., 'A1' for a well in a tiprack)
-            
-        Returns:
-            Position with absolute coordinates
-            
-        Raises:
-            ValueError: If well is specified but no labware is loaded in the slot
-        """
-        # Get slot origin
-        pos = self.get_slot_origin(slot)
-
-        # relative well position from slot origin
-        if well:
-            labware = self.deck[slot]
-            if labware is None:
-                self._logger.error("Cannot get well position: no labware loaded in slot '%s'", slot)
-                raise ValueError(f"No labware loaded in slot '{slot}'. Load labware before accessing wells.")
-            well_pos = labware.get_well_position(well).get_xy()
-            # the deck is rotated 90 degrees clockwise for this machine
-            pos += well_pos.swap_xy()
-            # get z
-            pos += Position(z=labware.get_height() - self.CEILING_HEIGHT)
-            self._logger.debug("Absolute Z position for slot '%s', well '%s': %s", slot, well, pos)
-        else:
-            self._logger.debug("Absolute Z position for slot '%s': %s", slot, pos)
-        return pos
-    
-    def get_absolute_a_position(self, slot: str, well: Optional[str] = None) -> Position:
-        """
-        Get the absolute position for a slot (and optionally a well within that slot) based on the origin
-        
-        Args:
-            slot: Slot name (e.g., 'A1', 'B2')
-            well: Optional well name within the slot (e.g., 'A1' for a well in a tiprack)
-            
-        Returns:
-            Position with absolute coordinates
-            
-        Raises:
-            ValueError: If well is specified but no labware is loaded in the slot
-        """
-        pos = self.get_slot_origin(slot)
-        
-        if well:
-            labware = self.deck[slot]
-            if labware is None:
-                self._logger.error("Cannot get well position: no labware loaded in slot '%s'", slot)
-                raise ValueError(f"No labware loaded in slot '{slot}'. Load labware before accessing wells.")
-            well_pos = labware.get_well_position(well).get_xy()
-            pos += well_pos.swap_xy()
-            
-            # get a
-            a = Position(a=labware.get_height() - self.CEILING_HEIGHT)
-            pos += a
-            self._logger.debug("Absolute A position for slot '%s', well '%s': %s", slot, well, pos)
-        else:
-            self._logger.debug("Absolute A position for slot '%s': %s", slot, pos)
-        return pos
     
     def start_video_recording(
         self,
@@ -549,3 +460,111 @@ class First:
             IOError: If camera is not connected or capture fails
         """
         return self.camera.capture_image(save=save, filename=filename)
+    
+    ### Private methods ###
+    
+    def _get_slot_origin(self, slot: str) -> Position:
+        """
+        Get the origin coordinates of a slot.
+        
+        Args:
+            slot: Slot name (e.g., 'A1', 'B2')
+            
+        Returns:
+            Position for the slot origin
+            
+        Raises:
+            KeyError: If slot name is invalid
+        """
+        slot = slot.upper()
+        if slot not in self.SLOT_ORIGINS:
+            self._logger.error("Invalid slot name: '%s'. Must be one of %s", slot, list(self.SLOT_ORIGINS.keys()))
+            raise KeyError(f"Invalid slot name: {slot}. Must be one of {list(self.SLOT_ORIGINS.keys())}")
+        pos = self.SLOT_ORIGINS[slot]
+        self._logger.debug("Slot origin for '%s': %s", slot, pos)
+        return pos
+    
+    def _get_absolute_z_position(self, slot: str, well: Optional[str] = None) -> Position:
+        """
+        Get the absolute position for a slot (and optionally a well within that slot) based on the origin
+        
+        Args:
+            slot: Slot name (e.g., 'A1', 'B2')
+            well: Optional well name within the slot (e.g., 'A1' for a well in a tiprack)
+            
+        Returns:
+            Position with absolute coordinates
+            
+        Raises:
+            ValueError: If well is specified but no labware is loaded in the slot
+        """
+        # Get slot origin
+        pos = self._get_slot_origin(slot)
+
+        # relative well position from slot origin
+        if well:
+            labware = self.deck[slot]
+            if labware is None:
+                self._logger.error("Cannot get well position: no labware loaded in slot '%s'", slot)
+                raise ValueError(f"No labware loaded in slot '{slot}'. Load labware before accessing wells.")
+            well_pos = labware.get_well_position(well).get_xy()
+            # the deck is rotated 90 degrees clockwise for this machine
+            pos += well_pos.swap_xy()
+            # get z
+            pos += Position(z=labware.get_height() - self.CEILING_HEIGHT)
+            self._logger.debug("Absolute Z position for slot '%s', well '%s': %s", slot, well, pos)
+        else:
+            self._logger.debug("Absolute Z position for slot '%s': %s", slot, pos)
+        return pos
+    
+    def _get_absolute_a_position(self, slot: str, well: Optional[str] = None) -> Position:
+        """
+        Get the absolute position for a slot (and optionally a well within that slot) based on the origin
+        
+        Args:
+            slot: Slot name (e.g., 'A1', 'B2')
+            well: Optional well name within the slot (e.g., 'A1' for a well in a tiprack)
+            
+        Returns:
+            Position with absolute coordinates
+            
+        Raises:
+            ValueError: If well is specified but no labware is loaded in the slot
+        """
+        pos = self._get_slot_origin(slot)
+        
+        if well:
+            labware = self.deck[slot]
+            if labware is None:
+                self._logger.error("Cannot get well position: no labware loaded in slot '%s'", slot)
+                raise ValueError(f"No labware loaded in slot '{slot}'. Load labware before accessing wells.")
+            well_pos = labware.get_well_position(well).get_xy()
+            pos += well_pos.swap_xy()
+            
+            # get a
+            a = Position(a=labware.get_height() - self.CEILING_HEIGHT)
+            pos += a
+            self._logger.debug("Absolute A position for slot '%s', well '%s': %s", slot, well, pos)
+        else:
+            self._logger.debug("Absolute A position for slot '%s': %s", slot, pos)
+        return pos
+    
+    ### Control (immediate commands) ###
+    
+    def pause(self):
+        """
+        Pause the execution of queued commands.
+        """
+        print("Pausing machine")
+    
+    def resume(self):
+        """
+        Resume the execution of queued commands.
+        """
+        print("Resuming machine")
+
+    def cancel(self):
+        """
+        Cancel the execution of queued commands.
+        """
+        print("Cancelling machine")
