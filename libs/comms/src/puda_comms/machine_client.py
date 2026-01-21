@@ -20,7 +20,7 @@ from puda_comms.models import (
     ImmediateCommand,
 )
 from nats.js.client import JetStreamContext
-from nats.js.api import StreamConfig
+from nats.js.api import StreamConfig, ConsumerConfig
 from nats.js.errors import NotFoundError
 from nats.aio.msg import Msg
 
@@ -69,11 +69,13 @@ class MachineClient:
         
         # Default subscriptions
         self._cmd_queue_sub = None
+        self._cmd_queue_task = None  # Background task for pull consumer
         self._cmd_immediate_sub = None
         
         # Connection state
         self._is_connected = False
-        self._reconnect_handlers = []
+        self._queue_handler = None
+        self._immediate_handler = None
         
         # Queue control state
         self._pause_lock = asyncio.Lock()
@@ -184,30 +186,22 @@ class MachineClient:
             logger.error("Error ensuring %s stream: %s", stream_name, e, exc_info=True)
             raise
     
-    async def _ensure_command_queue_stream(self):
-        """Ensure COMMAND_QUEUE stream exists with WorkQueue retention policy."""
+    async def _ensure_all_streams(self):
+        """Ensure all required streams exist with correct retention policies."""
         await self._ensure_stream(
             self.STREAM_COMMAND_QUEUE,
-            f"{self.NAMESPACE}.*.cmd.queue"
+            f"{self.NAMESPACE}.*.cmd.queue",
+            retention='workqueue'
         )
-    
-    async def _ensure_command_immediate_stream(self):
-        """Ensure COMMAND_IMMEDIATE stream exists with WorkQueue retention policy."""
         await self._ensure_stream(
             self.STREAM_COMMAND_IMMEDIATE,
             f"{self.NAMESPACE}.*.cmd.immediate"
         )
-    
-    async def _ensure_response_queue_stream(self):
-        """Ensure RESPONSE_QUEUE stream exists with Interest retention policy."""
         await self._ensure_stream(
             self.STREAM_RESPONSE_QUEUE,
             f"{self.NAMESPACE}.*.cmd.response.queue",
             retention='interest'
         )
-    
-    async def _ensure_response_immediate_stream(self):
-        """Ensure RESPONSE_IMMEDIATE stream exists with Interest retention policy."""
         await self._ensure_stream(
             self.STREAM_RESPONSE_IMMEDIATE,
             f"{self.NAMESPACE}.*.cmd.response.immediate",
@@ -230,7 +224,17 @@ class MachineClient:
     
     async def _cleanup_subscriptions(self):
         """Unsubscribe from all subscriptions."""
-        # Clean up subscriptions
+        # Clean up queue subscription (pull consumer)
+        if self._cmd_queue_task:
+            try:
+                self._cmd_queue_task.cancel()
+                await self._cmd_queue_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+            self._cmd_queue_task = None
+        
         if self._cmd_queue_sub:
             try:
                 await self._cmd_queue_sub.unsubscribe()
@@ -252,6 +256,7 @@ class MachineClient:
         self.kv = None
         # Subscriptions will be recreated on reconnection
         self._cmd_queue_sub = None
+        self._cmd_queue_task = None
         self._cmd_immediate_sub = None
     
     # ==================== CONNECTION MANAGEMENT ====================
@@ -270,10 +275,7 @@ class MachineClient:
                 closed_cb=self._closed_callback
             )
             self.js = self.nc.jetstream()
-            await self._ensure_command_queue_stream()
-            await self._ensure_command_immediate_stream()
-            await self._ensure_response_queue_stream()
-            await self._ensure_response_immediate_stream()
+            await self._ensure_all_streams()
             self.kv = await self._get_or_create_kv_bucket()
             self._is_connected = True
             logger.info("Connected to NATS servers: %s", self.servers)
@@ -299,32 +301,16 @@ class MachineClient:
         
         if self.nc:
             self.js = self.nc.jetstream()
-            await self._ensure_command_queue_stream()
-            await self._ensure_command_immediate_stream()
-            await self._ensure_response_queue_stream()
-            await self._ensure_response_immediate_stream()
+            await self._ensure_all_streams()
             self.kv = await self._get_or_create_kv_bucket()
             await self._resubscribe_handlers()
     
     async def _resubscribe_handlers(self):
         """Re-subscribe to all handlers after reconnection."""
-        subscribe_methods = {
-            'queue': self.subscribe_queue,
-            'immediate': self.subscribe_immediate,
-        }
-        
-        for handler_info in self._reconnect_handlers:
-            try:
-                handler_type = handler_info['type']
-                handler = handler_info['handler']
-                subscribe_method = subscribe_methods.get(handler_type)
-                
-                if subscribe_method:
-                    await subscribe_method(handler)
-                else:
-                    logger.warning("Unknown handler type: %s", handler_type)
-            except Exception as e:
-                logger.error("Failed to re-subscribe %s: %s", handler_type, e)
+        if self._queue_handler:
+            await self.subscribe_queue(self._queue_handler)
+        if self._immediate_handler:
+            await self.subscribe_immediate(self._immediate_handler)
     
     async def _closed_callback(self):
         """Callback when connection is closed."""
@@ -439,7 +425,7 @@ class MachineClient:
     async def process_queue_cmd(
         self, 
         msg: Msg,
-        handler: Callable[[CommandRequest], Awaitable[CommandResponse]]
+        handler: Callable[[NATSMessage], Awaitable[CommandResponse]]
     ) -> None:
         """
         Handle the lifecycle of a single message: Parse -> Handle -> Ack/Nak/Term.
@@ -661,9 +647,54 @@ class MachineClient:
             )
             await self.publish_state({'state': 'error', 'run_id': None})
     
+    async def _verify_or_recreate_consumer(self, durable_name: str):
+        """
+        Check if consumer exists and verify/update its configuration.
+        Deletes and recreates the consumer if configuration doesn't match.
+        
+        Args:
+            durable_name: Name of the durable consumer to verify
+        """
+        # Check if consumer exists and verify/update its configuration
+        try:
+            consumer_info = await self.js.consumer_info(self.STREAM_COMMAND_QUEUE, durable_name)
+            logger.debug("Durable consumer %s already exists", durable_name)
+            
+            # Check if consumer config matches what we need
+            config = consumer_info.config
+            needs_recreate = False
+            if getattr(config, 'filter_subject', None) != self.cmd_queue:
+                logger.warning("Consumer filter_subject mismatch: expected %s, got %s", 
+                             self.cmd_queue, getattr(config, 'filter_subject', None))
+                needs_recreate = True
+            if getattr(config, 'ack_policy', None) != 'explicit':
+                logger.warning("Consumer ack_policy mismatch: expected explicit, got %s", 
+                             getattr(config, 'ack_policy', None))
+                needs_recreate = True
+            if getattr(config, 'deliver_policy', None) != 'all':
+                logger.warning("Consumer deliver_policy mismatch: expected all, got %s", 
+                             getattr(config, 'deliver_policy', None))
+                needs_recreate = True
+            
+            if needs_recreate:
+                # Consumer exists but config doesn't match - delete and recreate
+                logger.info("Consumer config mismatch, deleting and recreating: %s", durable_name)
+                try:
+                    await self.js.delete_consumer(self.STREAM_COMMAND_QUEUE, durable_name)
+                except Exception as e:
+                    logger.warning("Error deleting consumer: %s", e)
+            else:
+                # Log consumer state for diagnostics
+                logger.info("Consumer exists with correct config - pending: %d, delivered: %d, ack_pending: %d",
+                           consumer_info.num_pending, consumer_info.delivered.consumer_seq,
+                           consumer_info.num_ack_pending)
+        except NotFoundError:
+            # Consumer doesn't exist, will be created by pull_subscribe
+            logger.debug("Durable consumer %s does not exist, will be created", durable_name)
+    
     async def subscribe_queue(self, handler: Callable[[NATSMessage], Awaitable[CommandResponse]]):
         """
-        Subscribe to queue commands with default consumer.
+        Subscribe to queue commands with pull consumer.
         
         Args:
             handler: Async function that processes command payloads and returns CommandResponse
@@ -673,19 +704,65 @@ class MachineClient:
             return
         
         # Ensure stream exists before attempting to subscribe
-        await self._ensure_command_queue_stream()
+        await self._ensure_all_streams()
         
         try:
-            async def message_handler(msg: Msg):
-                """Wrapper to process queue messages."""
-                await self.process_queue_cmd(msg, handler)
-
-            self._cmd_queue_sub = await self.js.subscribe(
-                subject=self.cmd_queue,
-                stream=self.STREAM_COMMAND_QUEUE,
-                durable=f"cmd_queue_{self.machine_id}",
-                cb=message_handler
+            durable_name = f"cmd_queue_{self.machine_id}"
+            
+            await self._verify_or_recreate_consumer(durable_name)
+            
+            # Create pull subscription - this will create the consumer if it doesn't exist
+            # Pass config directly to ensure correct consumer configuration
+            consumer_config = ConsumerConfig(
+                durable_name=durable_name,
+                filter_subject=self.cmd_queue,
+                ack_policy="explicit",
+                deliver_policy="all",  # Required for WorkQueue: deliver all messages from the beginning
             )
+            
+            self._cmd_queue_sub = await self.js.pull_subscribe(
+                subject=self.cmd_queue,
+                durable=durable_name,
+                stream=self.STREAM_COMMAND_QUEUE,
+                config=consumer_config
+            )
+            
+            # Log final consumer info for diagnostics
+            try:
+                consumer_info = await self.js.consumer_info(self.STREAM_COMMAND_QUEUE, durable_name)
+                logger.info("Pull subscription created - subject: %s, durable: %s, stream: %s, pending: %d, ack_pending: %d",
+                           self.cmd_queue, durable_name, self.STREAM_COMMAND_QUEUE,
+                           consumer_info.num_pending, consumer_info.num_ack_pending)
+            except Exception as e:
+                logger.warning("Could not get consumer info after subscription: %s", e)
+                logger.info("Pull subscription created - subject: %s, durable: %s, stream: %s",
+                           self.cmd_queue, durable_name, self.STREAM_COMMAND_QUEUE)
+            
+            # Start background task to pull and process messages
+            async def pull_messages():
+                """Continuously pull messages from the queue."""
+                try:
+                    while True:
+                        try:
+                            # Fetch messages (batch of 1, timeout 1 second)
+                            msgs = await self._cmd_queue_sub.fetch(batch=1, timeout=1.0)
+                            if msgs:
+                                logger.debug("Pulled %d message(s) from queue", len(msgs))
+                            for msg in msgs:
+                                await self.process_queue_cmd(msg, handler)
+                        except asyncio.TimeoutError:
+                            # Timeout is expected when no messages are available
+                            continue
+                        except Exception as e:
+                            logger.error("Error pulling queue messages: %s", e, exc_info=True)
+                            await asyncio.sleep(1)  # Wait before retrying
+                except asyncio.CancelledError:
+                    logger.debug("Queue pull task cancelled")
+                    raise
+            
+            self._cmd_queue_task = asyncio.create_task(pull_messages())
+            logger.info("Started background task for pulling queue messages")
+            
         except NotFoundError:
             # Stream still not found after ensuring it exists - this shouldn't happen
             # but handle it gracefully with detailed diagnostics
@@ -703,10 +780,9 @@ class MachineClient:
                 logger.error("  Stream verification failed: %s", stream_check_error)
             raise
         
-        # Register handler for reconnection
-        if not any(h['type'] == 'queue' for h in self._reconnect_handlers):
-            self._reconnect_handlers.append({'type': 'queue', 'handler': handler})
-        logger.info("Subscribed to queue commands: %s (durable: cmd_queue_%s, stream: %s)", 
+        # Store handler for reconnection
+        self._queue_handler = handler
+        logger.info("Subscribed to queue commands: %s (durable: cmd_queue_%s, stream: %s, pull consumer)", 
                    self.cmd_queue, self.machine_id, self.STREAM_COMMAND_QUEUE)
     
     async def subscribe_immediate(self, handler: Callable[[NATSMessage], Awaitable[CommandResponse]]):
@@ -720,19 +796,26 @@ class MachineClient:
             logger.error("JetStream not available for immediate subscription")
             return
         
+        # Store handler for use in callback and reconnection
+        self._immediate_handler = handler
+        
         async def message_handler(msg: Msg):
-            """Wrapper to process immediate messages."""
-            await self.process_immediate_cmd(msg, handler)
+            """Process immediate messages using stored handler."""
+            await self.process_immediate_cmd(msg, self._immediate_handler)
         
         # Ensure stream exists before attempting to subscribe
-        await self._ensure_command_immediate_stream()
+        await self._ensure_stream(
+            self.STREAM_COMMAND_IMMEDIATE,
+            f"{self.NAMESPACE}.*.cmd.immediate",
+            retention='workqueue'
+        )
         
         try:
             self._cmd_immediate_sub = await self.js.subscribe(
                 subject=self.cmd_immediate,
                 stream=self.STREAM_COMMAND_IMMEDIATE,
                 durable=f"cmd_immed_{self.machine_id}",
-                cb=message_handler
+                cb=message_handler  # required for push consumer to handle messages
             )
         except NotFoundError:
             # Stream still not found after ensuring it exists - this shouldn't happen
@@ -741,9 +824,6 @@ class MachineClient:
                        self.STREAM_COMMAND_IMMEDIATE)
             raise
         
-        # Register handler for reconnection
-        if not any(h['type'] == 'immediate' for h in self._reconnect_handlers):
-            self._reconnect_handlers.append({'type': 'immediate', 'handler': handler})
         logger.info("Subscribed to immediate commands: %s (durable: cmd_immed_%s, stream: %s)", 
                    self.cmd_immediate, self.machine_id, self.STREAM_COMMAND_IMMEDIATE)
     

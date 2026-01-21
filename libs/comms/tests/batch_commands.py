@@ -30,6 +30,12 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+# Test user credentials
+USER_ID = str(uuid.uuid4()) # unique to user
+USERNAME = "zhao"
+RUN_ID = str(uuid.uuid4()) # unique to each run
+COMMANDS_JSON_PATH = Path(__file__).parent / "commands.json"
+MACHINE_ID = "first"
 
 def get_nats_servers() -> list[str]:
     """Get NATS servers from environment variable or use default."""
@@ -39,10 +45,6 @@ def get_nats_servers() -> list[str]:
     )
     return [s.strip() for s in nats_servers_env.split(",")]
 
-# Load commands from JSON file (useful when generating commands from LLM and loading from JSON)
-COMMANDS_JSON_PATH = Path(__file__).parent / "commands.json"
-TEST_RUN_ID = str(uuid.uuid4())
-MACHINE_ID = "first"
 
 def load_commands() -> list[dict]:
     """Load commands from JSON file."""
@@ -52,7 +54,7 @@ def load_commands() -> list[dict]:
 
 async def main():
     """Run batch commands from JSON file."""
-    logger.info("Starting batch command tests with run_id: %s", TEST_RUN_ID)
+    logger.info("Starting batch command tests with run_id: %s", RUN_ID)
     
     async with CommandService(servers=get_nats_servers()) as service:
         # Load commands from JSON and convert to CommandRequest objects
@@ -63,7 +65,9 @@ async def main():
         reply: NATSMessage = await service.send_queue_commands(
             requests=requests,
             machine_id=MACHINE_ID,
-            run_id=TEST_RUN_ID
+            run_id=RUN_ID,
+            user_id=USER_ID,
+            username=USERNAME
         )
         
         if reply is None:

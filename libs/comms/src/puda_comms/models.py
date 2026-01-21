@@ -68,18 +68,19 @@ class CommandResponse(BaseModel):
 
 class MessageHeader(BaseModel):
     """Header for NATS messages."""
-    message_type: MessageType = Field(description="Type of message")
     version: str = Field(default="1.0", description="Message version")
-    timestamp: str = Field(default_factory=_get_current_timestamp, description="ISO format timestamp (auto-set on creation)")
+    message_type: MessageType = Field(description="Type of message")
+    user_id: str = Field(description="User ID")
+    username: str = Field(description="User name")
     machine_id: str = Field(description="Machine ID")
     run_id: Optional[str] = Field(default=None, description="Unique identifier (uuid) for the run/workflow")
-
+    timestamp: str = Field(default_factory=_get_current_timestamp, description="ISO format timestamp (auto-set on creation)")
 class NATSMessage(BaseModel):
     """
     Complete NATS message structure.
     
     Structure:
-    - header: MessageHeader with message_type, version, timestamp, machine_id, run_id
+    - header: MessageHeader with message_type, version, timestamp, user_id, username, machine_id, run_id
     - command: Optional CommandRequest (for command messages)
     - response: Optional CommandResponse data (for response messages)
     """

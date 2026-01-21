@@ -27,6 +27,10 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+# Test user credentials
+USER_ID = str(uuid.uuid4())  # unique to user
+USERNAME = "Test User"
+
 
 def get_nats_servers() -> list[str]:
     """Get NATS servers from environment variable or use default."""
@@ -50,7 +54,9 @@ async def load_labware(run_id: str):
             },
             step_number=1
         )
-        reply: NATSMessage = await service.send_queue_command(request=request, machine_id="first", run_id=run_id)
+        reply: NATSMessage = await service.send_queue_command(
+            request=request, machine_id="first", run_id=run_id, user_id=USER_ID, username=USERNAME
+        )
         
         if reply is None:
             logger.error("Command failed or timed out")
@@ -74,7 +80,9 @@ async def remove_labware(run_id: str):
             },
             step_number=1
         )
-        reply: NATSMessage = await service.send_queue_command(request=request, machine_id="first", run_id=run_id)
+        reply: NATSMessage = await service.send_queue_command(
+            request=request, machine_id="first", run_id=run_id, user_id=USER_ID, username=USERNAME
+        )
         
         if reply is None:
             logger.error("Command failed or timed out")
@@ -130,7 +138,9 @@ async def example_command_sequence(run_id: str):
         for cmd in commands:
             # turn cmd into CommandRequest model
             request = CommandRequest(**cmd)
-            reply: NATSMessage = await service.send_queue_command(request=request, machine_id="first", run_id=run_id)
+            reply: NATSMessage = await service.send_queue_command(
+            request=request, machine_id="first", run_id=run_id, user_id=USER_ID, username=USERNAME
+        )
             
             if reply is None:
                 logger.error("Command failed or timed out: %s (step %s)", request.name, request.step_number)
@@ -161,7 +171,9 @@ async def example_pause(run_id: str):
             name=ImmediateCommand.PAUSE,
             step_number=1
         )
-        reply: NATSMessage = await service.send_immediate_command(request=pause_request, machine_id=machine_id, run_id=run_id)
+        reply: NATSMessage = await service.send_immediate_command(
+            request=pause_request, machine_id=machine_id, run_id=run_id, user_id=USER_ID, username=USERNAME
+        )
         if reply is not None:
             logger.info("Pause command result: status=%s, message=%s", reply.response.status, reply.response.message)
         else:
@@ -180,7 +192,9 @@ async def example_resume(run_id: str):
             name=ImmediateCommand.RESUME,
             step_number=1
         )
-        reply:NATSMessage = await service.send_immediate_command(request=resume_request, machine_id=machine_id, run_id=run_id)
+        reply:NATSMessage = await service.send_immediate_command(
+            request=resume_request, machine_id=machine_id, run_id=run_id, user_id=USER_ID, username=USERNAME
+        )
         if reply:
             logger.info("Resume command result: status=%s, message=%s", reply.response.status, reply.response.message)
         else:
@@ -199,7 +213,9 @@ async def example_cancel(run_id: str):
             name=ImmediateCommand.CANCEL,
             step_number=1
         )
-        reply = await service.send_immediate_command(request=cancel_request, machine_id=machine_id, run_id=run_id)
+        reply = await service.send_immediate_command(
+            request=cancel_request, machine_id=machine_id, run_id=run_id, user_id=USER_ID, username=USERNAME
+        )
         if reply:
             logger.info("Cancel command result: status=%s, message=%s", reply.response.status, reply.response.message)
         else:
@@ -217,7 +233,9 @@ async def example_get_deck(run_id: str):
             name="get_deck",
             step_number=1
         )
-        reply: NATSMessage = await service.send_queue_command(request=request, machine_id=machine_id, run_id=run_id)
+        reply: NATSMessage = await service.send_queue_command(
+            request=request, machine_id=machine_id, run_id=run_id, user_id=USER_ID, username=USERNAME
+        )
         
         if reply is None:
             logger.error("Get deck command failed or timed out")

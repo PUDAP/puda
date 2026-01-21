@@ -189,8 +189,10 @@ The `batch_commands.py` script:
 You can modify these variables in `batch_commands.py`:
 
 - `COMMANDS_JSON_PATH`: Path to your commands.json file (defaults to `commands.json` in the same directory)
-- `MACHINE_ID`: The ID of the machine to send commands to (defaults to `"first"`)
-- `TEST_RUN_ID`: A unique identifier for this run (auto-generated UUID by default)
+- `MACHINE_ID`: The ID of the machine to send commands to
+- `USER_ID`: A unique identifier for the user (auto-generated UUID by default)
+- `USERNAME`: The username of the person running the commands
+- `RUN_ID`: A unique identifier for this run (auto-generated UUID by default)
 
 ### Example Output
 

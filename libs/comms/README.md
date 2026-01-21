@@ -109,6 +109,8 @@ Header metadata for NATS messages.
 - `message_type` (MessageType): Type of message (COMMAND, RESPONSE, LOG, etc.)
 - `version` (str): Message version (default: "1.0")
 - `timestamp` (str): ISO 8601 UTC timestamp (auto-generated)
+- `user_id` (str): User ID who initiated the command
+- `username` (str): Username who initiated the command
 - `machine_id` (str): Identifier for the target machine
 - `run_id` (Optional[str]): Unique identifier (UUID) for the run/workflow
 
@@ -118,6 +120,8 @@ header = MessageHeader(
     message_type=MessageType.RESPONSE,
     version="1.0",
     timestamp="2026-01-20T02:00:46Z",
+    user_id="user123",
+    username="John Doe",
     machine_id="first",
     run_id="092073e6-13d0-4756-8d99-eff1612a5a72"
 )
@@ -142,6 +146,8 @@ Complete NATS message structure combining header with optional command or respon
     "message_type": "response",
     "version": "1.0",
     "timestamp": "2026-01-20T02:00:46Z",
+    "user_id": "user123",
+    "username": "John Doe",
     "machine_id": "first",
     "run_id": "092073e6-13d0-4756-8d99-eff1612a5a72"
   },
@@ -217,6 +223,8 @@ reply = await service.send_queue_command(
     request=request,
     machine_id="first",
     run_id=run_id,
+    user_id="user123",
+    username="John Doe",
     timeout=60  # Wait up to 60 seconds
 )
 
@@ -225,6 +233,8 @@ reply = await service.send_queue_commands(
     requests=commands,
     machine_id="first",
     run_id=run_id,
+    user_id="user123",
+    username="John Doe",
     timeout=60  # Wait up to 60 seconds per command
 )
 ```
@@ -262,7 +272,9 @@ Always check the response status and handle errors appropriately:
 reply: NATSMessage = await service.send_queue_command(
     request=request,
     machine_id="first",
-    run_id=run_id
+    run_id=run_id,
+    user_id="user123",
+    username="John Doe"
 )
 
 if reply is None:

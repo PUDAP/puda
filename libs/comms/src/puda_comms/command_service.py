@@ -12,11 +12,11 @@ import json
 import logging
 import signal
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional
 import nats
 from nats.js.client import JetStreamContext
 from nats.aio.msg import Msg
-from puda_comms.models import CommandRequest, CommandResponse, CommandResponseStatus, NATSMessage, MessageHeader, MessageType
+from puda_comms.models import CommandRequest, CommandResponseStatus, NATSMessage, MessageHeader, MessageType
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ class ResponseHandler:
     def __init__(self, js: JetStreamContext, machine_id: str):
         self.js = js
         self.machine_id = machine_id
-        self._pending_responses: Dict[str, Tuple[asyncio.Event, CommandResponse]] = {}
+        self._pending_responses: Dict[str, Dict[str, Any]] = {}  # {'event': asyncio.Event, 'response': Optional[NATSMessage]}
         self._queue_consumer = None
         self._immediate_consumer = None
         self._initialized = False
@@ -102,8 +102,8 @@ class ResponseHandler:
                 
                 # Get the pending response
                 pending = self._pending_responses[key]
-                # Store the full NATSMessage JSON structure
-                pending['response'] = message.model_dump()
+                # Store the NATSMessage directly
+                pending['response'] = message
                 # Signal that response was received
                 # Don't delete here - let get_response() delete it after retrieval
                 pending['event'].set()
@@ -152,7 +152,7 @@ class ResponseHandler:
         }
         return event
     
-    def get_response(self, run_id: str, step_number: int) -> Optional[Dict[str, Any]]:
+    def get_response(self, run_id: str, step_number: int) -> Optional[NATSMessage]:
         """
         Get the response for a pending command.
         
@@ -161,7 +161,7 @@ class ResponseHandler:
             step_number: Step number for the command
         
         Returns:
-            The NATSMessage dict structure if available, None otherwise
+            The NATSMessage if available, None otherwise
         """
         key = f"{run_id}:{str(step_number)}"
         if key in self._pending_responses:
@@ -343,6 +343,8 @@ class CommandService:
         request: CommandRequest,
         machine_id: str,
         run_id: str,
+        user_id: str,
+        username: str,
         timeout: int = 120
     ) -> Optional[NATSMessage]:
         """
@@ -352,6 +354,8 @@ class CommandService:
             request: CommandRequest model containing command details
             machine_id: Machine ID to send the command to
             run_id: Run ID for the command
+            user_id: User ID who initiated the command
+            username: Username who initiated the command
             timeout: Maximum time to wait for response in seconds
         
         Returns:
@@ -364,8 +368,8 @@ class CommandService:
         subject = f"{NAMESPACE}.{machine_id}.cmd.queue"
         
         logger.info(
-            "Sending queue command: machine_id=%s, command=%s, run_id=%s, step_number=%s",
-            machine_id, request.name, run_id, request.step_number
+            "Sending queue command: subject=%s, command=%s, run_id=%s, step_number=%s",
+            subject, request.name, run_id, request.step_number
         )
         
         # Get or create response handler for this machine
@@ -374,7 +378,7 @@ class CommandService:
         response_event = response_handler.register_pending(run_id, request.step_number)
         
         # Build payload
-        payload = self._build_command_payload(request, machine_id, run_id)
+        payload = self._build_command_payload(request, machine_id, run_id, user_id, username)
 
         try:
             # Publish to JetStream
@@ -397,11 +401,7 @@ class CommandService:
             await asyncio.sleep(0.1)
             
             # Get the response
-            response_data = response_handler.get_response(run_id, request.step_number)
-            if response_data is None:
-                return None
-            
-            return NATSMessage.model_validate(response_data)
+            return response_handler.get_response(run_id, request.step_number)
 
         except Exception as e:
             logger.error("Error sending queue command: %s", e)
@@ -414,6 +414,8 @@ class CommandService:
         requests: list[CommandRequest],
         machine_id: str,
         run_id: str,
+        user_id: str,
+        username: str,
         timeout: int = 120
     ) -> Optional[NATSMessage]:
         """
@@ -427,6 +429,8 @@ class CommandService:
             requests: List of CommandRequest models to send sequentially
             machine_id: Machine ID to send the commands to
             run_id: Run ID for all commands
+            user_id: User ID who initiated the commands
+            username: Username who initiated the commands
             timeout: Maximum time to wait for each response in seconds
         
         Returns:
@@ -462,6 +466,8 @@ class CommandService:
                 request=request,
                 machine_id=machine_id,
                 run_id=run_id,
+                user_id=user_id,
+                username=username,
                 timeout=timeout
             )
             
@@ -522,6 +528,8 @@ class CommandService:
         request: CommandRequest,
         machine_id: str,
         run_id: str,
+        user_id: str,
+        username: str,
         timeout: int = 120
     ) -> Optional[NATSMessage]:
         """
@@ -531,6 +539,8 @@ class CommandService:
             request: CommandRequest model containing command details
             machine_id: Machine ID to send the command to
             run_id: Run ID for the command
+            user_id: User ID who initiated the command
+            username: Username who initiated the command
             timeout: Maximum time to wait for response in seconds
         
         Returns:
@@ -555,7 +565,7 @@ class CommandService:
         response_received = response_handler.register_pending(run_id, request.step_number)
         
         # Build payload
-        payload = self._build_command_payload(request, machine_id, run_id)
+        payload = self._build_command_payload(request, machine_id, run_id, user_id, username)
 
         try:
             # Publish to JetStream
@@ -578,11 +588,7 @@ class CommandService:
             await asyncio.sleep(0.1)
             
             # Get the response
-            response_data = response_handler.get_response(run_id, request.step_number)
-            if response_data is None:
-                return None
-            
-            return NATSMessage.model_validate(response_data)
+            return response_handler.get_response(run_id, request.step_number)
             
         except Exception as e:
             logger.error("Error sending immediate command: %s", e)
@@ -635,7 +641,9 @@ class CommandService:
         self,
         command_request: CommandRequest,
         machine_id: str,
-        run_id: str
+        run_id: str,
+        user_id: str,
+        username: str
     ) -> NATSMessage:
         """
         Build a command payload in the expected format.
@@ -644,6 +652,8 @@ class CommandService:
             command_request: CommandRequest model containing command details
             machine_id: Machine ID for the command
             run_id: Run ID for the command
+            user_id: User ID who initiated the command
+            username: Username who initiated the command
         
         Returns:
             NATSMessage object ready for NATS transmission
@@ -652,6 +662,8 @@ class CommandService:
             message_type=MessageType.COMMAND,
             version="1.0",
             timestamp=datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+            user_id=user_id,
+            username=username,
             machine_id=machine_id,
             run_id=run_id
         )
