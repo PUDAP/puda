@@ -17,6 +17,17 @@ dependencies = [
 [tool.uv.sources]
 puda-drivers = {workspace = true}
 
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.13",
+]
