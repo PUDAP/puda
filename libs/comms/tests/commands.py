@@ -30,14 +30,13 @@ logger = logging.getLogger(__name__)
 # Test user credentials
 USER_ID = str(uuid.uuid4())  # unique to user
 USERNAME = "Test User"
+MACHINE_ID = "first"
+DEFAULT_NATS_SERVERS = "nats://100.86.162.126:4222,nats://100.86.162.126:4223,nats://100.86.162.126:4224"
 
 
 def get_nats_servers() -> list[str]:
     """Get NATS servers from environment variable or use default."""
-    nats_servers_env = os.getenv(
-        "NATS_SERVERS",
-        "nats://100.86.162.126:4222,nats://100.86.162.126:4223,nats://100.86.162.126:4224"
-    )
+    nats_servers_env = os.getenv("NATS_SERVERS", DEFAULT_NATS_SERVERS)
     return [s.strip() for s in nats_servers_env.split(",")]
 
 
@@ -55,7 +54,7 @@ async def load_labware(run_id: str):
             step_number=1
         )
         reply: NATSMessage = await service.send_queue_command(
-            request=request, machine_id="first", run_id=run_id, user_id=USER_ID, username=USERNAME
+            request=request, machine_id=MACHINE_ID, run_id=run_id, user_id=USER_ID, username=USERNAME
         )
         
         if reply is None:
@@ -81,7 +80,7 @@ async def remove_labware(run_id: str):
             step_number=1
         )
         reply: NATSMessage = await service.send_queue_command(
-            request=request, machine_id="first", run_id=run_id, user_id=USER_ID, username=USERNAME
+            request=request, machine_id=MACHINE_ID, run_id=run_id, user_id=USER_ID, username=USERNAME
         )
         
         if reply is None:
@@ -139,8 +138,8 @@ async def example_command_sequence(run_id: str):
             # turn cmd into CommandRequest model
             request = CommandRequest(**cmd)
             reply: NATSMessage = await service.send_queue_command(
-            request=request, machine_id="first", run_id=run_id, user_id=USER_ID, username=USERNAME
-        )
+                request=request, machine_id=MACHINE_ID, run_id=run_id, user_id=USER_ID, username=USERNAME
+            )
             
             if reply is None:
                 logger.error("Command failed or timed out: %s (step %s)", request.name, request.step_number)
@@ -165,14 +164,12 @@ async def example_pause(run_id: str):
     # Using async context manager - automatically connects and disconnects
     # Signal handlers are automatically registered for graceful shutdown
     async with CommandService(servers=get_nats_servers()) as service:
-        machine_id = "first"
-        
         pause_request = CommandRequest(
             name=ImmediateCommand.PAUSE,
             step_number=1
         )
         reply: NATSMessage = await service.send_immediate_command(
-            request=pause_request, machine_id=machine_id, run_id=run_id, user_id=USER_ID, username=USERNAME
+            request=pause_request, machine_id=MACHINE_ID, run_id=run_id, user_id=USER_ID, username=USERNAME
         )
         if reply is not None:
             logger.info("Pause command result: status=%s, message=%s", reply.response.status, reply.response.message)
@@ -186,14 +183,12 @@ async def example_resume(run_id: str):
     # Using async context manager - automatically connects and disconnects
     # Signal handlers are automatically registered for graceful shutdown
     async with CommandService(servers=get_nats_servers()) as service:
-        machine_id = "first"
-        
         resume_request = CommandRequest(
             name=ImmediateCommand.RESUME,
             step_number=1
         )
         reply:NATSMessage = await service.send_immediate_command(
-            request=resume_request, machine_id=machine_id, run_id=run_id, user_id=USER_ID, username=USERNAME
+            request=resume_request, machine_id=MACHINE_ID, run_id=run_id, user_id=USER_ID, username=USERNAME
         )
         if reply:
             logger.info("Resume command result: status=%s, message=%s", reply.response.status, reply.response.message)
@@ -207,14 +202,12 @@ async def example_cancel(run_id: str):
     # Using async context manager - automatically connects and disconnects
     # Signal handlers are automatically registered for graceful shutdown
     async with CommandService(servers=get_nats_servers()) as service:
-        machine_id = "first"
-        
         cancel_request = CommandRequest(
             name=ImmediateCommand.CANCEL,
             step_number=1
         )
         reply = await service.send_immediate_command(
-            request=cancel_request, machine_id=machine_id, run_id=run_id, user_id=USER_ID, username=USERNAME
+            request=cancel_request, machine_id=MACHINE_ID, run_id=run_id, user_id=USER_ID, username=USERNAME
         )
         if reply:
             logger.info("Cancel command result: status=%s, message=%s", reply.response.status, reply.response.message)
@@ -227,14 +220,12 @@ async def example_get_deck(run_id: str):
     """Example: Get current deck layout using context manager."""
     # Using async context manager - automatically connects and disconnects
     async with CommandService(servers=get_nats_servers()) as service:
-        machine_id = "first"
-        
         request = CommandRequest(
             name="get_deck",
             step_number=1
         )
         reply: NATSMessage = await service.send_queue_command(
-            request=request, machine_id=machine_id, run_id=run_id, user_id=USER_ID, username=USERNAME
+            request=request, machine_id=MACHINE_ID, run_id=run_id, user_id=USER_ID, username=USERNAME
         )
         
         if reply is None:

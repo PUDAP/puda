@@ -6,17 +6,39 @@ This guide teaches you how to use `batch_commands.py` to send multiple commands 
 
 ### 1. Install uv
 
-Install `uv` (a fast Python package installer and resolver) by following the official installation guide:
+Install `uv` (a modern, fast Python package and project manager written in Rust) by following the official installation guide:
 
 https://docs.astral.sh/uv/getting-started/installation/
 
 ### 2. Configure NATS Client
 
-Set the NATS server URLs using the `NATS_SERVERS` environment variable. If you are connected to the ASUS_B8 network, use:
+You can configure NATS server URLs in one of two ways:
 
+**Option 1: Environment Variable (Recommended)**
+
+Set the `NATS_SERVERS` environment variable. If you are connected to the ASUS_B8 network, you can either:
+
+**a) Export directly in your shell:**
 ```bash
 export NATS_SERVERS="nats://192.168.50.201:4222,nats://192.168.50.201:4223,nats://192.168.50.201:4224"
 ```
+
+**b) Or put it in a `.env` file:**
+```bash
+NATS_SERVERS="nats://192.168.50.201:4222,nats://192.168.50.201:4223,nats://192.168.50.201:4224"
+```
+
+Note: If using a `.env` file, make sure your application loads it (e.g., using `python-dotenv` or similar).
+
+**Option 2: Direct Configuration in Code**
+
+Alternatively, you can set the default servers directly in `commands.py` or `batch_commands.py` by modifying the `DEFAULT_NATS_SERVERS` constant:
+
+```python
+DEFAULT_NATS_SERVERS = "nats://192.168.50.201:4222,nats://192.168.50.201:4223,nats://192.168.50.201:4224"
+```
+
+The environment variable takes precedence over the default constant if both are set.
 
 ### 3. Initialize Your Project
 
