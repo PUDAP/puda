@@ -25,6 +25,7 @@ class CommandResponseCode(str, Enum):
     RESUME_ERROR = 'RESUME_ERROR'
     NO_EXECUTION = 'NO_EXECUTION'
     RUN_ID_MISMATCH = 'RUN_ID_MISMATCH'
+    MISSING_RUN_ID = 'MISSING_RUN_ID'
     CANCEL_ERROR = 'CANCEL_ERROR'
     MACHINE_PAUSED = 'MACHINE_PAUSED'
 
@@ -40,6 +41,8 @@ class MessageType(str, Enum):
 
 class ImmediateCommand(str, Enum):
     """Command names for immediate commands."""
+    START = 'start'
+    COMPLETE = 'complete'
     PAUSE = 'pause'
     RESUME = 'resume'
     CANCEL = 'cancel'

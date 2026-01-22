@@ -19,6 +19,7 @@ from puda_comms.models import (
     MessageType,
     ImmediateCommand,
 )
+from puda_comms.run_manager import RunManager
 from nats.js.client import JetStreamContext
 from nats.js.api import StreamConfig, ConsumerConfig
 from nats.js.errors import NotFoundError
@@ -81,6 +82,9 @@ class MachineClient:
         self._pause_lock = asyncio.Lock()
         self._is_paused = False
         self._cancelled_run_ids = set()
+        
+        # Run state management
+        self.run_manager = RunManager(machine_id=machine_id)
     
     def _init_subjects(self):
         """Initialize all subject and stream names."""
@@ -441,6 +445,12 @@ class MachineClient:
             step_number = message.command.step_number
             command = message.command.name
             
+            # For all commands, continue with normal processing:
+            # 1. Check if cancelled
+            # 2. Check if paused
+            # 3. Validate run_id matches active run
+            # 4. Execute handler
+            
             # Check if cancelled
             if run_id and run_id in self._cancelled_run_ids:
                 logger.info("Skipping cancelled command: run_id=%s, step_number=%s, command=%s", run_id, step_number, command)
@@ -488,6 +498,33 @@ class MachineClient:
                         )
                         # Note: Final state update should be published by the handler with machine-specific data
                         return
+            
+            # Validate run_id matches active run (run_id is required)
+            if run_id is None:
+                await msg.ack()
+                await self._publish_command_response(
+                    msg=msg,
+                    response=CommandResponse(
+                        status=CommandResponseStatus.ERROR,
+                        code=CommandResponseCode.EXECUTION_ERROR,
+                        message='Command requires run_id'
+                    ),
+                    subject=self.response_queue
+                )
+                return
+            
+            if not await self.run_manager.validate_run_id(run_id):
+                await msg.ack()
+                await self._publish_command_response(
+                    msg=msg,
+                    response=CommandResponse(
+                        status=CommandResponseStatus.ERROR,
+                        code=CommandResponseCode.RUN_ID_MISMATCH,
+                        message=f'Run ID mismatch: expected active run, got {run_id}'
+                    ),
+                    subject=self.response_queue
+                )
+                return
             
             # Execute handler with auto-heartbeat (task might take a while for machine to complete)
             # The handler should be defined in the machine-specific edge module.
@@ -581,8 +618,49 @@ class MachineClient:
                 return
             
             command_name = message.command.name.lower()
+            run_id = message.header.run_id
+            response: CommandResponse
             
             match command_name:
+                case ImmediateCommand.START:
+                    if run_id:
+                        success = await self.run_manager.start_run(run_id)
+                        if not success:
+                            # Run already active
+                            response = CommandResponse(
+                                status=CommandResponseStatus.ERROR,
+                                code=CommandResponseCode.RUN_ID_MISMATCH,
+                                message='cannot start, another run is currently running'
+                            )
+                        else:
+                            await self.publish_state({'state': 'active', 'run_id': run_id})
+                            response = CommandResponse(status=CommandResponseStatus.SUCCESS)
+                    else:
+                        response = CommandResponse(
+                            status=CommandResponseStatus.ERROR,
+                            code=CommandResponseCode.MISSING_RUN_ID,
+                            message='START command requires RUN_ID'
+                        )
+                
+                case ImmediateCommand.COMPLETE:
+                    if not run_id:
+                        response = CommandResponse(
+                            status=CommandResponseStatus.ERROR,
+                            code=CommandResponseCode.MISSING_RUN_ID,
+                            message='COMPLETE command requires RUN_ID'
+                        )
+                    else:
+                        success = await self.run_manager.complete_run(run_id)
+                        if success:
+                            await self.publish_state({'state': 'idle', 'run_id': None})
+                            response = CommandResponse(status=CommandResponseStatus.SUCCESS)
+                        else:
+                            response = CommandResponse(
+                                status=CommandResponseStatus.ERROR,
+                                code=CommandResponseCode.RUN_ID_MISMATCH,
+                                message=f'Run {run_id} not active'
+                            )
+                
                 case ImmediateCommand.PAUSE:
                     async with self._pause_lock:
                         if not self._is_paused:
@@ -590,7 +668,7 @@ class MachineClient:
                             logger.info("Queue paused")
                             await self.publish_state({'state': 'paused', 'run_id': message.header.run_id})
                     # Call handler and use its response
-                    response: CommandResponse = await handler(message)
+                    response = await handler(message)
                 
                 case ImmediateCommand.RESUME:
                     async with self._pause_lock:
@@ -599,19 +677,31 @@ class MachineClient:
                             logger.info("Queue resumed")
                             await self.publish_state({'state': 'idle', 'run_id': None})
                     # Call handler and use its response
-                    response: CommandResponse = await handler(message)
+                    response = await handler(message)
                 
                 case ImmediateCommand.CANCEL:
-                    if message.header.run_id:
-                        self._cancelled_run_ids.add(message.header.run_id)
-                        logger.info("Cancelling all commands with run_id: %s", message.header.run_id)
+                    if not run_id:
+                        response = CommandResponse(
+                            status=CommandResponseStatus.ERROR,
+                            code=CommandResponseCode.MISSING_RUN_ID,
+                            message='CANCEL command requires RUN_ID'
+                        )
+                    else:
+                        self._cancelled_run_ids.add(run_id)
+                        logger.info("Cancelling all commands with run_id: %s", run_id)
+                        # Clear the active run_id when cancelling (try to complete, but clear anyway)
+                        await self.run_manager.complete_run(run_id)
                         await self.publish_state({'state': 'idle', 'run_id': None})
-                    # Call handler and use its response
-                    response: CommandResponse = await handler(message)
+                        # Call handler and use its response
+                        response = await handler(message)
                 
                 case _:
-                    # For other immediate commands, call the user-provided handler
-                    response: CommandResponse = await handler(message)
+                    # Unknown immediate command
+                    response = CommandResponse(
+                        status=CommandResponseStatus.ERROR,
+                        code=CommandResponseCode.UNKNOWN_COMMAND,
+                        message=f'Unknown immediate command: {command_name}'
+                    )
             
             await self._publish_command_response(
                 msg=msg,

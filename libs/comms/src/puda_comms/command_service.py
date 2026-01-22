@@ -16,7 +16,13 @@ from typing import Dict, Any, Optional
 import nats
 from nats.js.client import JetStreamContext
 from nats.aio.msg import Msg
-from puda_comms.models import CommandRequest, CommandResponseStatus, NATSMessage, MessageHeader, MessageType
+from puda_comms.models import (
+    CommandRequest,
+    CommandResponseStatus,
+    NATSMessage,
+    MessageHeader,
+    MessageType,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -266,9 +272,9 @@ class CommandService:
         max_attempts = 3
         connect_timeout = 3  # 3 seconds timeout per connection attempt
         
-        for attempt in range(1, max_attempts + 1):
+        for attempt in range(max_attempts):
             try:
-                logger.info("Connection attempt %d/%d to NATS servers: %s", attempt, max_attempts, self.servers)
+                logger.info("Connection attempt %d/%d to NATS servers: %s", attempt + 1, max_attempts, self.servers)
                 self.nc = await asyncio.wait_for(
                     nats.connect(
                         servers=self.servers,
@@ -285,14 +291,14 @@ class CommandService:
                 return True
                 
             except asyncio.TimeoutError:
-                logger.warning("Connection attempt %d/%d timed out after %d seconds", attempt, max_attempts, connect_timeout)
-                if attempt < max_attempts:
+                logger.warning("Connection attempt %d/%d timed out after %d seconds", attempt + 1, max_attempts, connect_timeout)
+                if attempt < max_attempts - 1:
                     logger.info("Retrying connection...")
                 else:
                     logger.error("Failed to connect after %d attempts. Giving up.", max_attempts)
             except Exception as e:
-                logger.warning("Connection attempt %d/%d failed: %s", attempt, max_attempts, e)
-                if attempt < max_attempts:
+                logger.warning("Connection attempt %d/%d failed: %s", attempt + 1, max_attempts, e)
+                if attempt < max_attempts - 1:
                     logger.info("Retrying connection...")
                 else:
                     logger.error("Failed to connect after %d attempts. Giving up.", max_attempts)
@@ -408,6 +414,76 @@ class CommandService:
             response_handler.remove_pending(run_id, request.step_number)
             return None
     
+    async def start_run(
+        self,
+        machine_id: str,
+        run_id: str,
+        user_id: str,
+        username: str,
+        timeout: int = 120
+    ) -> Optional[NATSMessage]:
+        """
+        Send START immediate command to begin a run.
+        
+        Args:
+            machine_id: Machine ID to send the command to
+            run_id: Run ID for the command
+            user_id: User ID who initiated the command
+            username: Username who initiated the command
+            timeout: Maximum time to wait for response in seconds
+        
+        Returns:
+            NATSMessage if successful, None if failed or timeout
+        """
+        request = CommandRequest(
+            name="start",
+            params={},
+            step_number=0
+        )
+        return await self.send_immediate_command(
+            request=request,
+            machine_id=machine_id,
+            run_id=run_id,
+            user_id=user_id,
+            username=username,
+            timeout=timeout
+        )
+    
+    async def complete_run(
+        self,
+        machine_id: str,
+        run_id: str,
+        user_id: str,
+        username: str,
+        timeout: int = 120
+    ) -> Optional[NATSMessage]:
+        """
+        Send COMPLETE immediate command to end a run.
+        
+        Args:
+            machine_id: Machine ID to send the command to
+            run_id: Run ID for the command
+            user_id: User ID who initiated the command
+            username: Username who initiated the command
+            timeout: Maximum time to wait for response in seconds
+        
+        Returns:
+            NATSMessage if successful, None if failed or timeout
+        """
+        request = CommandRequest(
+            name="complete",
+            params={},
+            step_number=0
+        )
+        return await self.send_immediate_command(
+            request=request,
+            machine_id=machine_id,
+            run_id=run_id,
+            user_id=user_id,
+            username=username,
+            timeout=timeout
+        )
+    
     async def send_queue_commands(
         self,
         *,
@@ -421,9 +497,10 @@ class CommandService:
         """
         Send multiple queue commands sequentially and wait for responses.
         
-        Sends commands one by one, waiting for each response before sending the next.
-        If any command fails or times out, stops immediately and returns the error response.
-        If all commands succeed, returns the last command's response.
+        Automatically sends START command before the sequence and COMPLETE command after
+        successful completion. Sends commands one by one, waiting for each response before
+        sending the next. If any command fails or times out, stops immediately and returns
+        the error response. If all commands succeed, returns the last command's response.
         
         Args:
             requests: List of CommandRequest models to send sequentially
@@ -451,76 +528,125 @@ class CommandService:
             run_id
         )
         
+        # Always send START command before sequence
+        logger.info("Sending START command before sequence")
+        start_response = await self.start_run(
+            machine_id=machine_id,
+            run_id=run_id,
+            user_id=user_id,
+            username=username,
+            timeout=timeout
+        )
+        if start_response is None:
+            logger.error("START command timed out")
+            return None
+        if start_response.response and start_response.response.status == CommandResponseStatus.ERROR:
+            logger.error("START command failed: %s", start_response.response.message)
+            return start_response
+        
         last_response: Optional[NATSMessage] = None
         
-        for idx, request in enumerate(requests, start=1):
+        try:
+            for idx, request in enumerate(requests, start=1):
+                logger.info(
+                    "Sending command %d/%d: %s (step %s)",
+                    idx,
+                    len(requests),
+                    request.name,
+                    request.step_number
+                )
+                
+                response = await self.send_queue_command(
+                    request=request,
+                    machine_id=machine_id,
+                    run_id=run_id,
+                    user_id=user_id,
+                    username=username,
+                    timeout=timeout
+                )
+                
+                # Check if command failed (None means timeout or exception)
+                if response is None:
+                    logger.error(
+                        "Command %d/%d failed or timed out: %s (step %s)",
+                        idx,
+                        len(requests),
+                        request.name,
+                        request.step_number
+                    )
+                    return None
+                
+                # Check if command returned an error status
+                if response.response is not None:
+                    if response.response.status == CommandResponseStatus.ERROR:
+                        logger.error(
+                            "Command %d/%d failed with error: %s (step %s) - code: %s, message: %s",
+                            idx,
+                            len(requests),
+                            request.name,
+                            request.step_number,
+                            response.response.code,
+                            response.response.message
+                        )
+                        return response
+                    
+                    # Command succeeded, store as last response
+                    last_response = response
+                    logger.info(
+                        "Command %d/%d succeeded: %s (step %s)",
+                        idx,
+                        len(requests),
+                        request.name,
+                        request.step_number
+                    )
+                else:
+                    # Response exists but has no response data (shouldn't happen, but handle it)
+                    logger.warning(
+                        "Command %d/%d returned response with no response data: %s (step %s)",
+                        idx,
+                        len(requests),
+                        request.name,
+                        request.step_number
+                    )
+                    return response
+            
             logger.info(
-                "Sending command %d/%d: %s (step %s)",
-                idx,
-                len(requests),
-                request.name,
-                request.step_number
+                "All %d commands completed successfully",
+                len(requests)
             )
             
-            response = await self.send_queue_command(
-                request=request,
+            # Always send COMPLETE command after successful sequence
+            logger.info("Sending COMPLETE command after successful sequence")
+            complete_response = await self.complete_run(
                 machine_id=machine_id,
                 run_id=run_id,
                 user_id=user_id,
                 username=username,
                 timeout=timeout
             )
-            
-            # Check if command failed (None means timeout or exception)
-            if response is None:
-                logger.error(
-                    "Command %d/%d failed or timed out: %s (step %s)",
-                    idx,
-                    len(requests),
-                    request.name,
-                    request.step_number
-                )
+            if complete_response is None:
+                logger.error("COMPLETE command timed out")
                 return None
-            
-            # Check if command returned an error status
-            if response.response is not None:
-                if response.response.status == CommandResponseStatus.ERROR:
-                    logger.error(
-                        "Command %d/%d failed with error: %s (step %s) - code: %s, message: %s",
-                        idx,
-                        len(requests),
-                        request.name,
-                        request.step_number,
-                        response.response.code,
-                        response.response.message
-                    )
-                    return response
-                
-                # Command succeeded, store as last response
-                last_response = response
-                logger.info(
-                    "Command %d/%d succeeded: %s (step %s)",
-                    idx,
-                    len(requests),
-                    request.name,
-                    request.step_number
+            if complete_response.response and complete_response.response.status == CommandResponseStatus.ERROR:
+                logger.error("COMPLETE command failed: %s", complete_response.response.message)
+                return complete_response
+            # Return the last command response, not the COMPLETE response
+            return last_response
+        except Exception as e:
+            # If any error occurs during command execution, try to complete the run
+            # to clean up state (but don't fail if this also fails)
+            logger.warning("Error during command sequence, attempting to complete run: %s", e)
+            try:
+                await self.complete_run(
+                    machine_id=machine_id,
+                    run_id=run_id,
+                    user_id=user_id,
+                    username=username,
+                    timeout=timeout
                 )
-            else:
-                # Response exists but has no response data (shouldn't happen, but handle it)
-                logger.warning(
-                    "Command %d/%d returned response with no response data: %s (step %s)",
-                    idx,
-                    len(requests),
-                    request.name,
-                    request.step_number
-                )
-                return response
-        
-        logger.info(
-            "All %d commands completed successfully",
-            len(requests)
-        )
-        return last_response
+            except Exception as cleanup_error:
+                logger.error("Failed to complete run during error cleanup: %s", cleanup_error)
+            raise
     
     async def send_immediate_command(
         self,
@@ -651,13 +777,16 @@ class CommandService:
         Args:
             command_request: CommandRequest model containing command details
             machine_id: Machine ID for the command
-            run_id: Run ID for the command
+            run_id: Run ID for the command (empty string will be converted to None)
             user_id: User ID who initiated the command
             username: Username who initiated the command
         
         Returns:
             NATSMessage object ready for NATS transmission
         """
+        # Convert empty string to None for run_id
+        run_id_value = run_id if run_id else None
+        
         header = MessageHeader(
             message_type=MessageType.COMMAND,
             version="1.0",
@@ -665,7 +794,7 @@ class CommandService:
             user_id=user_id,
             username=username,
             machine_id=machine_id,
-            run_id=run_id
+            run_id=run_id_value
         )
         
         return NATSMessage(
