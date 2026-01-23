@@ -37,6 +37,9 @@ if __name__ == "__main__":
 
     machine.startup()  # Connects all controllers, homes gantry, and initializes pipette
     
+    machine.get_absolute_a_position(slot="A3", well="A1")
+    # machine.move_electrode(slot="A3", well="A1", height_from_bottom=0)
+    
     # machine.record_video(duration_seconds=10, filename="test.mp4")
     machine.start_video_recording()
     machine.attach_tip(slot="A3", well="G8")

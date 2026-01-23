@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 USER_ID = str(uuid.uuid4()) # unique to user
 USERNAME = "zhao"
 RUN_ID = str(uuid.uuid4()) # unique to each run
-COMMANDS_JSON_PATH = Path(__file__).parent / "commands.json"
+COMMANDS_JSON_PATH = Path(__file__).parent / "electrode_only.json"
 MACHINE_ID = "first"
 DEFAULT_NATS_SERVERS = "nats://100.86.162.126:4222,nats://100.86.162.126:4223,nats://100.86.162.126:4224"
 

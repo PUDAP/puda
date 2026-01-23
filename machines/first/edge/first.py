@@ -121,7 +121,7 @@ async def main():
                 code=CommandResponseCode.EXECUTION_ERROR,
                 message="No command in message"
             )
-
+            
         run_id = message.header.run_id
         command_name = message.command.name
         params = message.command.params

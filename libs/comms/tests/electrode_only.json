@@ -1,0 +1,23 @@
+[
+  {
+    "name": "load_deck",
+    "params": {
+      "deck_layout": {
+        "C1": "trash_bin",
+        "C2": "polyelectric_8_wellplate_30000ul",
+        "A3": "opentrons_96_tiprack_300ul"
+      }
+    },
+    "step_number": 1
+  },
+  {
+    "name": "move_electrode",
+    "params": {
+      "slot": "C2",
+      "well": "A1",
+      "height_from_bottom": 0
+    },
+    "step_number": 2
+  }
+]
+

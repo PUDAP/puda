@@ -463,7 +463,7 @@ class GCodeController(SerialController):
             self._logger.debug(
                 "Safe move: Raising Z and A to safe height (%s) before XY movement", self.SAFE_MOVE_HEIGHT
             )
-            move_cmd = f"G1 Z-5 A-5 F{self._z_feed}"
+            move_cmd = f"G1 Z{self.SAFE_MOVE_HEIGHT} A{self.SAFE_MOVE_HEIGHT} F{self._z_feed}"
             self.execute(move_cmd)
             self._wait_for_move()
             self._current_position.z = self.SAFE_MOVE_HEIGHT
@@ -499,7 +499,7 @@ class GCodeController(SerialController):
             self.execute(move_cmd)
             self._wait_for_move()
             self._current_position.z = position.z
-        elif needs_a_move:
+        if needs_a_move:
             move_cmd = f"G1 A{position.a} F{self._z_feed}"
             self.execute(move_cmd)
             self._wait_for_move()

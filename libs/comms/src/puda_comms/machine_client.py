@@ -527,7 +527,9 @@ class MachineClient:
             # Finalize message state based on response
             if response.status == CommandResponseStatus.SUCCESS:
                 await msg.ack()
-            else:
+            elif response.status == CommandResponseStatus.ERROR:
+                # just complete the run if the command failed
+                self.run_manager.complete_run(run_id)
                 await msg.term()
             
             await self._publish_command_response(
@@ -541,6 +543,7 @@ class MachineClient:
             # Handler was cancelled (e.g., via task cancellation)
             logger.info("Handler execution cancelled: run_id=%s, step_number=%s, command=%s", run_id, step_number, command)
             await msg.ack()
+            self.run_manager.complete_run(run_id)
             await self._publish_command_response(
                 msg=msg,
                 response=CommandResponse(
@@ -555,6 +558,7 @@ class MachineClient:
         except json.JSONDecodeError as e:
             logger.error("JSON Decode Error. Terminating message.")
             await msg.term()
+            self.run_manager.complete_run(run_id)
             await self._publish_command_response(
                 msg=msg,
                 response=CommandResponse(
@@ -572,6 +576,7 @@ class MachineClient:
             # Terminate all errors to prevent infinite redelivery loops
             logger.error("Handler failed (terminating message): %s", e)
             await msg.term()
+            self.run_manager.complete_run(run_id)
             await self._publish_command_response(
                 msg=msg,
                 response=CommandResponse(
@@ -608,7 +613,7 @@ class MachineClient:
                             response = CommandResponse(
                                 status=CommandResponseStatus.ERROR,
                                 code=CommandResponseCode.RUN_ID_MISMATCH,
-                                message='cannot start, another run is currently running'
+                                message=f'cannot start, {self.run_manager.get_active_run_id()} is currently running'
                             )
                         else:
                             await self.publish_state({'state': 'active', 'run_id': run_id})
