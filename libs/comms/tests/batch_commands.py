@@ -74,8 +74,6 @@ async def main():
         
         if reply.response and reply.response.status == CommandResponseStatus.SUCCESS:
             logger.info("Batch commands completed successfully!")
-        else:
-            logger.error("Batch commands failed")
 
 
 if __name__ == "__main__":

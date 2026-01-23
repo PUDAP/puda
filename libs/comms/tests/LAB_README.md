@@ -57,9 +57,44 @@ Install the required packages:
 uv add puda_drivers puda_comms
 ```
 
+## Updating Libraries
+
+When the `puda-comms` or `puda-drivers` libraries are updated, you'll need to update your project dependencies to get the latest features and bug fixes.
+
+### Updating with uv
+
+To update the libraries to their latest versions:
+
+```bash
+uv sync --upgrade
+```
+
+This will:
+- Update all dependencies in your `pyproject.toml` to their latest compatible versions
+- Update the lock file (`uv.lock`)
+- Reinstall packages with the new versions
+
+### Checking Current Versions
+
+To see what versions you currently have installed:
+
+```bash
+uv pip list | grep puda
+```
+
+Or check your `pyproject.toml` file for the version constraints.
+
+### After Updating
+
+After updating the libraries:
+
+1. **Check for breaking changes**: Review the library changelogs or release notes
+2. **Update your code if needed**: Some updates may require changes to your `batch_commands.py` or json
+3. **Re-check available commands**: Run `help(First)` again to see if any new commands were added or existing ones changed
+
 ## Discovering Available Commands
 
-To find out what commands are available for the First machine, use Python's built-in `help()` function:
+To find out what commands are available any machine, use Python's built-in `help()` function:
 
 ```python
 from puda_drivers.machines import First
@@ -106,57 +141,7 @@ The `commands.json` file is a JSON array where each object represents a command 
 
 ### Example commands.json
 
-Here's a complete example that loads a deck, attaches a tip, aspirates, dispenses, and drops the tip:
-
-```json
-[
-  {
-    "name": "load_deck",
-    "params": {
-      "deck_layout": {
-        "C1": "trash_bin",
-        "C2": "polyelectric_8_wellplate_30000ul",
-        "A3": "opentrons_96_tiprack_300ul"
-      }
-    },
-    "step_number": 1
-  },
-  {
-    "name": "attach_tip",
-    "params": {
-      "slot": "A3",
-      "well": "G8"
-    },
-    "step_number": 2
-  },
-  {
-    "name": "aspirate_from",
-    "params": {
-      "slot": "C2",
-      "well": "A1",
-      "amount": 100
-    },
-    "step_number": 3
-  },
-  {
-    "name": "dispense_to",
-    "params": {
-      "slot": "C2",
-      "well": "B4",
-      "amount": 100
-    },
-    "step_number": 4
-  },
-  {
-    "name": "drop_tip",
-    "params": {
-      "slot": "C1",
-      "well": "A1"
-    },
-    "step_number": 5
-  }
-]
-```
+For complete examples of `commands.json` files, refer to the `commands.py` file in the same directory. The `example_command_sequence()` function shows how to structure commands that load a deck, attach a tip, aspirate, dispense, and drop the tip.
 
 ## Using Cursor AI to Generate commands.json
 

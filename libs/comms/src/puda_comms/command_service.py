@@ -104,7 +104,7 @@ class ResponseHandler:
                     command, step_number, run_id, message.response.status
                 )
                 if message.response.status == CommandResponseStatus.ERROR:
-                    logger.warning("Command failed: %s", message.response.message)
+                    logger.error("Error Code: %s, Message: %s", message.response.code.name, message.response.message)
                 
                 # Get the pending response
                 pending = self._pending_responses[key]
@@ -591,7 +591,7 @@ class CommandService:
                             len(requests),
                             request.name,
                             request.step_number,
-                            response.response.code,
+                            response.response.code.name,
                             response.response.message
                         )
                         return response

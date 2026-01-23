@@ -491,6 +491,21 @@ class MachineClient:
                 )
                 return
             
+            # If active run_id is None, return error response
+            if self.run_manager.get_active_run_id() is None:
+                await msg.ack()
+                await self._publish_command_response(
+                    msg=msg,
+                    response=CommandResponse(
+                        status=CommandResponseStatus.ERROR,
+                        code=CommandResponseCode.RUN_ID_MISMATCH,
+                        message='Send START command to start a run before sending commands'
+                    ),
+                    subject=self.response_queue
+                )
+                return
+            
+            # If run_id does not match active run_id, return error response
             if not await self.run_manager.validate_run_id(run_id):
                 await msg.ack()
                 await self._publish_command_response(

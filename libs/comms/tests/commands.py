@@ -63,8 +63,6 @@ async def load_labware(run_id: str):
         
         if reply.response is not None and reply.response.status == CommandResponseStatus.SUCCESS:
             logger.info("Command completed successfully")
-        else:
-            logger.warning("Command failed with code: %s, message: %s", reply.response.code, reply.response.message)
         
 
 async def remove_labware(run_id: str):
@@ -89,8 +87,6 @@ async def remove_labware(run_id: str):
         
         if reply.response is not None and reply.response.status == CommandResponseStatus.SUCCESS:
             logger.info("Labware removed successfully")
-        else:
-            logger.error("Failed to remove labware: %s", reply.response.message)
 
 
 async def example_command_sequence(run_id: str):
@@ -147,7 +143,6 @@ async def example_command_sequence(run_id: str):
                 break
             
             if reply.response is not None and reply.response.status != CommandResponseStatus.SUCCESS:
-                logger.error("Command failed: %s (step %s) - code: %s, message: %s", request.name, request.step_number, reply.response.code, reply.response.message)
                 all_succeeded = False
                 break
             
@@ -238,21 +233,17 @@ async def example_get_deck(run_id: str):
                 logger.info("Current deck layout: %s", deck_data)
             else:
                 logger.info("Get deck completed successfully (no deck data returned)")
-        else:
-            logger.error("Get deck failed: code=%s, message=%s", 
-                        reply.response.code if reply.response else None,
-                        reply.response.message if reply.response else None)
     # Automatically disconnects here, even on exceptions or signals
 
 if __name__ == "__main__":
     TEST_RUN_ID = str(uuid.uuid4())
     # Run examples
-    # asyncio.run(load_labware(TEST_RUN_ID))
+    asyncio.run(load_labware(TEST_RUN_ID))
     # asyncio.run(example_get_deck(TEST_RUN_ID))
     # asyncio.run(remove_labware(TEST_RUN_ID))
     # asyncio.run(example_get_deck(TEST_RUN_ID))
 
     # asyncio.run(example_command_sequence(TEST_RUN_ID))
     # asyncio.run(example_pause(TEST_RUN_ID))
-    asyncio.run(example_resume(TEST_RUN_ID))
+    # asyncio.run(example_resume(TEST_RUN_ID))
     # asyncio.run(example_cancel(TEST_RUN_ID))
