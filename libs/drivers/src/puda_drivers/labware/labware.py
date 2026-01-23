@@ -10,7 +10,7 @@ from puda_drivers.core import Position
 
 class StandardLabware(ABC):
     """
-    Generic Parent Class for all Labware on a microplate 
+    Generic Parent Class for all Labware on a microplate
     """
     def __init__(self, labware_name: str):
         """
@@ -63,7 +63,7 @@ class StandardLabware(ABC):
         
         with open(definition_path, "r", encoding="utf-8") as f:
             return json.load(f)
-        
+
     def __str__(self):
         """
         Return a string representation of the labware.
@@ -92,7 +92,7 @@ class StandardLabware(ABC):
             List of well identifiers (e.g., ["A1", "A2", "B1", ...])
         """
         return list(self._wells.keys())
-    
+
     def get_well_position(self, well_id: str) -> Position:
         """
         Get the position of a well from definition.json.
@@ -110,17 +110,17 @@ class StandardLabware(ABC):
         well_id_upper = well_id.upper()
         if well_id_upper not in self._wells:
             raise KeyError(f"Well '{well_id}' not found in tip rack definition")
-        
+
         # Get the well data from the definition
         well_data = self._wells.get(well_id_upper, {})
-        
+
         # Return position of the well (x, y are already center coordinates)
         return Position(
             x=well_data.get("x", 0.0),
             y=well_data.get("y", 0.0),
-            z=well_data.get("z", 0.0), 
+            z=well_data.get("z", 0.0),
         )
-        
+
     def get_height(self) -> float:
         """
         Get the height of the labware.
@@ -134,15 +134,33 @@ class StandardLabware(ABC):
         dimensions = self._definition.get("dimensions")
         if dimensions is None:
             raise KeyError("'dimensions' not found in labware definition")
-        
+
         if "zDimension" not in dimensions:
             raise KeyError("'zDimension' not found in labware dimensions")
-        
+
         return dimensions["zDimension"]
-        
+
     def get_insert_depth(self) -> float:
         """
         Get the insert depth of the labware.
+        
+        insert_depth represents the maximum internal Z-axis clearance of the
+        labware. It is calculated as the absolute difference between the Top
+        Plane (the highest point of the well opening) and the Internal Floor
+        (the physical bottom of the well).
+        
+        Top of Labware (Z = 0 reference)
+              │      │
+        ┌─────┴──────┴─────┐  <─── Opening
+        │                  │
+        │      SPACE       │  }
+        │    AVAILABLE     │  }
+        │       FOR        │  }  insert_depth
+        │    INSERTION     │  }  (e.g., 40mm)
+        │                  │  }
+        └──────┬───────────┘
+               │
+        Bottom of Well (Limit)
         
         Returns:
             Insert depth of the labware

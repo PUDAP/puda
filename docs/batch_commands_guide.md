@@ -1,6 +1,6 @@
 # Using Batch Commands with commands.json
 
-This guide teaches you how to use `batch_commands.py` to send multiple commands to a machine by creating a `commands.json` file.
+This guide teaches you how to use [`batch_commands.py`](../libs/comms/tests/batch_commands.py) to send multiple commands to a machine by creating a [`commands.json`](../libs/comms/tests/commands.json) file.
 
 ## Prerequisites
 
@@ -32,7 +32,7 @@ Note: If using a `.env` file, make sure your application loads it (e.g., using `
 
 **Option 2: Direct Configuration in Code**
 
-Alternatively, you can set the default servers directly in `commands.py` or `batch_commands.py` by modifying the `DEFAULT_NATS_SERVERS` constant:
+Alternatively, you can set the nats servers directly in [`libs/comms/tests/batch_commands.py`](../libs/comms/tests/batch_commands.py) by modifying the `DEFAULT_NATS_SERVERS` constant:
 
 ```python
 DEFAULT_NATS_SERVERS = "nats://192.168.50.201:4222,nats://192.168.50.201:4223,nats://192.168.50.201:4224"
@@ -89,7 +89,7 @@ Or check your `pyproject.toml` file for the version constraints.
 After updating the libraries:
 
 1. **Check for breaking changes**: Review the library changelogs or release notes
-2. **Update your code if needed**: Some updates may require changes to your `batch_commands.py` or json
+2. **Update your code if needed**: Some updates may require changes to your [`batch_commands.py`](../libs/comms/tests/batch_commands.py) or [`commands.json`](../libs/comms/tests/commands.json)
 3. **Re-check available commands**: Run `help(First)` again to see if any new commands were added or existing ones changed
 
 ## Discovering Available Commands
@@ -141,11 +141,11 @@ The `commands.json` file is a JSON array where each object represents a command 
 
 ### Example commands.json
 
-For complete examples of `commands.json` files, refer to the `commands.py` file in the same directory. The `example_command_sequence()` function shows how to structure commands that load a deck, attach a tip, aspirate, dispense, and drop the tip.
+For complete examples of `commands.json` files, refer to the [`libs/comms/tests/commands.json`](../libs/comms/tests/commands.json) file, which shows how to structure commands that load a deck, attach a tip, aspirate, dispense, and drop the tip.
 
 ## Using Cursor AI to Generate commands.json
 
-You can use Cursor AI to help generate your `commands.json` file! Simply:
+You can use Cursor AI to help generate your [`commands.json`](../libs/comms/tests/commands.json) file! Simply:
 
 1. Run `help(First)` in a Python shell or script
 2. Copy the output
@@ -169,7 +169,7 @@ Generate the commands.json file for me.
 
 ## Running Batch Commands
 
-Once you have your `commands.json` file ready, you can run `batch_commands.py`:
+Once you have your [`commands.json`](../libs/comms/tests/commands.json) file ready, you can run [`batch_commands.py`](../libs/comms/tests/batch_commands.py):
 
 ```bash
 python batch_commands.py
@@ -183,7 +183,7 @@ uv run batch_commands.py
 
 ### How It Works
 
-The `batch_commands.py` script:
+The [`batch_commands.py`](../libs/comms/tests/batch_commands.py) script:
 
 1. Loads commands from `commands.json`
 2. Converts them to `CommandRequest` objects
@@ -193,7 +193,7 @@ The `batch_commands.py` script:
 
 ### Configuration
 
-You can modify these variables in `batch_commands.py`:
+You can modify these variables in [`libs/comms/tests/batch_commands.py`](../libs/comms/tests/batch_commands.py):
 
 - `COMMANDS_JSON_PATH`: Path to your commands.json file (defaults to `commands.json` in the same directory)
 - `MACHINE_ID`: The ID of the machine to send commands to
