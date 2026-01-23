@@ -548,6 +548,8 @@ class CommandService:
         
         try:
             for idx, request in enumerate(requests, start=1):
+                request = CommandRequest(**request)
+                
                 logger.info(
                     "Sending command %d/%d: %s (step %s)",
                     idx,
@@ -555,7 +557,7 @@ class CommandService:
                     request.name,
                     request.step_number
                 )
-                
+            
                 response = await self.send_queue_command(
                     request=request,
                     machine_id=machine_id,
@@ -564,7 +566,7 @@ class CommandService:
                     username=username,
                     timeout=timeout
                 )
-                
+            
                 # Check if command failed (None means timeout or exception)
                 if response is None:
                     logger.error(
@@ -575,7 +577,7 @@ class CommandService:
                         request.step_number
                     )
                     return None
-                
+            
                 # Check if command returned an error status
                 if response.response is not None:
                     if response.response.status == CommandResponseStatus.ERROR:

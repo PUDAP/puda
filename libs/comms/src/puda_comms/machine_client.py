@@ -81,7 +81,6 @@ class MachineClient:
         # Queue control state
         self._pause_lock = asyncio.Lock()
         self._is_paused = False
-        self._cancelled_run_ids = set()
         
         # Run state management
         self.run_manager = RunManager(machine_id=machine_id)
@@ -427,7 +426,7 @@ class MachineClient:
             logger.error("Error publishing command response: %s", e)
     
     async def process_queue_cmd(
-        self, 
+        self,
         msg: Msg,
         handler: Callable[[NATSMessage], Awaitable[CommandResponse]]
     ) -> None:
@@ -436,38 +435,26 @@ class MachineClient:
         
         Args:
             msg: NATS message
-            handler: Handler function that processes the message and returns CommandResponse
+            handler: Handler function that processes the message and returns a CommandResponse object
         """
+        # Initialize variables for exception handlers
+        run_id = None
+        step_number = None
+        command = None
+        
         try:
             # Parse message
             message = NATSMessage.model_validate_json(msg.data)
             run_id = message.header.run_id
-            step_number = message.command.step_number
-            command = message.command.name
+            step_number = message.command.step_number if message.command else None
+            command = message.command.name if message.command else None
             
             # For all commands, continue with normal processing:
-            # 1. Check if cancelled
-            # 2. Check if paused
-            # 3. Validate run_id matches active run
-            # 4. Execute handler
+            # 1. Check if paused
+            # 2. Validate run_id matches active run
+            # 3. Execute handler
             
-            # Check if cancelled
-            if run_id and run_id in self._cancelled_run_ids:
-                logger.info("Skipping cancelled command: run_id=%s, step_number=%s, command=%s", run_id, step_number, command)
-                await msg.ack()
-                await self._publish_command_response(
-                    msg=msg,
-                    response=CommandResponse(
-                        status=CommandResponseStatus.ERROR,
-                        code=CommandResponseCode.COMMAND_CANCELLED,
-                        message='Command cancelled'
-                    ),
-                    subject=self.response_queue
-                )
-                # Note: Final state update should be published by the handler with machine-specific data
-                return
-            
-            # Check if paused (for queue messages)
+            # If machine is paused, publish error response and return
             async with self._pause_lock:
                 if self._is_paused:
                     await self._publish_command_response(
@@ -480,24 +467,15 @@ class MachineClient:
                         subject=self.response_queue
                     )
                     return
-                while self._is_paused:
-                    await msg.in_progress()
-                    await asyncio.sleep(1)
-                    # Re-check cancelled state in case it was cancelled while paused
-                    if run_id and run_id in self._cancelled_run_ids:
-                        logger.info("Command cancelled while paused: run_id=%s, step_number=%s, command=%s", run_id, step_number, command)
-                        await msg.ack()
-                        await self._publish_command_response(
-                            msg=msg,
-                            response=CommandResponse(
-                                status=CommandResponseStatus.ERROR,
-                                code=CommandResponseCode.COMMAND_CANCELLED,
-                                message='Command cancelled'
-                            ),
-                            subject=self.response_queue
-                        )
-                        # Note: Final state update should be published by the handler with machine-specific data
-                        return
+            
+            # Wait while paused (release lock during wait so RESUME can acquire it)
+            while True:
+                async with self._pause_lock:
+                    if not self._is_paused:
+                        break
+                # Release lock before sleeping so RESUME can set _is_paused = False
+                await msg.in_progress()
+                await asyncio.sleep(1)
             
             # Validate run_id matches active run (run_id is required)
             if run_id is None:
@@ -576,34 +554,19 @@ class MachineClient:
             # This is a rare case - consider if handler should be called with None payload
         
         except Exception as e:
-            # Check if cancelled before sending error response
-            if run_id and run_id in self._cancelled_run_ids:
-                logger.info("Command cancelled during execution (exception occurred): run_id=%s, step_number=%s, command=%s", run_id, step_number, command)
-                await msg.ack()
-                await self._publish_command_response(
-                    msg=msg,
-                    response=CommandResponse(
-                        status=CommandResponseStatus.ERROR,
-                        code=CommandResponseCode.COMMAND_CANCELLED,
-                        message='Command cancelled'
-                    ),
-                    subject=self.response_queue
-                )
-                # Note: Final state update should be published by the handler with machine-specific data
-            else:
-                # Terminate all errors to prevent infinite redelivery loops
-                logger.error("Handler failed (terminating message): %s", e)
-                await msg.term()
-                await self._publish_command_response(
-                    msg=msg,
-                    response=CommandResponse(
-                        status=CommandResponseStatus.ERROR,
-                        code=CommandResponseCode.EXECUTION_ERROR,
-                        message=str(e)
-                    ),
-                    subject=self.response_queue
-                )
-                # Note: Final state update should be published by the handler with machine-specific data
+            # Terminate all errors to prevent infinite redelivery loops
+            logger.error("Handler failed (terminating message): %s", e)
+            await msg.term()
+            await self._publish_command_response(
+                msg=msg,
+                response=CommandResponse(
+                    status=CommandResponseStatus.ERROR,
+                    code=CommandResponseCode.EXECUTION_ERROR,
+                    message=str(e)
+                ),
+                subject=self.response_queue
+            )
+            # Note: Final state update should be published by the handler with machine-specific data
     
     async def process_immediate_cmd(self, msg: Msg, handler: Callable[[CommandRequest], Awaitable[CommandResponse]]) -> None:
         """Process immediate commands (pause, cancel, resume, etc.)."""
@@ -687,7 +650,6 @@ class MachineClient:
                             message='CANCEL command requires RUN_ID'
                         )
                     else:
-                        self._cancelled_run_ids.add(run_id)
                         logger.info("Cancelling all commands with run_id: %s", run_id)
                         # Clear the active run_id when cancelling (try to complete, but clear anyway)
                         await self.run_manager.complete_run(run_id)
@@ -792,6 +754,9 @@ class MachineClient:
         if not self.js:
             logger.error("JetStream not available for queue subscription")
             return
+
+        # Store handler for reconnection
+        self._queue_handler = handler
         
         # Ensure stream exists before attempting to subscribe
         await self._ensure_all_streams()
@@ -834,12 +799,11 @@ class MachineClient:
                 try:
                     while True:
                         try:
-                            # Fetch messages (batch of 1, timeout 1 second)
+                            # Fetch one message (timeout 1 second)
                             msgs = await self._cmd_queue_sub.fetch(batch=1, timeout=1.0)
                             if msgs:
-                                logger.debug("Pulled %d message(s) from queue", len(msgs))
-                            for msg in msgs:
-                                await self.process_queue_cmd(msg, handler)
+                                logger.debug("Pulled message from queue")
+                                await self.process_queue_cmd(msgs[0], handler)
                         except asyncio.TimeoutError:
                             # Timeout is expected when no messages are available
                             continue
@@ -870,8 +834,6 @@ class MachineClient:
                 logger.error("  Stream verification failed: %s", stream_check_error)
             raise
         
-        # Store handler for reconnection
-        self._queue_handler = handler
         logger.info("Subscribed to queue commands: %s (durable: cmd_queue_%s, stream: %s, pull consumer)", 
                    self.cmd_queue, self.machine_id, self.STREAM_COMMAND_QUEUE)
     
