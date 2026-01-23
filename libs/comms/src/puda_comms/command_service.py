@@ -548,7 +548,11 @@ class CommandService:
         
         try:
             for idx, request in enumerate(requests, start=1):
-                request = CommandRequest(**request)
+                # Validate request - convert dict to CommandRequest if needed
+                if isinstance(request, dict):
+                    request = CommandRequest.model_validate(request)
+                elif not isinstance(request, CommandRequest):
+                    raise ValueError(f"Request {idx} must be a CommandRequest or dict, got {type(request)}")
                 
                 logger.info(
                     "Sending command %d/%d: %s (step %s)",

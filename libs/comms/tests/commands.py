@@ -247,12 +247,12 @@ async def example_get_deck(run_id: str):
 if __name__ == "__main__":
     TEST_RUN_ID = str(uuid.uuid4())
     # Run examples
-    asyncio.run(load_labware(TEST_RUN_ID))
-    asyncio.run(example_get_deck(TEST_RUN_ID))
-    asyncio.run(remove_labware(TEST_RUN_ID))
-    asyncio.run(example_get_deck(TEST_RUN_ID))
+    # asyncio.run(load_labware(TEST_RUN_ID))
+    # asyncio.run(example_get_deck(TEST_RUN_ID))
+    # asyncio.run(remove_labware(TEST_RUN_ID))
+    # asyncio.run(example_get_deck(TEST_RUN_ID))
 
     # asyncio.run(example_command_sequence(TEST_RUN_ID))
     # asyncio.run(example_pause(TEST_RUN_ID))
-    # asyncio.run(example_resume(TEST_RUN_ID))
+    asyncio.run(example_resume(TEST_RUN_ID))
     # asyncio.run(example_cancel(TEST_RUN_ID))
