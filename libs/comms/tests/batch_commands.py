@@ -36,11 +36,11 @@ USERNAME = "zhao"
 RUN_ID = str(uuid.uuid4()) # unique to each run
 COMMANDS_JSON_PATH = Path(__file__).parent / "electrode_only.json"
 MACHINE_ID = "first"
-DEFAULT_NATS_SERVERS = "nats://100.86.162.126:4222,nats://100.86.162.126:4223,nats://100.86.162.126:4224"
+NATS_SERVERS = "nats://100.86.162.126:4222,nats://100.86.162.126:4223,nats://100.86.162.126:4224"
 
 def get_nats_servers() -> list[str]:
     """Get NATS servers from environment variable or use default."""
-    nats_servers_env = os.getenv("NATS_SERVERS", DEFAULT_NATS_SERVERS)
+    nats_servers_env = os.getenv("NATS_SERVERS", NATS_SERVERS)
     return [s.strip() for s in nats_servers_env.split(",")]
 
 

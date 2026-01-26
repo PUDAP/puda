@@ -32,10 +32,10 @@ Note: If using a `.env` file, make sure your application loads it (e.g., using `
 
 **Option 2: Direct Configuration in Code**
 
-Alternatively, you can set the nats servers directly in [`libs/comms/tests/batch_commands.py`](../libs/comms/tests/batch_commands.py) by modifying the `DEFAULT_NATS_SERVERS` constant:
+Alternatively, you can set the nats servers directly in [`libs/comms/tests/batch_commands.py`](../libs/comms/tests/batch_commands.py) by modifying the `NATS_SERVERS` constant:
 
 ```python
-DEFAULT_NATS_SERVERS = "nats://192.168.50.201:4222,nats://192.168.50.201:4223,nats://192.168.50.201:4224"
+NATS_SERVERS = "nats://192.168.50.201:4222,nats://192.168.50.201:4223,nats://192.168.50.201:4224"
 ```
 
 The environment variable takes precedence over the default constant if both are set.

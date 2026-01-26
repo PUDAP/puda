@@ -48,10 +48,10 @@ class First:
     CEILING_HEIGHT = 192.2
     
     # Pipette Tip length
-    TIP_LENGTH = 59
+    TIP_LENGTH = 59 # mm
     
     # Electrode length
-    ELECTRODE_LENGTH = 27
+    ELECTRODE_LENGTH = 2 # mm
     
     # Slot origins (the bottom left corner of the slot relative to the deck origin)
     SLOT_ORIGINS = {
@@ -336,7 +336,6 @@ class First:
         pos = self._get_absolute_z_position(slot, well)
         # add height from bottom
         pos += Position(z=height_from_bottom)
-        pos += Position(z=self.TIP_LENGTH)
         self._logger.debug("Moving Z axis to position %s", pos)
         self.qubot.move_absolute(position=pos)
 
@@ -370,7 +369,6 @@ class First:
         pos = self._get_absolute_z_position(slot, well)
         # add height from bottom
         pos += Position(z=height_from_bottom)
-        pos += Position(z=self.TIP_LENGTH)
         self._logger.debug("Moving Z axis to position %s", pos)
         self.qubot.move_absolute(position=pos)
 
@@ -389,10 +387,8 @@ class First:
             well: Well name within the slot (e.g., 'A1')
         """
         pos = self._get_absolute_a_position(slot, well)
-        print(f"pos: {pos}")
         pos += Position(a=height_from_bottom)
-        # pos += Position(a=self.ELECTRODE_LENGTH)
-        print(f"pos: {pos}")
+        pos += Position(a=self.ELECTRODE_LENGTH)
         self.qubot.move_absolute(position=pos)
         self._logger.info("Electrode moved to slot '%s', well '%s' at height %s mm from bottom", slot, well, height_from_bottom)
         

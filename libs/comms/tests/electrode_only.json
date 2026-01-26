@@ -13,7 +13,7 @@
   {
     "name": "move_electrode",
     "params": {
-      "slot": "C2",
+      "slot": "A3",
       "well": "A1",
       "height_from_bottom": 0
     },
