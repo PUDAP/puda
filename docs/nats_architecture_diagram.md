@@ -38,9 +38,11 @@ A **subject** is like an address or topic name. Messages are published to subjec
 
 **Subject Pattern**: `puda.{machine_id}.{category}.{sub_category}`
 
+**Note**: Machine IDs with dots (`.`) are automatically replaced with dashes (`-`) in subject names.
+
 Example: `puda.first-machine.tlm.heartbeat`
 - `puda` - namespace (all PUDA messages)
-- `first-machine` - which machine
+- `first-machine` - which machine (dots replaced with dashes)
 - `tlm` - category (telemetry)
 - `heartbeat` - specific type
 
@@ -83,9 +85,23 @@ This system uses two NATS features:
 - **Best for**: Commands, responses, critical data
 - **Behavior**: Messages wait in streams until subscribers process them
 
-### Streams and WorkQueue Retention
+### Streams and Retention Policies
 
-A **stream** is like a message queue that stores messages:
+A **stream** is like a message queue that stores messages. Different retention policies control how messages are stored and delivered:
+
+#### WorkQueue Retention
+- Each message is delivered to **exactly one subscriber**
+- Once processed and acknowledged, the message is removed
+- Ensures **exactly-once processing** - no duplicate work
+- Perfect for commands that should only be executed once
+- Used for: Command streams (queue and immediate)
+
+#### Interest Retention
+- Messages are kept as long as there are active consumers
+- Once all consumers have processed a message, it can be removed
+- Multiple consumers can process the same message
+- Perfect for responses where multiple services might need to see them
+- Used for: Response streams (queue and immediate)
 
 ```mermaid
 graph LR
@@ -96,11 +112,21 @@ graph LR
     style STREAM fill:#7B68EE
 ```
 
-**WorkQueue Retention** means:
-- Each message is delivered to **exactly one subscriber**
-- Once processed and acknowledged, the message is removed
-- Ensures **exactly-once processing** - no duplicate work
-- Perfect for commands that should only be executed once
+### Pull vs Push Consumers
+
+This system uses two types of JetStream consumers:
+
+#### Pull Consumer (Queue Commands)
+- **Machine-initiated**: Machine actively pulls messages when ready
+- **Efficient**: Machine controls when to fetch messages
+- **Best for**: Queue commands that need sequential processing
+- **Implementation**: Machine uses `pull_subscribe()` and periodically fetches messages
+
+#### Push Consumer (Immediate Commands)
+- **Server-initiated**: NATS server pushes messages to machine immediately
+- **Fast**: Messages delivered as soon as they arrive
+- **Best for**: Immediate commands (pause, resume, cancel) that need instant delivery
+- **Implementation**: Machine uses `subscribe()` with callback
 
 ### Microservices Architecture Overview
 
@@ -168,24 +194,24 @@ graph TB
         MC -->|KV Bucket| KV
     end
 
-    subgraph "Command Streams (JetStream)"
-        CQ[COMMAND_QUEUE Stream<br/>WorkQueue Retention<br/>puda.*.cmd.queue]
-        CI[COMMAND_IMMEDIATE Stream<br/>WorkQueue Retention<br/>puda.*.cmd.immediate]
+    subgraph "Command Streams (JetStream, WorkQueue Retention)"
+        CQ[COMMAND_QUEUE Stream<br/>WorkQueue Retention<br/>Pull Consumer<br/>puda.*.cmd.queue]
+        CI[COMMAND_IMMEDIATE Stream<br/>WorkQueue Retention<br/>Push Consumer<br/>puda.*.cmd.immediate]
         JS --> CQ
         JS --> CI
     end
 
-    subgraph "Response Streams (JetStream)"
-        RQ[RESPONSE_QUEUE Stream<br/>WorkQueue Retention<br/>puda.*.cmd.response.queue]
-        RI[RESPONSE_IMMEDIATE Stream<br/>WorkQueue Retention<br/>puda.*.cmd.response.immediate]
+    subgraph "Response Streams (JetStream, Interest Retention)"
+        RQ[RESPONSE_QUEUE Stream<br/>Interest Retention<br/>puda.*.cmd.response.queue]
+        RI[RESPONSE_IMMEDIATE Stream<br/>Interest Retention<br/>puda.*.cmd.response.immediate]
         JS --> RQ
         JS --> RI
     end
 
     subgraph "Machine Side"
         MACHINE[Machine<br/>e.g., First Machine]
-        MC -->|Subscribe Queue| CQ
-        MC -->|Subscribe Immediate| CI
+        MC -->|Pull Subscribe| CQ
+        MC -->|Push Subscribe| CI
         MC -->|Publish Queue Responses| RQ
         MC -->|Publish Immediate Responses| RI
         MC -->|Publish Status| KV
@@ -195,7 +221,7 @@ graph TB
     end
 
     subgraph "Command Sender"
-        SENDER[Command Sender<br/>Test Scripts]
+        SENDER[CommandService<br/>Test Scripts]
         SENDER -->|Publish Commands| CQ
         SENDER -->|Publish Immediate| CI
         SENDER -->|Subscribe Queue Responses| RQ
@@ -249,14 +275,17 @@ sequenceDiagram
     Note over User,Machine: 1. Sending a Command
     User->>NATS: "Execute this command"
     Note over NATS: Stores in COMMAND_QUEUE stream
+    (WorkQueue retention)
     
     Note over User,Machine: 2. Machine Receives Command
+    Machine->>NATS: Pull message (when ready)
     NATS->>Machine: Delivers command
     Machine->>Machine: Processes command
     
     Note over User,Machine: 3. Machine Sends Response
     Machine->>NATS: "Command completed"
     Note over NATS: Stores in RESPONSE_QUEUE stream
+    (Interest retention)
     
     Note over User,Machine: 4. User Receives Response
     NATS->>User: Delivers response
@@ -265,13 +294,15 @@ sequenceDiagram
 **Key Points**:
 - Commands are **persisted** in streams, so they survive disconnections
 - Each command is processed **exactly once** (WorkQueue ensures this)
-- Responses follow the same reliable pattern
+- Responses use Interest retention (multiple consumers can see them)
 - Telemetry uses lightweight messaging (no persistence needed)
 
 ## Architecture Overview
 
 ### Subject Pattern
 All subjects follow: `puda.{machine_id}.{category}.{sub_category}`
+
+**Note**: Machine IDs with dots (`.`) are automatically replaced with dashes (`-`) in subject names.
 
 **Why this pattern?**
 - **Namespace** (`puda`) - Prevents conflicts with other systems
@@ -283,6 +314,69 @@ This allows flexible subscription patterns:
 - `puda.*.tlm.*` - All telemetry from all machines
 - `puda.first-machine.*` - Everything from one machine
 - `puda.*.evt.alert` - All alerts from all machines
+
+### Message Structure
+
+All NATS messages follow a structured format:
+
+```json
+{
+  "header": {
+    "message_type": "command" | "response",
+    "version": "1.0",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "user_id": "user-123",
+    "username": "john.doe",
+    "machine_id": "first-machine",
+    "run_id": "run-12345"
+  },
+  "command": {
+    "name": "move",
+    "params": {...},
+    "step_number": 1,
+    "version": "1.0"
+  },
+  "response": {
+    "status": "success" | "error",
+    "completed_at": "2024-01-15T10:30:05Z",
+    "code": "EXECUTION_ERROR" | null,
+    "message": "Error description" | null,
+    "data": {...}
+  }
+}
+```
+
+**Key Fields**:
+- **run_id**: Unique identifier for a workflow/sequence of commands. Required for queue commands.
+- **step_number**: Sequential number for commands in a run (0, 1, 2, ...)
+- **message_type**: `command` for requests, `response` for replies
+
+### Run Management
+
+The system uses **run_id** to group related commands into a workflow:
+
+1. **START Command**: Begins a new run (immediate command)
+   - Sets the active `run_id` on the machine
+   - Machine validates all subsequent queue commands match this `run_id`
+   - If a command has a different `run_id`, it's rejected
+
+2. **Queue Commands**: Execute sequentially within a run
+   - Must have a `run_id` that matches the active run
+   - Processed one at a time, in order
+   - Each command has a `step_number` (1, 2, 3, ...)
+
+3. **COMPLETE Command**: Ends the run (immediate command)
+   - Clears the active `run_id`
+   - Machine returns to idle state
+
+4. **CANCEL Command**: Cancels the current run (immediate command)
+   - Clears the active `run_id`
+   - Stops processing queue commands for that run
+
+**Benefits**:
+- Prevents commands from different workflows from interfering
+- Ensures commands execute in the correct sequence
+- Allows cancellation of entire workflows
 
 ### Message Types
 
@@ -333,66 +427,75 @@ graph LR
 - Stream: `COMMAND_QUEUE`
 - Subject: `puda.{machine_id}.cmd.queue`
 - Retention: **WorkQueue** (ensures exactly-once processing)
+- Consumer: **Pull Consumer** (machine pulls messages when ready)
 - Used for: Execute commands that need to be processed **one at a time, in order**
 - Example: "Move to position X, then Y, then Z" - must happen in sequence
+- Requires: `run_id` must match active run
 
 **Immediate Commands** (Priority Actions):
 - Stream: `COMMAND_IMMEDIATE`
 - Subject: `puda.{machine_id}.cmd.immediate`
 - Retention: **WorkQueue** (ensures exactly-once processing)
-- Used for: **Pause, Resume, Cancel** - actions that need immediate attention
+- Consumer: **Push Consumer** (NATS pushes messages immediately)
+- Used for: **START, COMPLETE, PAUSE, RESUME, CANCEL** - actions that need immediate attention
 - Example: "Stop everything immediately!" - needs to interrupt queue processing
+- Built-in commands: START, COMPLETE, PAUSE, RESUME, CANCEL
 
 **Why Two Streams?**
 - **Queue commands** are processed sequentially (one after another)
 - **Immediate commands** can interrupt queue processing
 - This separation allows **priority handling** without blocking normal operations
 
+**Why Pull vs Push?**
+- **Pull consumer** (queue): Machine controls when to fetch messages, more efficient for sequential processing
+- **Push consumer** (immediate): NATS delivers immediately, faster for urgent commands
+
 **Visual Example**:
 ```mermaid
 graph TB
     subgraph "Command Streams"
-        CQ[COMMAND_QUEUE<br/>Sequential Tasks]
-        CI[COMMAND_IMMEDIATE<br/>Priority Actions]
+        CQ[COMMAND_QUEUE<br/>Sequential Tasks<br/>Pull Consumer]
+        CI[COMMAND_IMMEDIATE<br/>Priority Actions<br/>Push Consumer]
     end
     
-    M[Machine Client] -->|Process Queue| CQ
-    CI -->|Interrupt| M
+    M[Machine Client] -->|Pull when ready| CQ
+    CI -->|Push immediately| M
     
     style CQ fill:#50C878
     style CI fill:#FFA500
     style M fill:#9B59B6
 ```
 
-#### 3. **Command Responses (JetStream - Exactly-Once Delivery)**
+#### 3. **Command Responses (JetStream - Interest Retention)**
 
 **What is it?** Confirmation messages sent back from machines after processing commands.
 
-**Why Separate Response Streams?**
+**Why Interest Retention?**
 - Responses **must be delivered** to the command sender
-- Responses **must be processed once** - don't want duplicate acknowledgments
-- Responses **must persist** - survive network issues
+- Multiple services might need to see responses (logging, monitoring)
+- Messages are kept as long as there are active consumers
+- Once all consumers have processed a message, it can be removed
 
 **Two Response Streams** (matching the command types):
 
 **Queue Command Responses:**
 - Stream: `RESPONSE_QUEUE`
 - Subject: `puda.{machine_id}.cmd.response.queue`
-- Retention: **WorkQueue** (ensures exactly-once processing)
+- Retention: **Interest** (multiple consumers can process)
 - Used for: Responses to queue commands
 - Contains: Success/failure status, completion time, error messages
 
 **Immediate Command Responses:**
 - Stream: `RESPONSE_IMMEDIATE`
 - Subject: `puda.{machine_id}.cmd.response.immediate`
-- Retention: **WorkQueue** (ensures exactly-once processing)
+- Retention: **Interest** (multiple consumers can process)
 - Used for: Responses to immediate commands
 - Contains: Confirmation that pause/resume/cancel was executed
 
-**Why WorkQueue?**
-- Ensures the command sender receives the response **exactly once**
-- Prevents duplicate processing of responses
-- Guarantees reliable command-response pairing
+**Why Interest Retention?**
+- Allows multiple services to subscribe to responses (logging, monitoring, dashboards)
+- Messages are automatically cleaned up when no longer needed
+- More flexible than WorkQueue for responses
 
 #### 4. **Events (Core NATS - Fire-and-Forget)**
 
@@ -426,12 +529,12 @@ graph TB
 **Storage**:
 - Bucket: `MACHINE_STATE_{machine_id}` (one bucket per machine)
 - Key: `{machine_id}`
-- Value: JSON with current state (idle/busy/error), run_id, timestamp
+- Value: JSON with current state (idle/active/paused/error), run_id, timestamp
 
 **Example**:
 ```json
 {
-  "state": "busy",
+  "state": "active",
   "run_id": "run-12345",
   "timestamp": "2024-01-15T10:30:00Z"
 }
@@ -473,42 +576,54 @@ sequenceDiagram
 This shows how a **queue command** (like "execute a routine") flows through the system:
 ```mermaid
 sequenceDiagram
-    participant Sender as Command Sender
+    participant Sender as CommandService
     participant JS as JetStream
     participant Machine as Machine Client
     participant Handler as Command Handler
     
     Sender->>JS: Publish to cmd.queue
+    Note over JS: Stores in COMMAND_QUEUE<br/>(WorkQueue retention)
+    Machine->>JS: Pull message (when ready)
     JS->>Machine: Deliver message
+    Machine->>Machine: Validate run_id
     Machine->>Machine: Check cancelled/paused
     Machine->>Handler: Execute handler
+    Note over Handler: Long-running operation<br/>with keep-alive (every 25s)
     Handler-->>Machine: Return success/failure
-    Machine->>JS: ACK/NAK command message
+    Machine->>JS: ACK/NAK/TERM command message
     Machine->>JS: Publish response to<br/>response.queue stream
+    Note over JS: Stores in RESPONSE_QUEUE<br/>(Interest retention)
     Machine->>KV: Update status
     JS->>Sender: Deliver response message
     Sender->>JS: ACK response message
 ```
 
+**Key Points**:
+- Machine **pulls** messages when ready (pull consumer)
+- Machine validates `run_id` matches active run
+- Long-running commands send `in_progress()` signals every 25 seconds
+- Response uses Interest retention (multiple consumers can see it)
+
 #### Immediate Command Flow (JetStream)
 
-This shows how **immediate commands** (pause, resume, cancel) flow through the system:
+This shows how **immediate commands** (START, PAUSE, RESUME, CANCEL, COMPLETE) flow through the system:
 
 ```mermaid
 sequenceDiagram
-    participant Sender as Command Sender
+    participant Sender as CommandService
     participant JS as JetStream
     participant Machine as Machine Client
     
     Note over Sender: User wants to pause machine
     Sender->>JS: Publish to cmd.immediate<br/>"PAUSE"
     Note over JS: Message persisted<br/>(survives disconnections)
-    JS->>Machine: Deliver message
+    JS->>Machine: Push message immediately
     Note over Machine: Interrupts current work<br/>if needed
-    Machine->>Machine: Process immediately<br/>(pause/resume/cancel)
+    Machine->>Machine: Process immediately<br/>(pause/resume/cancel/start/complete)
     Machine->>JS: ACK command message<br/>("I got it")
     Machine->>JS: Publish response to<br/>response.immediate stream<br/>"PAUSED"
-    Note over JS: Response persisted
+    Note over JS: Response persisted<br/>(Interest retention)
+    Machine->>KV: Update status
     JS->>Sender: Deliver response message
     Sender->>JS: ACK response message<br/>("I received it")
     Note over Sender: User knows machine paused
@@ -516,42 +631,59 @@ sequenceDiagram
 
 **Key Points**:
 - **Persistent** - command survives machine disconnection
-- **Immediate** - interrupts queue processing if needed
+- **Immediate** - NATS pushes message immediately (push consumer)
 - **Reliable** - sender gets confirmation that command was executed
+- Built-in commands: START, COMPLETE, PAUSE, RESUME, CANCEL
 
 ### Key Features
 
-1. **Exactly-Once Delivery**: All commands and responses use JetStream with WorkQueue retention
+1. **Exactly-Once Delivery**: All commands use JetStream with WorkQueue retention
    - Each command is processed **exactly once**, never duplicated
    - Prevents machines from executing the same command multiple times
 
 2. **Keep-Alive**: Messages send periodic `in_progress()` signals during long-running operations
    - Long-running commands send "still working" signals every 25 seconds
    - Prevents timeouts and shows progress
+   - Resets the redelivery timer so messages aren't redelivered
 
-3. **Cancellation**: Commands can be cancelled by run_id
-   - If a command is taking too long, it can be cancelled
-   - Machine checks cancellation status before executing each command
+3. **Run Management**: Commands are grouped by `run_id` into workflows
+   - START command begins a run (sets active `run_id`)
+   - Queue commands must match active `run_id`
+   - COMPLETE command ends a run (clears active `run_id`)
+   - CANCEL command cancels a run (clears active `run_id`)
 
 4. **Pause/Resume**: Queue processing can be paused and resumed
    - Machines can pause command processing (e.g., for maintenance)
    - Commands wait in queue until processing resumes
+   - PAUSE and RESUME are immediate commands
 
 5. **Auto-Reconnection**: Client automatically reconnects and resubscribes
    - If network connection is lost, client automatically reconnects
    - Subscriptions are restored, and pending messages are delivered
+   - Durable consumers ensure messages aren't lost
 
 6. **Status Tracking**: Machine state stored in KV store for quick lookup
    - Fast "what's the status?" queries without scanning streams
    - Useful for dashboards and monitoring
+   - Updated on state changes (idle, active, paused, error)
 
 7. **Four Streams Per Machine**: Two command streams (queue and immediate) and two response streams (queue and immediate) ensure reliable command-response communication
    - Separation allows priority handling (immediate commands interrupt queue)
    - Each stream optimized for its purpose
+   - Different retention policies (WorkQueue for commands, Interest for responses)
 
 8. **Fire-and-Forget**: Telemetry and events use Core NATS for lightweight, non-persistent messaging
    - High-frequency data doesn't need persistence
    - Reduces overhead and improves performance
+
+9. **Pull vs Push Consumers**: Different consumer types for different use cases
+   - Pull consumer for queue commands (machine controls when to fetch)
+   - Push consumer for immediate commands (NATS delivers immediately)
+
+10. **Message Structure**: Standardized message format with header, command, and response
+    - Consistent structure across all messages
+    - Includes metadata (user_id, username, run_id, step_number)
+    - Type-safe with Pydantic models
 
 ## Common Use Cases
 
@@ -560,15 +692,33 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant User as User/Service
+    participant CS as CommandService
     participant NATS as NATS
     participant Machine as Machine
     
-    User->>NATS: Publish "execute routine X"<br/>to cmd.queue
-    NATS->>Machine: Deliver command
-    Machine->>Machine: Execute routine<br/>(may take minutes)
-    Machine->>NATS: Send "in_progress" signals<br/>(every 25 seconds)
-    Machine->>NATS: Publish "completed"<br/>to response.queue
-    NATS->>User: Deliver response
+    User->>CS: Send START command
+    CS->>NATS: Publish "START" to cmd.immediate
+    NATS->>Machine: Deliver START command
+    Machine->>Machine: Set active run_id
+    Machine->>NATS: Publish "STARTED" response
+    NATS->>CS: Deliver response
+    
+    User->>CS: Send queue commands
+    loop For each command
+        CS->>NATS: Publish command to cmd.queue
+        NATS->>Machine: Deliver command (pull)
+        Machine->>Machine: Execute routine<br/>(may take minutes)
+        Machine->>NATS: Send "in_progress" signals<br/>(every 25 seconds)
+        Machine->>NATS: Publish "completed"<br/>to response.queue
+        NATS->>CS: Deliver response
+    end
+    
+    User->>CS: Send COMPLETE command
+    CS->>NATS: Publish "COMPLETE" to cmd.immediate
+    NATS->>Machine: Deliver COMPLETE command
+    Machine->>Machine: Clear active run_id
+    Machine->>NATS: Publish "COMPLETED" response
+    NATS->>CS: Deliver response
 ```
 
 ### Use Case 2: Monitoring Machine Health
@@ -595,15 +745,17 @@ graph LR
 ```mermaid
 sequenceDiagram
     participant User as User
+    participant CS as CommandService
     participant NATS as NATS
     participant Machine as Machine
     
     Note over User: Emergency! Need to stop!
-    User->>NATS: Publish "CANCEL"<br/>to cmd.immediate
+    User->>CS: Send CANCEL command
+    CS->>NATS: Publish "CANCEL"<br/>to cmd.immediate
     NATS->>Machine: Deliver cancel command<br/>(interrupts queue)
-    Machine->>Machine: Stop current work<br/>Cancel pending commands
+    Machine->>Machine: Stop current work<br/>Cancel pending commands<br/>Clear active run_id
     Machine->>NATS: Publish "CANCELLED"<br/>to response.immediate
-    NATS->>User: Deliver confirmation
+    NATS->>CS: Deliver confirmation
 ```
 
 ## Summary
@@ -615,5 +767,8 @@ This architecture provides:
 ✅ **Flexibility** - New services can subscribe to existing messages  
 ✅ **Performance** - Lightweight telemetry, persistent commands  
 ✅ **Resilience** - Survives network issues and disconnections  
-✅ **Simplicity** - Clear separation of concerns (commands, telemetry, events)
-
+✅ **Simplicity** - Clear separation of concerns (commands, telemetry, events)  
+✅ **Run Management** - Commands grouped into workflows with run_id  
+✅ **Exactly-Once Processing** - WorkQueue ensures commands aren't duplicated  
+✅ **Priority Handling** - Immediate commands can interrupt queue processing  
+✅ **Type Safety** - Structured messages with Pydantic models

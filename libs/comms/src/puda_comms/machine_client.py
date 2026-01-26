@@ -892,11 +892,11 @@ class MachineClient:
         except NotFoundError:
             # Stream still not found after ensuring it exists - this shouldn't happen
             # but handle it gracefully
-            logger.error("Stream %s not found even after creation attempt. Check NATS server configuration.", 
+            logger.error("Stream %s not found even after creation attempt. Check NATS server configuration.",
                        self.STREAM_COMMAND_IMMEDIATE)
             raise
         
-        logger.info("Subscribed to immediate commands: %s (durable: cmd_immed_%s, stream: %s)", 
+        logger.info("Subscribed to immediate commands: %s (durable: cmd_immed_%s, stream: %s)",
                    self.cmd_immediate, self.machine_id, self.STREAM_COMMAND_IMMEDIATE)
     
     

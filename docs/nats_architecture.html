@@ -72,6 +72,12 @@
         tr:nth-child(even) {
             background: #f9f9f9;
         }
+        pre {
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
     </style>
 </head>
 <body>
@@ -117,10 +123,11 @@
         <div class="subject-list">
             <p>A <strong>subject</strong> is like an address or topic name. Messages are published to subjects, and subscribers listen to subjects.</p>
             <p><strong>Subject Pattern:</strong> <code>puda.{machine_id}.{category}.{sub_category}</code></p>
+            <p><strong>Note:</strong> Machine IDs with dots (`.`) are automatically replaced with dashes (`-`) in subject names.</p>
             <p><strong>Example:</strong> <code>puda.first-machine.tlm.heartbeat</code></p>
             <ul>
                 <li><code>puda</code> - namespace (all PUDA messages)</li>
-                <li><code>first-machine</code> - which machine</li>
+                <li><code>first-machine</code> - which machine (dots replaced with dashes)</li>
                 <li><code>tlm</code> - category (telemetry)</li>
                 <li><code>heartbeat</code> - specific type</li>
             </ul>
@@ -158,19 +165,47 @@
             </table>
         </div>
 
-        <h3>Streams and WorkQueue Retention</h3>
+        <h3>Streams and Retention Policies</h3>
         <div class="subject-list">
-            <p>A <strong>stream</strong> is like a message queue that stores messages. <strong>WorkQueue Retention</strong> means:</p>
+            <p>A <strong>stream</strong> is like a message queue that stores messages. Different retention policies control how messages are stored and delivered:</p>
+            <h4>WorkQueue Retention</h4>
             <ul>
                 <li>Each message is delivered to <strong>exactly one subscriber</strong></li>
                 <li>Once processed and acknowledged, the message is removed</li>
                 <li>Ensures <strong>exactly-once processing</strong> - no duplicate work</li>
                 <li>Perfect for commands that should only be executed once</li>
+                <li><strong>Used for:</strong> Command streams (queue and immediate)</li>
+            </ul>
+            <h4>Interest Retention</h4>
+            <ul>
+                <li>Messages are kept as long as there are active consumers</li>
+                <li>Once all consumers have processed a message, it can be removed</li>
+                <li>Multiple consumers can process the same message</li>
+                <li>Perfect for responses where multiple services might need to see them</li>
+                <li><strong>Used for:</strong> Response streams (queue and immediate)</li>
+            </ul>
+        </div>
+
+        <h3>Pull vs Push Consumers</h3>
+        <div class="subject-list">
+            <p>This system uses two types of JetStream consumers:</p>
+            <h4>Pull Consumer (Queue Commands)</h4>
+            <ul>
+                <li><strong>Machine-initiated:</strong> Machine actively pulls messages when ready</li>
+                <li><strong>Efficient:</strong> Machine controls when to fetch messages</li>
+                <li><strong>Best for:</strong> Queue commands that need sequential processing</li>
+            </ul>
+            <h4>Push Consumer (Immediate Commands)</h4>
+            <ul>
+                <li><strong>Server-initiated:</strong> NATS server pushes messages to machine immediately</li>
+                <li><strong>Fast:</strong> Messages delivered as soon as they arrive</li>
+                <li><strong>Best for:</strong> Immediate commands (pause, resume, cancel) that need instant delivery</li>
             </ul>
         </div>
         
         <div class="info-box">
-            <strong>Subject Pattern:</strong> <code>puda.{machine_id}.{category}.{sub_category}</code>
+            <strong>Subject Pattern:</strong> <code>puda.{machine_id}.{category}.{sub_category}</code><br>
+            <strong>Note:</strong> Machine IDs with dots (`.`) are automatically replaced with dashes (`-`) in subject names.
         </div>
 
         <h2>System Architecture</h2>
@@ -190,24 +225,24 @@ graph TB
         MC -->|KV Bucket| KV
     end
 
-    subgraph "Command Streams (JetStream)"
-        CQ[COMMAND_QUEUE Stream<br/>WorkQueue Retention<br/>puda.*.cmd.queue]
-        CI[COMMAND_IMMEDIATE Stream<br/>WorkQueue Retention<br/>puda.*.cmd.immediate]
+    subgraph "Command Streams (JetStream, WorkQueue Retention)"
+        CQ[COMMAND_QUEUE Stream<br/>WorkQueue Retention<br/>Pull Consumer<br/>puda.*.cmd.queue]
+        CI[COMMAND_IMMEDIATE Stream<br/>WorkQueue Retention<br/>Push Consumer<br/>puda.*.cmd.immediate]
         JS --> CQ
         JS --> CI
     end
 
-    subgraph "Response Streams (JetStream)"
-        RQ[RESPONSE_QUEUE Stream<br/>WorkQueue Retention<br/>puda.*.cmd.response.queue]
-        RI[RESPONSE_IMMEDIATE Stream<br/>WorkQueue Retention<br/>puda.*.cmd.response.immediate]
+    subgraph "Response Streams (JetStream, Interest Retention)"
+        RQ[RESPONSE_QUEUE Stream<br/>Interest Retention<br/>puda.*.cmd.response.queue]
+        RI[RESPONSE_IMMEDIATE Stream<br/>Interest Retention<br/>puda.*.cmd.response.immediate]
         JS --> RQ
         JS --> RI
     end
 
     subgraph "Machine Side"
         MACHINE[Machine<br/>e.g., First Machine]
-        MC -->|Subscribe Queue| CQ
-        MC -->|Subscribe Immediate| CI
+        MC -->|Pull Subscribe| CQ
+        MC -->|Push Subscribe| CI
         MC -->|Publish Queue Responses| RQ
         MC -->|Publish Immediate Responses| RI
         MC -->|Publish Status| KV
@@ -217,7 +252,7 @@ graph TB
     end
 
     subgraph "Command Sender"
-        SENDER[Command Sender<br/>Test Scripts]
+        SENDER[CommandService<br/>Test Scripts]
         SENDER -->|Publish Commands| CQ
         SENDER -->|Publish Immediate| CI
         SENDER -->|Subscribe Queue Responses| RQ
@@ -259,6 +294,75 @@ graph TB
             </div>
         </div>
 
+        <h2>Message Structure</h2>
+        <div class="info-box">
+            <p>All NATS messages follow a structured format:</p>
+            <pre><code>{
+  "header": {
+    "message_type": "command" | "response",
+    "version": "1.0",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "user_id": "user-123",
+    "username": "john.doe",
+    "machine_id": "first-machine",
+    "run_id": "run-12345"
+  },
+  "command": {
+    "name": "move",
+    "params": {...},
+    "step_number": 1,
+    "version": "1.0"
+  },
+  "response": {
+    "status": "success" | "error",
+    "completed_at": "2024-01-15T10:30:05Z",
+    "code": "EXECUTION_ERROR" | null,
+    "message": "Error description" | null,
+    "data": {...}
+  }
+}</code></pre>
+            <p><strong>Key Fields:</strong></p>
+            <ul>
+                <li><strong>run_id:</strong> Unique identifier for a workflow/sequence of commands. Required for queue commands.</li>
+                <li><strong>step_number:</strong> Sequential number for commands in a run (0, 1, 2, ...)</li>
+                <li><strong>message_type:</strong> <code>command</code> for requests, <code>response</code> for replies</li>
+            </ul>
+        </div>
+
+        <h2>Run Management</h2>
+        <div class="info-box">
+            <p>The system uses <strong>run_id</strong> to group related commands into a workflow:</p>
+            <ol>
+                <li><strong>START Command:</strong> Begins a new run (immediate command)
+                    <ul>
+                        <li>Sets the active <code>run_id</code> on the machine</li>
+                        <li>Machine validates all subsequent queue commands match this <code>run_id</code></li>
+                        <li>If a command has a different <code>run_id</code>, it's rejected</li>
+                    </ul>
+                </li>
+                <li><strong>Queue Commands:</strong> Execute sequentially within a run
+                    <ul>
+                        <li>Must have a <code>run_id</code> that matches the active run</li>
+                        <li>Processed one at a time, in order</li>
+                        <li>Each command has a <code>step_number</code> (1, 2, 3, ...)</li>
+                    </ul>
+                </li>
+                <li><strong>COMPLETE Command:</strong> Ends the run (immediate command)
+                    <ul>
+                        <li>Clears the active <code>run_id</code></li>
+                        <li>Machine returns to idle state</li>
+                    </ul>
+                </li>
+                <li><strong>CANCEL Command:</strong> Cancels the current run (immediate command)
+                    <ul>
+                        <li>Clears the active <code>run_id</code></li>
+                        <li>Stops processing queue commands for that run</li>
+                    </ul>
+                </li>
+            </ol>
+            <p><strong>Benefits:</strong> Prevents commands from different workflows from interfering, ensures commands execute in the correct sequence, allows cancellation of entire workflows.</p>
+        </div>
+
         <h2>Telemetry Flow</h2>
         <div class="diagram-container">
             <div class="mermaid">
@@ -279,19 +383,23 @@ sequenceDiagram
         <div class="diagram-container">
             <div class="mermaid">
 sequenceDiagram
-    participant Sender as Command Sender
+    participant Sender as CommandService
     participant JS as JetStream
     participant Machine as Machine Client
     participant Handler as Command Handler
     
     Sender->>JS: Publish to cmd.queue
+    Note over JS: Stores in COMMAND_QUEUE<br/>(WorkQueue retention)
+    Machine->>JS: Pull message (when ready)
     JS->>Machine: Deliver message
+    Machine->>Machine: Validate run_id
     Machine->>Machine: Check cancelled/paused
     Machine->>Handler: Execute handler
-    Note over Handler: Long-running operation<br/>with keep-alive
+    Note over Handler: Long-running operation<br/>with keep-alive (every 25s)
     Handler-->>Machine: Return success/failure
-    Machine->>JS: ACK/NAK command message
+    Machine->>JS: ACK/NAK/TERM command message
     Machine->>JS: Publish response to<br/>response.queue stream
+    Note over JS: Stores in RESPONSE_QUEUE<br/>(Interest retention)
     Machine->>KV: Update status
     JS->>Sender: Deliver response message
     Sender->>JS: ACK response message
@@ -302,17 +410,18 @@ sequenceDiagram
         <div class="diagram-container">
             <div class="mermaid">
 sequenceDiagram
-    participant Sender as Command Sender
+    participant Sender as CommandService
     participant JS as JetStream
     participant Machine as Machine Client
     
     Sender->>JS: Publish to cmd.immediate
     Note over JS: Message persisted
-    JS->>Machine: Deliver message
-    Machine->>Machine: Process immediately<br/>(pause/resume/cancel)
+    JS->>Machine: Push message immediately
+    Machine->>Machine: Process immediately<br/>(pause/resume/cancel/start/complete)
     Machine->>JS: ACK command message
     Machine->>JS: Publish response to<br/>response.immediate stream
     Machine->>KV: Update status
+    Note over JS: Response persisted<br/>(Interest retention)
     JS->>Sender: Deliver response message
     Sender->>JS: ACK response message
             </div>
@@ -354,8 +463,8 @@ sequenceDiagram
             <p><strong>Why JetStream?</strong> Commands must be delivered (can't lose them), must be processed once (don't want duplicates), and must persist (survive machine disconnections).</p>
             <p><strong>Two Types:</strong></p>
             <ul>
-                <li><strong>Queue Commands</strong> - Processed sequentially, one at a time, in order (e.g., "Move to X, then Y, then Z")</li>
-                <li><strong>Immediate Commands</strong> - Priority actions that can interrupt queue processing (e.g., "Stop everything immediately!")</li>
+                <li><strong>Queue Commands</strong> - Processed sequentially, one at a time, in order (e.g., "Move to X, then Y, then Z"). Uses <strong>pull consumer</strong> (machine pulls messages when ready). Requires <code>run_id</code> that matches active run.</li>
+                <li><strong>Immediate Commands</strong> - Priority actions that can interrupt queue processing (e.g., "Stop everything immediately!"). Uses <strong>push consumer</strong> (NATS pushes messages immediately). Built-in commands: START, COMPLETE, PAUSE, RESUME, CANCEL.</li>
             </ul>
         </div>
         <table>
@@ -363,27 +472,30 @@ sequenceDiagram
                 <th>Stream</th>
                 <th>Subject</th>
                 <th>Retention</th>
+                <th>Consumer Type</th>
                 <th>Usage</th>
             </tr>
             <tr>
                 <td><code>COMMAND_QUEUE</code></td>
                 <td><code>puda.{machine_id}.cmd.queue</code></td>
                 <td>WorkQueue</td>
-                <td>Execute commands (sequential processing, one at a time)</td>
+                <td>Pull</td>
+                <td>Execute commands (sequential processing, one at a time). Requires <code>run_id</code> matching active run.</td>
             </tr>
             <tr>
                 <td><code>COMMAND_IMMEDIATE</code></td>
                 <td><code>puda.{machine_id}.cmd.immediate</code></td>
                 <td>WorkQueue</td>
-                <td>Pause, Resume, Cancel, and other immediate actions (can interrupt queue)</td>
+                <td>Push</td>
+                <td>START, COMPLETE, PAUSE, RESUME, CANCEL, and other immediate actions (can interrupt queue)</td>
             </tr>
         </table>
 
-        <h3>Command Responses (JetStream - Exactly-Once Delivery)</h3>
+        <h3>Command Responses (JetStream - Interest Retention)</h3>
         <div class="info-box">
             <p><strong>What is it?</strong> Confirmation messages sent back from machines after processing commands.</p>
-            <p><strong>Why Separate Response Streams?</strong> Responses must be delivered to the command sender, must be processed once (don't want duplicate acknowledgments), and must persist (survive network issues).</p>
-            <p><strong>Note:</strong> Both response streams (<code>RESPONSE_QUEUE</code> and <code>RESPONSE_IMMEDIATE</code>) use <strong>WorkQueue retention</strong> to ensure exactly-once processing of responses.</p>
+            <p><strong>Why Interest Retention?</strong> Responses must be delivered to the command sender, multiple services might need to see responses (logging, monitoring), messages are kept as long as there are active consumers, and messages are automatically cleaned up when no longer needed.</p>
+            <p><strong>Note:</strong> Both response streams (<code>RESPONSE_QUEUE</code> and <code>RESPONSE_IMMEDIATE</code>) use <strong>Interest retention</strong> to allow multiple consumers to process responses.</p>
         </div>
         <table>
             <tr>
@@ -395,14 +507,14 @@ sequenceDiagram
             <tr>
                 <td><code>RESPONSE_QUEUE</code></td>
                 <td><code>puda.{machine_id}.cmd.response.queue</code></td>
-                <td><strong>WorkQueue</strong></td>
+                <td><strong>Interest</strong></td>
                 <td>Responses to queue commands (contains: success/failure status, completion time, error messages)</td>
             </tr>
             <tr>
                 <td><code>RESPONSE_IMMEDIATE</code></td>
                 <td><code>puda.{machine_id}.cmd.response.immediate</code></td>
-                <td><strong>WorkQueue</strong></td>
-                <td>Responses to immediate commands (confirmation that pause/resume/cancel was executed)</td>
+                <td><strong>Interest</strong></td>
+                <td>Responses to immediate commands (confirmation that pause/resume/cancel/start/complete was executed)</td>
             </tr>
         </table>
 
@@ -441,7 +553,7 @@ sequenceDiagram
             <p><strong>Why KV Store?</strong> Fast lookups ("What's the status of machine X?" - instant answer), persistent (status survives server restarts), and simple (just key-value pairs, no complex queries needed).</p>
             <p><strong>Example Value:</strong></p>
             <pre><code>{
-  "state": "busy",
+  "state": "active",
   "run_id": "run-12345",
   "timestamp": "2024-01-15T10:30:00Z"
 }</code></pre>
@@ -456,21 +568,23 @@ sequenceDiagram
             <tr>
                 <td><code>MACHINE_STATE_{machine_id}</code></td>
                 <td><code>{machine_id}</code></td>
-                <td>Current state (idle/busy/error), run_id, timestamp</td>
+                <td>Current state (idle/active/paused/error), run_id, timestamp</td>
             </tr>
         </table>
 
         <h2>Key Features</h2>
         <ul>
-            <li><strong>Exactly-Once Delivery:</strong> All commands and responses use JetStream with WorkQueue retention</li>
+            <li><strong>Exactly-Once Delivery:</strong> All commands use JetStream with WorkQueue retention</li>
             <li><strong>Four Streams Per Machine:</strong> Two command streams (queue and immediate) and two response streams (queue and immediate) ensure reliable command-response communication</li>
-            <li><strong>Keep-Alive:</strong> Messages send periodic <code>in_progress()</code> signals during long-running operations (every 25 seconds)</li>
-            <li><strong>Cancellation:</strong> Commands can be cancelled by run_id</li>
-            <li><strong>Pause/Resume:</strong> Queue processing can be paused and resumed</li>
-            <li><strong>Auto-Reconnection:</strong> Client automatically reconnects and resubscribes on connection loss</li>
+            <li><strong>Keep-Alive:</strong> Messages send periodic <code>in_progress()</code> signals during long-running operations (every 25 seconds). Resets the redelivery timer so messages aren't redelivered.</li>
+            <li><strong>Run Management:</strong> Commands are grouped by <code>run_id</code> into workflows. START command begins a run, queue commands must match active <code>run_id</code>, COMPLETE command ends a run, CANCEL command cancels a run.</li>
+            <li><strong>Pause/Resume:</strong> Queue processing can be paused and resumed. PAUSE and RESUME are immediate commands.</li>
+            <li><strong>Auto-Reconnection:</strong> Client automatically reconnects and resubscribes on connection loss. Durable consumers ensure messages aren't lost.</li>
             <li><strong>Status Tracking:</strong> Machine state stored in KV store for quick lookup</li>
-            <li><strong>Durable Subscriptions:</strong> Subscriptions survive reconnections</li>
+            <li><strong>Pull vs Push Consumers:</strong> Pull consumer for queue commands (machine controls when to fetch), push consumer for immediate commands (NATS delivers immediately)</li>
+            <li><strong>Message Structure:</strong> Standardized message format with header, command, and response. Type-safe with Pydantic models.</li>
             <li><strong>Fire-and-Forget:</strong> Telemetry and events use Core NATS for lightweight, non-persistent messaging</li>
+            <li><strong>Different Retention Policies:</strong> WorkQueue retention for commands (exactly-once processing), Interest retention for responses (multiple consumers can process)</li>
         </ul>
     </div>
 
@@ -479,4 +593,3 @@ sequenceDiagram
     </script>
 </body>
 </html>
-
