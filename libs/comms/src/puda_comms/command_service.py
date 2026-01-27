@@ -594,6 +594,13 @@ class CommandService:
                             response.response.code.name,
                             response.response.message
                         )
+                        await self.complete_run(
+                            machine_id=machine_id,
+                            run_id=run_id,
+                            user_id=user_id,
+                            username=username,
+                            timeout=timeout
+                        )
                         return response
                     
                     # Command succeeded, store as last response
@@ -613,6 +620,13 @@ class CommandService:
                         len(requests),
                         request.name,
                         request.step_number
+                    )
+                    await self.complete_run(
+                        machine_id=machine_id,
+                        run_id=run_id,
+                        user_id=user_id,
+                        username=username,
+                        timeout=timeout
                     )
                     return response
             

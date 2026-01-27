@@ -13,11 +13,10 @@
   {
     "name": "move_electrode",
     "params": {
-      "slot": "A3",
-      "well": "A1",
+      "deck_slot": "A3",
+      "well_name": "A1",
       "height_from_bottom": 0
     },
     "step_number": 2
   }
 ]
-

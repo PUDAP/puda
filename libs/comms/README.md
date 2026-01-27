@@ -69,7 +69,7 @@ Represents a command to be sent to a machine.
 ```python
 command = CommandRequest(
     name="attach_tip",
-    params={"slot": "A3", "well": "G8"},
+    params={"deck_slot": "A3", "well_name": "G8"},
     step_number=2,
     version="1.0"
 )
@@ -97,7 +97,7 @@ response = CommandResponse(
 error_response = CommandResponse(
     status=CommandResponseStatus.ERROR,
     code="EXECUTION_ERROR",
-    message="Failed to attach tip: slot A3 not found",
+    message="Failed to attach tip: deck_slot A3 not found",
     completed_at="2026-01-20T02:00:46Z"
 )
 ```
@@ -154,8 +154,8 @@ Complete NATS message structure combining header with optional command or respon
   "command": {
     "name": "attach_tip",
     "params": {
-      "slot": "A3",
-      "well": "G8"
+      "deck_slot": "A3",
+      "well_name": "G8"
     },
     "step_number": 2,
     "version": "1.0"

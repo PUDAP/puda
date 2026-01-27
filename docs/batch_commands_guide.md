@@ -112,10 +112,10 @@ This will display all available methods (commands) on the `First` class, includi
 
 The `help(First)` output will show methods like:
 - `load_deck(deck_layout: Dict[str, str])` - Load labware onto the deck
-- `attach_tip(slot: str, well: str)` - Attach a tip to the pipette
-- `aspirate_from(slot: str, well: str, amount: float, ...)` - Aspirate liquid from a well
-- `dispense_to(slot: str, well: str, amount: float, ...)` - Dispense liquid to a well
-- `drop_tip(slot: str, well: str, ...)` - Drop the tip into a waste container
+- `attach_tip(deck_slot: str, well_name: Optional[str])` - Attach a tip to the pipette
+- `aspirate_from(deck_slot: str, well_name: str, amount: int, ...)` - Aspirate liquid from a well
+- `dispense_to(deck_slot: str, well_name: str, amount: int, ...)` - Dispense liquid to a well
+- `drop_tip(deck_slot: str, well_name: str, ...)` - Drop the tip into a waste container
 - And many more...
 
 ## Creating commands.json

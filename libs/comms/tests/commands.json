@@ -13,16 +13,16 @@
   {
     "name": "attach_tip",
     "params": {
-      "slot": "A3",
-      "well": "G8"
+      "deck_slot": "A3",
+      "well_name": "G8"
     },
     "step_number": 2
   },
   {
     "name": "aspirate_from",
     "params": {
-      "slot": "C2",
-      "well": "A1",
+      "deck_slot": "C2",
+      "well_name": "A1",
       "amount": 100
     },
     "step_number": 3
@@ -30,8 +30,8 @@
   {
     "name": "dispense_to",
     "params": {
-      "slot": "C2",
-      "well": "B4",
+      "deck_slot": "C2",
+      "well_name": "B4",
       "amount": 100
     },
     "step_number": 4
@@ -39,8 +39,8 @@
   {
     "name": "drop_tip",
     "params": {
-      "slot": "C1",
-      "well": "A1"
+      "deck_slot": "C1",
+      "well_name": "A1"
     },
     "step_number": 5
   }

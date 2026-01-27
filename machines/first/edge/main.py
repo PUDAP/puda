@@ -1,3 +1,9 @@
+"""
+Main entry point for the First machine edge service.
+
+This module provides the main event loop for the First machine, handling command
+execution via NATS messaging, telemetry publishing, and connection management.
+"""
 import asyncio
 import logging
 import os
@@ -5,7 +11,7 @@ from typing import Any
 from dotenv import load_dotenv
 from puda_drivers.machines import First
 from puda_comms import MachineClient, ExecutionState
-from puda_comms.models import CommandResponse, CommandResponseStatus, CommandResponseCode, NATSMessage, ImmediateCommand
+from puda_comms.models import CommandResponse, CommandResponseStatus, CommandResponseCode, NATSMessage
 
 # Load environment variables from .env file
 load_dotenv()
