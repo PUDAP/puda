@@ -11,12 +11,20 @@
     "step_number": 1
   },
   {
-    "name": "move_electrode",
+    "name": "attach_tip",
     "params": {
       "deck_slot": "A3",
-      "well_name": "A1",
-      "height_from_bottom": 0
+      "well_name": "A1"
     },
     "step_number": 2
+  },
+  {
+    "name": "aspirate_from",
+    "params": {
+      "deck_slot": "C2",
+      "well_name": "A1",
+      "amount": 100
+    },
+    "step_number": 3
   }
 ]

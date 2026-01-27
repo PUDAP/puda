@@ -324,6 +324,7 @@ class First:
         pos = self._get_absolute_z_position(deck_slot, well_name)
         # add height from bottom
         pos += Position(z=height_from_bottom)
+        pos += Position(z=self.TIP_LENGTH)
         # a bit more for space to drop
         pos += Position(z=10)
         self._logger.debug("Moving to position %s (adjusted for tip length) for tip drop", pos)
@@ -479,8 +480,8 @@ class First:
             # get z
             pos += Position(z=labware.get_height() - self.CEILING_HEIGHT)
             # if tip attached
-            if self.pipette.is_tip_attached():
-                pos += Position(z=self.TIP_LENGTH)
+            # if self.pipette.is_tip_attached():
+            #     pos += Position(z=self.TIP_LENGTH)
             self._logger.debug("Absolute Z position for deck slot '%s', well '%s': %s", deck_slot, well_name, pos)
         else:
             self._logger.debug("Absolute Z position for deck slot '%s': %s", deck_slot, pos)
