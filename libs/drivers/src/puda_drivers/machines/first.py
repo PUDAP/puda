@@ -286,10 +286,9 @@ class First:
         if labware is None:
             self._logger.error("Cannot attach tip: no labware loaded in deck slot '%s'", deck_slot)
             raise ValueError(f"No labware loaded in deck slot '{deck_slot}'. Load labware before attaching tips.")
-        insert_depth = labware.get_insert_depth()
-        self._logger.debug("Moving down by %s mm to insert tip", insert_depth)
+        self._logger.debug("Moving down by %s mm to insert tip", labware.get_insert_depth())
         self.qubot.move_relative(
-            position=Position(z=-insert_depth),
+            position=Position(z=-labware.get_insert_depth()),
             feed=500
         )
         self.pipette.set_tip_attached(attached=True)
@@ -324,10 +323,7 @@ class First:
         pos = self._get_absolute_z_position(deck_slot, well_name)
         # add height from bottom
         pos += Position(z=height_from_bottom)
-        pos += Position(z=self.TIP_LENGTH)
-        # a bit more for space to drop
-        pos += Position(z=10)
-        self._logger.debug("Moving to position %s (adjusted for tip length) for tip drop", pos)
+        self._logger.debug("Moving to position %s for tip drop", pos)
         self.qubot.move_absolute(position=pos)
 
         self._logger.debug("Ejecting tip")
@@ -360,12 +356,15 @@ class First:
             raise ValueError("Tip not attached")
         
         self._logger.info("Aspirating %d µL from deck slot '%s', well '%s'", amount, deck_slot, well_name)
+
         pos = self._get_absolute_z_position(deck_slot, well_name)
         # add height from bottom
         pos += Position(z=height_from_bottom)
+        # subtract insert depth to get the bottom of the well
+        pos -= Position(z=self.deck[deck_slot].get_insert_depth())
+
         self._logger.debug("Moving Z axis to position %s", pos)
         self.qubot.move_absolute(position=pos)
-
         self._logger.debug("Aspirating %d µL", amount)
         self.pipette.aspirate(amount=amount)
         time.sleep(5)
@@ -395,12 +394,15 @@ class First:
             raise ValueError("Tip not attached")
         
         self._logger.info("Dispensing %d µL to deck slot '%s', well '%s'", amount, deck_slot, well_name)
+
         pos = self._get_absolute_z_position(deck_slot, well_name)
         # add height from bottom
         pos += Position(z=height_from_bottom)
+        # subtract insert depth to get the bottom of the well
+        pos -= Position(z=self.deck[deck_slot].get_insert_depth())
+
         self._logger.debug("Moving Z axis to position %s", pos)
         self.qubot.move_absolute(position=pos)
-
         self._logger.debug("Dispensing %d µL", amount)
         self.pipette.dispense(amount=amount)
         time.sleep(5)
@@ -479,9 +481,9 @@ class First:
             pos += well_pos.swap_xy()
             # get z
             pos += Position(z=labware.get_height() - self.CEILING_HEIGHT)
-            # if tip attached
-            # if self.pipette.is_tip_attached():
-            #     pos += Position(z=self.TIP_LENGTH)
+            # if tip attached, add tip length
+            if self.pipette.is_tip_attached():
+                pos += Position(z=self.TIP_LENGTH)
             self._logger.debug("Absolute Z position for deck slot '%s', well '%s': %s", deck_slot, well_name, pos)
         else:
             self._logger.debug("Absolute Z position for deck slot '%s': %s", deck_slot, pos)

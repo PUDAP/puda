@@ -3,7 +3,7 @@
 import json
 import inspect
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from abc import ABC
 from puda_drivers.core import Position
 
@@ -121,28 +121,36 @@ class StandardLabware(ABC):
             z=well_data.get("z", 0.0),
         )
 
-    def get_height(self) -> float:
+    def get_height(self, well_name: Optional[str] = None) -> float:
         """
         Get the height of the labware.
-        
+
+        Args:
+            well_name: Optional well name within the labware (e.g., "A1" for a well in a tiprack)
+                If not provided, the height of the labware is returned (zDimension).
         Returns:
-            Height of the labware (zDimension)
+            Height of the labware (zDimension) or the height of the well (z)
             
         Raises:
-            KeyError: If dimensions or zDimension is not found in the definition
+            KeyError: If dimensions or zDimension is not found in the definition, or if well_name is not found in the labware
         """
         dimensions = self._definition.get("dimensions")
         if dimensions is None:
             raise KeyError("'dimensions' not found in labware definition")
-
-        if "zDimension" not in dimensions:
-            raise KeyError("'zDimension' not found in labware dimensions")
-
-        return dimensions["zDimension"]
+        
+        if well_name:
+            well_data = self._wells.get(well_name.upper(), {})
+            if well_data is None:
+                raise KeyError(f"Well '{well_name}' not found in labware definition")
+            return well_data.get("z")
+        else:
+            if "zDimension" not in dimensions:
+                raise KeyError("'zDimension' not found in labware dimensions")
+            return dimensions["zDimension"]
 
     def get_insert_depth(self) -> float:
         """
-        Get the insert depth of the labware.
+        Get the insert depth of the labware. This should be added to all labware definitions.
         
         insert_depth represents the maximum internal Z-axis clearance of the
         labware. It is calculated as the absolute difference between the Top

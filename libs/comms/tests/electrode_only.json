@@ -5,7 +5,7 @@
       "deck_layout": {
         "C1": "trash_bin",
         "C2": "polyelectric_8_wellplate_30000ul",
-        "A3": "opentrons_96_tiprack_300ul"
+        "C3": "opentrons_96_tiprack_300ul"
       }
     },
     "step_number": 1
@@ -13,7 +13,7 @@
   {
     "name": "attach_tip",
     "params": {
-      "deck_slot": "A3",
+      "deck_slot": "C3",
       "well_name": "A1"
     },
     "step_number": 2
@@ -22,9 +22,17 @@
     "name": "aspirate_from",
     "params": {
       "deck_slot": "C2",
-      "well_name": "A1",
+      "well_name": "A2",
       "amount": 100
     },
     "step_number": 3
+  },
+  {
+    "name": "drop_tip",
+    "params": {
+      "deck_slot": "C1",
+      "well_name": "A1"
+    },
+    "step_number": 4
   }
 ]
