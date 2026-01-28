@@ -5,34 +5,18 @@
       "deck_layout": {
         "C1": "trash_bin",
         "C2": "polyelectric_8_wellplate_30000ul",
-        "C3": "opentrons_96_tiprack_300ul"
+        "C3": "opentrons_96_tiprack_300ul",
+        "A2": "MEA_cell_MTP"
       }
     },
     "step_number": 1
   },
   {
-    "name": "attach_tip",
+    "name": "move_electrode",
     "params": {
-      "deck_slot": "C3",
+      "deck_slot": "A2",
       "well_name": "A1"
     },
     "step_number": 2
-  },
-  {
-    "name": "aspirate_from",
-    "params": {
-      "deck_slot": "C2",
-      "well_name": "A2",
-      "amount": 100
-    },
-    "step_number": 3
-  },
-  {
-    "name": "drop_tip",
-    "params": {
-      "deck_slot": "C1",
-      "well_name": "A1"
-    },
-    "step_number": 4
   }
 ]

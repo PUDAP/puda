@@ -507,21 +507,26 @@ class First:
         pos = self._get_slot_origin(deck_slot)
         pos -= self.A_ORIGIN # subtract the origin to get the absolute position
         
+        # Get labware for a-axis positioning
+        labware = self.deck[deck_slot]
+        if labware is None:
+            self._logger.error("Cannot get electrode position: no labware loaded in deck slot '%s'", deck_slot)
+            raise ValueError(f"No labware loaded in deck slot '{deck_slot}'. Load labware before moving electrode.")
+        
+        # get x and y for well if specified
         if well_name:
-            labware = self.deck[deck_slot]
-            if labware is None:
-                self._logger.error("Cannot get well position: no labware loaded in deck slot '%s'", deck_slot)
-                raise ValueError(f"No labware loaded in deck slot '{deck_slot}'. Load labware before accessing wells.")
             well_pos = labware.get_well_position(well_name).get_xy()
             pos += well_pos.swap_xy()
-            
-            # get a
-            pos += Position(a=labware.get_height() - self.CEILING_HEIGHT)
-            pos += Position(a=self.ELECTRODE_LENGTH)
-
+        
+        # get a (applies to both with and without well_name)
+        pos += Position(a=labware.get_height() - self.CEILING_HEIGHT)
+        pos += Position(a=self.ELECTRODE_LENGTH)
+        
+        if well_name:
             self._logger.debug("Absolute A position for deck slot '%s', well '%s': %s", deck_slot, well_name, pos)
         else:
             self._logger.debug("Absolute A position for deck slot '%s': %s", deck_slot, pos)
+        
         return pos
 
    ### Camera operations ###
