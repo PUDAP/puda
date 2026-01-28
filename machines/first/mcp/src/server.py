@@ -11,7 +11,7 @@ from starlette.responses import JSONResponse
 from .config import Config
 from .dependencies import lifespan
 from .tools import get_machine_state
-from .resources import get_available_labware_resource, get_available_commands_data
+from .resources import get_available_labware_resource, get_available_commands_resource, get_rules_resource
 
 
 # Initialize FastMCP server with lifespan management
@@ -39,22 +39,62 @@ def get_machine_id() -> str:
     return Config.MACHINE_ID
 
 mcp.resource(
-    uri="resource://first/machine_id",
-    name="Machine ID",
-    description="The ID of the machine"
+    uri="first://system/info",
+    name="Information",
+    description="Information about the First machine"
 )(get_machine_id)
 
 mcp.resource(
-    uri="resource://first/labware",
-    name="Available Labware",
+    uri="first://labware",
+    name="Labware Catalog",
     description="A list of all available labware types for the First machine"
 )(get_available_labware_resource)
 
 mcp.resource(
-    uri="resource://first/commands",
+    uri="first://commands",
     name="Available Commands",
     description="A JSON object describing all available First machine commands and their parameters"
-)(get_available_commands_data)
+)(get_available_commands_resource)
+
+mcp.resource(
+    uri="first://rules",
+    name="Rules",
+    description="Rules and restrictions for the First machine"
+)(get_rules_resource)
+
+async def get_commands_prompt() -> str:
+    """Return the commands prompt."""
+    prompt = """You are an expert in creating First machine protocols. Convert the following natural language instructions into a structured JSON representation of a First machine protocol.
+
+Before generating the protocol, you MUST consult the following MCP resources to understand available capabilities:
+- first://labware - Lists all available labware types and their specifications
+- first://commands - Describes all available commands, their parameters, and usage
+- first://rules - Contains rules and restrictions including command dependencies and available slots
+
+IMPORTANT: Always follow the command dependencies specified in the rules resource.
+
+Return your answer as a valid JSON array of command objects with the following structure:
+
+[
+    {
+        "step_number": 1,
+        "command": "command_name",
+        "params": {
+            "param1": "value1",
+            "param2": "value2"
+        }
+    }
+]
+"""
+    return prompt
+
+
+mcp.prompt(
+    name="Commands",
+    title="Commands",
+    description="Commands for the First machine"
+)(get_commands_prompt)
+
 
 
 @mcp.custom_route("/", methods=["GET"])
@@ -76,4 +116,3 @@ async def health(_request: Request) -> JSONResponse:
 
 if __name__ == "__main__":
     mcp.run(transport="streamable-http", host="0.0.0.0", port=Config.SERVER_PORT)
-

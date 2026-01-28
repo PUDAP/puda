@@ -17,7 +17,13 @@ Since you are using fastmcp, the easiest way to test tools is to use its built-i
 
 ```bash
 cd machines/first/mcp
-uv run fastmcp dev server.py
+uv run fastmcp dev main.py
+```
+
+for prod
+
+```bash
+uv run python -m src.server
 ```
 
 This will start a development server with a web interface where you can:

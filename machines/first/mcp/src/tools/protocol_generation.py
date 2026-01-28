@@ -7,7 +7,7 @@ Tool for converting natural language instructions into machine commands.
 import traceback
 from puda_drivers import labware
 from ..config import Config
-from ..resources.commands import get_available_commands_data
+from ..resources.commands import get_available_commands_resource
 
 
 async def generate_machine_commands(instructions: str) -> str:
@@ -24,7 +24,7 @@ async def generate_machine_commands(instructions: str) -> str:
     """
     try:
         # Create a prompt for the model to extract structured protocol information
-        commands_json = get_available_commands_data()
+        commands_json = (get_available_commands_resource())
         labware_lines = [f"{labware.StandardLabware(lw)}" for lw in labware.get_available_labware()]
         prompt = f"""
         You are an expert in creating First machine protocols. Convert the following natural language instructions into a structured JSON representation of a First machine protocol.

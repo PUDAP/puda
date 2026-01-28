@@ -25,5 +25,5 @@ EXPOSE 8001
 
 # Run the server using uv
 WORKDIR /app/machines/first/mcp
-CMD ["uv", "run", "python", "server.py"]
+CMD ["uv", "run", "python", "main.py"]
 

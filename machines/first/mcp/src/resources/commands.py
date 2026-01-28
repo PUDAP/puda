@@ -47,7 +47,7 @@ def _get_type_name(annotation) -> str:
     return type_str
 
 
-async def get_available_commands_data() -> str:
+async def get_available_commands_resource() -> str:
     """Returns a JSON string describing all available First machine commands and their parameters.
     
     Provides comprehensive documentation of all commands available for the First machine,
@@ -86,14 +86,10 @@ async def get_available_commands_data() -> str:
             # Get docstring
             docstring = inspect.getdoc(method) or ""
             
-            # Extract description from docstring (first line or first paragraph)
-            description = docstring.split('\n\n')[0].strip() if docstring else ""
-            
             command_info = {
                 "command": name,
-                "description": description,
+                "docstring": docstring,
                 "parameters": params,
-                "full_docstring": docstring
             }
             commands.append(command_info)
     
