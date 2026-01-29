@@ -296,7 +296,7 @@ class GCodeController(SerialController):
             home_target = "All"
 
         self._logger.info("[%s] homing axis/axes: %s **", cmd, home_target)
-        self.execute(cmd)
+        self.execute(command=cmd, timeout=90) # 90 seconds timeout for homing
         self._logger.info("Homing of %s completed.\n", home_target)
 
         # Update internal position (optimistic zeroing)
@@ -332,30 +332,21 @@ class GCodeController(SerialController):
             >>> pos = Position(x=10, y=20)
             >>> controller.move_absolute(position=pos)  # z and a use current values
         """
-        # Fill in missing axes with current positions
-        final_x = position.x if position.has_axis("x") else self._current_position.x
-        final_y = position.y if position.has_axis("y") else self._current_position.y
-        final_z = position.z if position.has_axis("z") else self._current_position.z
-        final_a = position.a if position.has_axis("a") else self._current_position.a
-
-        # Create final position for validation and execution
-        final_position = Position(x=final_x, y=final_y, z=final_z, a=final_a)
-        
         # Validate positions before executing move
-        self._validate_move_positions(position=final_position)
+        self._validate_move_positions(position=position)
 
         feed_rate = feed if feed is not None else self._feed
         self._logger.info(
             "Preparing absolute move to X:%s, Y:%s, Z:%s, A:%s at F:%s",
-            final_x,
-            final_y,
-            final_z,
-            final_a,
+            position.x,
+            position.y,
+            position.z,
+            position.a,
             feed_rate,
         )
 
         return self._execute_move(
-            position=final_position,
+            position=position,
             feed=feed_rate
         )
 
@@ -429,9 +420,9 @@ class GCodeController(SerialController):
         All coordinates are treated as absolute positions.
 
         Safe move pattern:
-        1. If X or Y movement is needed, first move Z to 0 (safe height)
+        1. If X or Y movement is needed, first move Z and A to safe height
         2. Then move X, Y to target
-        3. Finally move Z and A back to original position (or target if specified)
+        3. Finally move Z or A to target (only the one that needs to move, the other stays where it is)
 
         Args:
             position: Position with absolute positions for X, Y, Z, A axes
@@ -440,8 +431,8 @@ class GCodeController(SerialController):
         # Check if any movement is needed
         needs_x_move = abs(position.x - self._current_position.x) > self.TOLERANCE
         needs_y_move = abs(position.y - self._current_position.y) > self.TOLERANCE
-        needs_z_move = abs(position.z - self._current_position.z) > self.TOLERANCE
-        needs_a_move = abs(position.a - self._current_position.a) > self.TOLERANCE
+        needs_z_move = abs(position.z - 0) > self.TOLERANCE
+        needs_a_move = abs(position.a - 0) > self.TOLERANCE
         
         if not (needs_x_move or needs_y_move or needs_z_move or needs_a_move):
             self._logger.warning(
@@ -450,7 +441,7 @@ class GCodeController(SerialController):
             return
         
         if needs_z_move and needs_a_move:
-            self._logger.warning(
+            self._logger.error(
                 "Move command issued with both Z and A movement. This is not supported. Skipping transmission."
             )
             raise ValueError("Move command issued with both Z and A movement. This is not supported.")
@@ -463,7 +454,7 @@ class GCodeController(SerialController):
             self._logger.debug(
                 "Safe move: Raising Z and A to safe height (%s) before XY movement", self.SAFE_MOVE_HEIGHT
             )
-            move_cmd = f"G1 Z-5 A-5 F{self._z_feed}"
+            move_cmd = f"G1 Z{self.SAFE_MOVE_HEIGHT} A{self.SAFE_MOVE_HEIGHT} F{self._z_feed}"
             self.execute(move_cmd)
             self._wait_for_move()
             self._current_position.z = self.SAFE_MOVE_HEIGHT
@@ -493,13 +484,13 @@ class GCodeController(SerialController):
             if needs_y_move:
                 self._current_position.y = position.y
 
-        # Step 3: Move Z and A back to original position (or target if specified)
+        # Step 3: Move Z or A to target (only the one that needs to move)
         if needs_z_move:
             move_cmd = f"G1 Z{position.z} F{self._z_feed}"
             self.execute(move_cmd)
             self._wait_for_move()
             self._current_position.z = position.z
-        elif needs_a_move:
+        if needs_a_move:
             move_cmd = f"G1 A{position.a} F{self._z_feed}"
             self.execute(move_cmd)
             self._wait_for_move()
