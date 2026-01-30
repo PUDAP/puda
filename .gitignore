@@ -50,3 +50,7 @@ Thumbs.db
 
 .nx/cache
 .nx/workspace-data
+
+# AI tools
+.claude
+.cursor
