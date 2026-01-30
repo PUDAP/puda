@@ -26,10 +26,6 @@ class Config:
     SERVER_PORT: int = int(os.getenv('SERVER_PORT', '8001'))
     
     # NATS servers configuration
-    DEFAULT_NATS_SERVERS = (
-        'nats://192.168.50.201:4222,'
-        'nats://192.168.50.201:4223,'
-        'nats://192.168.50.201:4224'
-    )
+    DEFAULT_NATS_SERVERS = 'nats://100.86.162.126:4222,nats://100.86.162.126:4223,nats://100.86.162.126:4224'
     NATS_SERVERS_ENV: str = os.getenv('NATS_SERVERS', DEFAULT_NATS_SERVERS)
     NATS_SERVERS: list = [s.strip() for s in NATS_SERVERS_ENV.split(',')]

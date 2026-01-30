@@ -38,6 +38,7 @@ async def lifespan(_app):
     
     # Connect NATS
     try:
+        print(f"Connecting to NATS servers: {Config.NATS_SERVERS}")
         _deps.nats_client = await nats.connect(
             servers=Config.NATS_SERVERS,
             connect_timeout=10,  # 10 seconds timeout for initial connection

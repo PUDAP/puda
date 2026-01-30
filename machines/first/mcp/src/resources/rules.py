@@ -8,7 +8,7 @@ import json
 
 
 async def get_rules_resource() -> str:
-    """Returns a JSON object describing rules and restrictions for the First machine.
+    """Returns a JSON object describing rules and restrictions when generating commands for the First machine.
 
     Returns:
         str: JSON-formatted object containing deck usage rules.
