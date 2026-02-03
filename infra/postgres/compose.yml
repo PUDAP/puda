@@ -6,7 +6,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./data:/var/lib/postgresql
+      - data:/var/lib/postgresql
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
@@ -17,3 +17,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+volumes:
+  data:

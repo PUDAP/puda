@@ -1,10 +1,14 @@
 """PostgreSQL database client for PUDA platform."""
 
 import os
+import logging
 from typing import Optional
 import psycopg
 from psycopg.rows import dict_row
+from puda_comms.models import NATSMessage
 
+
+logger = logging.getLogger(__name__)
 
 class DatabaseClient:
     """Client for interacting with PostgreSQL database."""
@@ -35,7 +39,7 @@ class DatabaseClient:
 
     def connect(self) -> None:
         """Establish connection to the database."""
-        if self._conn is None or self._conn.closed:
+        if self._conn is None or getattr(self._conn, 'closed', False):
             self._conn = psycopg.connect(
                 host=self.host,
                 port=self.port,
@@ -47,9 +51,11 @@ class DatabaseClient:
 
     def close(self) -> None:
         """Close the database connection."""
-        if self._conn and not self._conn.closed:
-            self._conn.close()
+        logger.info("Closing database connection")
+        if self._conn is not None and not getattr(self._conn, 'closed', False):
+            self._conn.close()  # type: ignore[attr-defined]  # pylint: disable=no-member
             self._conn = None
+            logger.info("Closed database connection")
 
     def __enter__(self):
         """Context manager entry."""
@@ -70,10 +76,17 @@ class DatabaseClient:
         Returns:
             List of result rows as dictionaries
         """
-        if self._conn is None or self._conn.closed:
+        logger.info("Executing SQL query: %s", sql)
+        if self._conn is None:
             self.connect()
-
-        with self._conn.cursor() as cur:
+        elif getattr(self._conn, 'closed', False):
+            self.connect()
+        
+        conn = self._conn
+        if conn is None:
+            raise RuntimeError("Failed to establish database connection")
+        
+        with conn.cursor() as cur:  # type: ignore[attr-defined]  # pylint: disable=no-member
             cur.execute(sql, params)
             return cur.fetchall()
 
@@ -92,64 +105,47 @@ class DatabaseClient:
             sample
         )
     
-    def insert_response_log(
-        self,
-        machine_id: str,
-        response_type: str,
-        command: str,
-        run_id: Optional[str] = None,
-        command_id: Optional[str] = None,
-        status: str = 'unknown',
-        error: Optional[str] = None,
-        completed_at: Optional[str] = None,
-        full_payload: Optional[dict] = None
-    ) -> None:
-        """Insert a response log entry into the database.
+    def insert_command_log(self, message: NATSMessage, command_type: str) -> None:
+        """Insert a command log entry into the database.
         
         Args:
-            machine_id: Machine identifier
-            response_type: Type of response ('queue' or 'immediate')
-            command: Command name
-            run_id: Optional run ID (UUID as string)
-            command_id: Optional command ID
-            status: Response status ('success' or 'error')
-            error: Optional error message
-            completed_at: Optional completion timestamp (ISO format string)
-            full_payload: Optional full message payload (will be stored as JSONB)
+            message: NATSMessage to store in the database
+            command_type: Type of command being logged
         """
-        import json
-        if self._conn is None or self._conn.closed:
+        if self._conn is None:
             self.connect()
+        elif getattr(self._conn, 'closed', False):
+            self.connect()
+
+        if self._conn is None or getattr(self._conn, 'closed', False):
+            raise RuntimeError("Failed to establish database connection")
         
-        with self._conn.cursor() as cur:
+        # Extract fields from NATSMessage
+        run_id = message.header.run_id
+        machine_id = message.header.machine_id
+        created_at = message.header.timestamp
+        step_number = message.command.step_number if message.command else None
+        payload = message.model_dump_json()
+        
+        conn = self._conn
+        if conn is None:
+            raise RuntimeError("Failed to establish database connection")
+        
+        with conn.cursor() as cur:  # type: ignore[attr-defined]  # pylint: disable=no-member
             cur.execute(
                 """
-                INSERT INTO response_log 
-                (machine_id, response_type, command, run_id, command_id, status, error, completed_at, full_payload)
-                VALUES (
-                    %(machine_id)s,
-                    %(response_type)s,
-                    %(command)s,
-                    %(run_id)s,
-                    %(command_id)s,
-                    %(status)s,
-                    %(error)s,
-                    %(completed_at)s,
-                    %(full_payload)s
-                )
+                INSERT INTO command_log (run_id, created_at, step_number, payload, machine_id, command_type)
+                VALUES (%(run_id)s, %(created_at)s, %(step_number)s, %(payload)s::jsonb, %(machine_id)s, %(command_type)s)
                 """,
                 {
-                    'machine_id': machine_id,
-                    'response_type': response_type,
-                    'command': command,
                     'run_id': run_id,
-                    'command_id': command_id,
-                    'status': status,
-                    'error': error,
-                    'completed_at': completed_at,
-                    'full_payload': json.dumps(full_payload) if full_payload else None
+                    'machine_id': machine_id,
+                    'command_type': command_type,
+                    'created_at': created_at,
+                    'step_number': step_number,
+                    'payload': payload
                 }
             )
-            self._conn.commit()
-        
+        conn.commit()  # type: ignore[attr-defined]  # pylint: disable=no-member
+        logger.info("Inserted command log entry into the database")
         

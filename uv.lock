@@ -1042,12 +1042,14 @@ source = { virtual = "services/logger" }
 dependencies = [
     { name = "puda-comms" },
     { name = "puda-db" },
+    { name = "python-dotenv" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "puda-comms", editable = "libs/comms" },
     { name = "puda-db", editable = "libs/db" },
+    { name = "python-dotenv", specifier = ">=1.2.1" },
 ]
 
 [[package]]
@@ -1492,7 +1494,6 @@ version = "0.0.5"
 source = { editable = "libs/comms" }
 dependencies = [
     { name = "nats-py" },
-    { name = "puda-drivers" },
     { name = "pydantic" },
 ]
 
@@ -1504,7 +1505,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "nats-py", specifier = ">=2.12.0" },
-    { name = "puda-drivers", editable = "libs/drivers" },
     { name = "pydantic", specifier = ">=2.12.5" },
 ]
 
@@ -1524,7 +1524,7 @@ requires-dist = [{ name = "psycopg", extras = ["binary"], specifier = ">=3.2.2" 
 
 [[package]]
 name = "puda-drivers"
-version = "0.0.18"
+version = "0.0.19"
 source = { editable = "libs/drivers" }
 dependencies = [
     { name = "nats-py" },

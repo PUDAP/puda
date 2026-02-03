@@ -9,13 +9,8 @@ authors = [
 requires-python = ">=3.14"
 dependencies = [
     "nats-py>=2.12.0",
-    # "puda-drivers>=0.0.16",
-    "puda-drivers",
     "pydantic>=2.12.5",
 ]
-
-[tool.uv.sources]
-puda-drivers = {workspace = true}
 
 [tool.ruff]
 line-length = 100
