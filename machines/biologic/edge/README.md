@@ -15,9 +15,8 @@
 2. Edit `.env` and configure the following variables:
    - `MACHINE_ID`: Machine identifier (default: `first`)
    - `NATS_SERVERS`: Comma-separated list of NATS server URLs (default: `nats://192.168.50.201:4222,nats://192.168.50.201:4223,nats://192.168.50.201:4224`)
-   - `QUBOT_PORT`: Serial port for the QuBot gantry controller (default: `/dev/ttyACM0`)
-   - `SARTORIUS_PORT`: Serial port for the Sartorius pipette controller (default: `/dev/ttyUSB0`)
-   - `CAMERA_INDEX`: Camera device index or path (default: `0`)
+   - `BIOLOGIC_IP`: IP address of the biologic machine
+
 
 3. Run the service using one of the following methods:
 

@@ -1,21 +1,37 @@
+"""
+Main entry point for the Biologic machine edge service.
+
+This module provides the main event loop for the Biologic machine, handling command
+execution via NATS messaging, telemetry publishing, and connection management.
+"""
 import asyncio
 import logging
 import os
+import sys
 from typing import Any
 from dotenv import load_dotenv
+from biologic_machine import BiologicMachine
 from puda_comms import MachineClient, ExecutionState
 from puda_comms.models import CommandResponse, CommandResponseStatus, CommandResponseCode, NATSMessage
-from biologic_machine import BiologicMachine
+from puda_drivers.machines import Biologic
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Configure logging
+# Configure logging with immediate flushing
+class FlushingStreamHandler(logging.StreamHandler):
+    """StreamHandler that flushes after each log message."""
+    def emit(self, record):
+        super().emit(record)
+        self.flush()
+
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    force=True,  # Force reconfiguration if already configured
+    handlers=[FlushingStreamHandler()]  # Use flushing handler
 )
-
+# Higher level logging for drivers
 logger = logging.getLogger(__name__)
 
 def _convert_handler_result_to_dict(result: Any) -> dict | None:
@@ -51,22 +67,41 @@ def _convert_handler_result_to_dict(result: Any) -> dict | None:
 
 
 async def main():
+    # Log immediately to verify function is called
+    logger.info("=== Starting Biologic edge service ===")
+    
     # 1. Initialize Objects
-    machine_id = os.getenv("MACHINE_ID", "biologic")
-    # Get NATS servers from environment variable (comma-separated list)
-    nats_servers_env = os.getenv(
-        "NATS_SERVERS",
-        "nats://192.168.50.201:4222,nats://192.168.50.201:4223,nats://192.168.50.201:4224"
-    )
+    machine_id = os.getenv("MACHINE_ID")
+    if not machine_id:
+        raise ValueError("MACHINE_ID environment variable is required")
+
+    biologic_ip = os.getenv("BIOLOGIC_IP")
+    if not biologic_ip:
+        raise ValueError("BIOLOGIC_IP environment variable is required")
+
+    nats_servers_env = os.getenv("NATS_SERVERS")
+    if not nats_servers_env:
+        raise ValueError("NATS_SERVERS environment variable is required")
     nats_servers = [s.strip() for s in nats_servers_env.split(",")]
     
+    # 2. Initialize Biologic machine
+    logger.info("Initializing Biologic machine with IP: %s", biologic_ip)
+    biologic_machine = BiologicMachine(device_ip=biologic_ip)
+    
+    # 3. Initialize NATS client
+    logger.info("Initializing NATS client with servers: %s", nats_servers)
     client = MachineClient(
         servers=nats_servers,
         machine_id=machine_id
     )
     
-    # Initialize Biologic machine
-    biologic_machine = BiologicMachine(os.getenv("BIOLOGIC_IP", "192.168.1.2"))
+    # 4. Connect to NATS (with retry logic)
+    while True:
+        if await client.connect():
+            break
+        else:
+            logger.error("Failed to connect to NATS, retrying in 5 seconds...")
+            await asyncio.sleep(5)
     
     # Shared execution state for cancellation
     exec_state = ExecutionState()
@@ -180,7 +215,7 @@ async def main():
     async def handle_immediate(message: NATSMessage) -> CommandResponse:
         """
         Handle immediate commands (pause, cancel, resume, etc.).
-        Executes the corresponding handler method from biologic_machine if needed.
+        Executes the corresponding handler method from biologic_machine.
         """
         if message.command is None:
             logger.error("Received immediate message with no command")
@@ -219,16 +254,6 @@ async def main():
                 code=CommandResponseCode.EXECUTION_ERROR,
                 message=str(e)
             )
-
-    # 3. Connect and Start Up (with retry logic)
-    while True:
-        if await client.connect():
-            break
-        else:
-            logger.error("Failed to connect to NATS, retrying in 5 seconds...")
-            await asyncio.sleep(5)
-
-    logger.info("Biologic machine initialized and ready")
 
     async def setup_subscriptions():
         """Set up NATS subscriptions for queue and immediate commands."""
@@ -271,7 +296,6 @@ async def main():
             # Telemetry Loop (Keeps the script running)
             try:
                 await client.publish_heartbeat()
-                # Biologic machine doesn't have position, just publish health
                 await client.publish_health({'cpu': 45.2, 'mem': 60.1, 'temp': 35.0})
                 await asyncio.sleep(1)
             except Exception as e:

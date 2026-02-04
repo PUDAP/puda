@@ -108,13 +108,15 @@ dependencies = [
     { name = "easy-biologic" },
     { name = "puda-comms" },
     { name = "python-dotenv" },
+    { name = "setuptools" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "easy-biologic", specifier = ">=0.4.0" },
+    { name = "easy-biologic", specifier = "==0.5.0rc1" },
     { name = "puda-comms", editable = "libs/comms" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
+    { name = "setuptools", specifier = "<81" },
 ]
 
 [[package]]
@@ -391,11 +393,11 @@ wheels = [
 
 [[package]]
 name = "easy-biologic"
-version = "0.4.0"
+version = "0.5.0rc1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/44/03/889a33adf036477170cb7040804f89ee0a65a44b487786be944ba40160f9/easy-biologic-0.4.0.tar.gz", hash = "sha256:9be95027aef2ce57a7c694c0c70023a4e00053982882dcb9c5acdd2a95fa9ca1", size = 23411432, upload-time = "2024-07-18T18:06:37.956Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/dc/c6/bcac932de014ea49cafa83db4200b523b297021ada199cc899b9c061d8af/easy_biologic-0.5.0rc1.tar.gz", hash = "sha256:2ce28bfdba2e74f6936c27e01663d630fcb3025d5efe7ef6880675c57f046a17", size = 34153217, upload-time = "2025-01-19T09:45:27.519Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/92/63/41ffa0eb2751f6ce7ca211230df6685dba04a04cd988f20acde1dd9ea9f7/easy_biologic-0.4.0-py3-none-any.whl", hash = "sha256:29692459daacbdd18229bbd5fb07891e75332a26cfab6194e04e0523af6a8ea3", size = 23718382, upload-time = "2024-07-18T18:06:27.028Z" },
+    { url = "https://files.pythonhosted.org/packages/ae/00/cd9761c069ce17b8a121fe0c44da9c3d7f81789fd84831306cd21868badb/easy_biologic-0.5.0rc1-py3-none-any.whl", hash = "sha256:e6b19edc9f58f58b3671df3a1027b81c3b101172d370cda87a53e817342ee86c", size = 34649936, upload-time = "2025-01-19T09:45:09.443Z" },
 ]
 
 [[package]]
@@ -2090,6 +2092,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/02/94/23ac26616a883f492428d9ee9ad6eee391612125326b784dbfc30e1e7bab/sentry_sdk-2.49.0.tar.gz", hash = "sha256:c1878599cde410d481c04ef50ee3aedd4f600e4d0d253f4763041e468b332c30", size = 387228, upload-time = "2026-01-08T09:56:25.642Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/88/43/1c586f9f413765201234541857cb82fda076f4b0f7bad4a0ec248da39cf3/sentry_sdk-2.49.0-py2.py3-none-any.whl", hash = "sha256:6ea78499133874445a20fe9c826c9e960070abeb7ae0cdf930314ab16bb97aa0", size = 415693, upload-time = "2026-01-08T09:56:21.872Z" },
+]
+
+[[package]]
+name = "setuptools"
+version = "80.10.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/76/95/faf61eb8363f26aa7e1d762267a8d602a1b26d4f3a1e758e92cb3cb8b054/setuptools-80.10.2.tar.gz", hash = "sha256:8b0e9d10c784bf7d262c4e5ec5d4ec94127ce206e8738f29a437945fbc219b70", size = 1200343, upload-time = "2026-01-25T22:38:17.252Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/94/b8/f1f62a5e3c0ad2ff1d189590bfa4c46b4f3b6e49cef6f26c6ee4e575394d/setuptools-80.10.2-py3-none-any.whl", hash = "sha256:95b30ddfb717250edb492926c92b5221f7ef3fbcc2b07579bcd4a27da21d0173", size = 1064234, upload-time = "2026-01-25T22:38:15.216Z" },
 ]
 
 [[package]]

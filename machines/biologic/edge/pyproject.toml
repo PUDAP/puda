@@ -5,7 +5,7 @@ description = "Edge service for the 'biologic' machine"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "easy-biologic>=0.4.0",
+    "easy-biologic==0.5.0rc1",
     "puda-comms",
     "python-dotenv>=1.2.1",
     "setuptools<81",

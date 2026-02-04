@@ -22,7 +22,7 @@ from puda_comms.models import (
 from puda_comms.run_manager import RunManager
 from nats.js.client import JetStreamContext
 from nats.js.api import StreamConfig, ConsumerConfig
-from nats.js.errors import NotFoundError
+from nats.js.errors import NotFoundError, Error as NATSError
 from nats.aio.msg import Msg
 
 logger = logging.getLogger(__name__)
@@ -882,13 +882,68 @@ class MachineClient:
             retention='workqueue'
         )
         
+        durable_name = f"cmd_immed_{self.machine_id}"
+        
+        # Try to unsubscribe from existing subscription if it exists
+        if self._cmd_immediate_sub:
+            try:
+                await self._cmd_immediate_sub.unsubscribe()
+                logger.info("Unsubscribed from existing immediate command subscription")
+            except Exception as e:
+                logger.debug("Error unsubscribing from existing subscription: %s", e)
+            self._cmd_immediate_sub = None
+        
+        # Try to delete existing consumer if it's bound (from previous run)
+        try:
+            await self.js.delete_consumer(self.STREAM_COMMAND_IMMEDIATE, durable_name)
+            logger.info("Deleted existing immediate consumer: %s", durable_name)
+        except NotFoundError:
+            # Consumer doesn't exist, which is fine
+            logger.debug("Consumer %s does not exist, will be created", durable_name)
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "bound" in error_msg or "in use" in error_msg:
+                # Consumer is bound but we can't delete it - try to unsubscribe first
+                logger.warning("Consumer %s is bound to a subscription. Attempting to force delete...", durable_name)
+                # Wait a moment for any pending operations to complete
+                await asyncio.sleep(0.5)
+                try:
+                    await self.js.delete_consumer(self.STREAM_COMMAND_IMMEDIATE, durable_name)
+                    logger.info("Successfully deleted bound consumer: %s", durable_name)
+                except Exception as delete_error:
+                    logger.warning("Could not delete bound consumer %s: %s. Will attempt to subscribe anyway.", 
+                                 durable_name, delete_error)
+            else:
+                logger.warning("Error checking/deleting consumer %s: %s", durable_name, e)
+        
         try:
             self._cmd_immediate_sub = await self.js.subscribe(
                 subject=self.cmd_immediate,
                 stream=self.STREAM_COMMAND_IMMEDIATE,
-                durable=f"cmd_immed_{self.machine_id}",
+                durable=durable_name,
                 cb=message_handler  # required for push consumer to handle messages
             )
+        except NATSError as e:
+            error_msg = str(e).lower()
+            if "bound" in error_msg or "already bound" in error_msg:
+                # Consumer is still bound - try to delete it and retry
+                logger.warning("Consumer %s is still bound. Attempting to delete and retry...", durable_name)
+                try:
+                    await self.js.delete_consumer(self.STREAM_COMMAND_IMMEDIATE, durable_name)
+                    await asyncio.sleep(0.5)  # Brief wait for cleanup
+                    # Retry subscription
+                    self._cmd_immediate_sub = await self.js.subscribe(
+                        subject=self.cmd_immediate,
+                        stream=self.STREAM_COMMAND_IMMEDIATE,
+                        durable=durable_name,
+                        cb=message_handler
+                    )
+                    logger.info("Successfully subscribed after deleting bound consumer")
+                except Exception as retry_error:
+                    logger.error("Failed to subscribe after deleting bound consumer: %s", retry_error)
+                    raise
+            else:
+                raise
         except NotFoundError:
             # Stream still not found after ensuring it exists - this shouldn't happen
             # but handle it gracefully

@@ -1,19 +1,53 @@
+import os
+import sys
 import easy_biologic as ebl
 import easy_biologic.base_programs as blp
+import json # Ensure json is available
+from dotenv import load_dotenv
 
-# create device
-bl = ebl.BiologicDevice('192.168.0.10')
+# Add parent directory to path to import biologic_machine
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from biologic_machine import BiologicMachine
 
-# create mpp program
-params = {
-	'run_time': 10		
+# Load environment variables from .env file
+load_dotenv()
+
+# metadata
+metadata = {
+    "protocolName": "My BioLogic Protocol",
+    "author": "Researcher",
+    "description": "Electrochemical protocol for material characterization"
 }
 
-mpp = blp.MPP(
-    bl,
-    params, 	
-    channels = [ 0, 1, 2, 3, 4, 5, 6 ]        
+# Connect to the BioLogic device
+device_ip = os.getenv("BIOLOGIC_IP")
+if not device_ip:
+    raise ValueError("BIOLOGIC_IP environment variable is not set. Please set it in your .env file or environment.")
+
+# Initialize BiologicMachine
+machine = BiologicMachine(device_ip)
+
+# --- Protocol Sequence ---
+
+# Technique 1: CV
+params_cv_0 = {
+    'start': 0.0,
+    'end': 0.5,
+    'rate': 0.1,
+    'step': 0.1,
+    'E2': 0.0,
+    'Ef': 0.0,
+    'average': False,
+} # End of params_cv_0
+
+# Run CV test using BiologicMachine
+data = machine.CV(
+    params=params_cv_0,
+    channels=[0]
 )
 
-# run program
-mpp.run('data')
+print(data)
+
+# --- End of Protocol Sequence ---
+# Disconnect from the device
+print('Protocol finished and device disconnected.')
