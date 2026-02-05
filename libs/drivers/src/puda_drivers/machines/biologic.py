@@ -6,11 +6,18 @@ handling via getattr, allowing command-based execution patterns for Biologic
 electrochemical testing devices.
 """
 import logging
+import sys
 from typing import Dict, Any, Type
-import easy_biologic as ebl
-import easy_biologic.base_programs as blp
 
 logger = logging.getLogger(__name__)
+
+# Only import easy_biologic on Windows (allows class inspection on Linux)
+if sys.platform == "win32":
+    import easy_biologic as ebl
+    import easy_biologic.base_programs as blp
+else:
+    ebl = None
+    blp = None
 
 
 class Biologic:
@@ -34,8 +41,27 @@ class Biologic:
         Args:
             device_ip: IP address of the Biologic device
         """
-        self.device = ebl.BiologicDevice(device_ip)
-        logger.info("BiologicDevice initialized with IP: %s", device_ip)
+        self.device_ip = device_ip
+        self.device = None
+        logger.info("BiologicMachine initialized with IP: %s (not connected yet)", device_ip)
+    
+    def startup(self):
+        """
+        Connect to the Biologic device.
+        
+        This method should be called before executing any commands to establish
+        the connection to the device.
+        
+        Raises:
+            OSError: If easy_biologic cannot be used (e.g., on non-Windows systems)
+        """
+        if ebl is None:
+            raise OSError("easy_biologic can only be used on Windows.")
+        if self.device is None:
+            self.device = ebl.BiologicDevice(self.device_ip)
+            logger.info("BiologicDevice connected with IP: %s", self.device_ip)
+        else:
+            logger.warning("BiologicDevice already connected")
     
     def _run_base_program(
         self,
@@ -61,7 +87,13 @@ class Biologic:
             
         Returns:
             Dictionary containing the program data
+        
+        Raises:
+            RuntimeError: If startup() has not been called yet
         """
+        if self.device is None:
+            raise RuntimeError("Device not connected. Call startup() before executing commands.")
+        
         # Check program class type to determine run signature
         # MPP and MPP_Cycles use: data, by_channel, cv
         # MPP_Tracking uses: folder, by_channel

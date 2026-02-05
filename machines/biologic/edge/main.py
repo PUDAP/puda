@@ -7,10 +7,8 @@ execution via NATS messaging, telemetry publishing, and connection management.
 import asyncio
 import logging
 import os
-import sys
 from typing import Any
 from dotenv import load_dotenv
-from biologic_machine import BiologicMachine
 from puda_comms import MachineClient, ExecutionState
 from puda_comms.models import CommandResponse, CommandResponseStatus, CommandResponseCode, NATSMessage
 from puda_drivers.machines import Biologic
@@ -86,7 +84,8 @@ async def main():
     
     # 2. Initialize Biologic machine
     logger.info("Initializing Biologic machine with IP: %s", biologic_ip)
-    biologic_machine = BiologicMachine(device_ip=biologic_ip)
+    biologic_machine = Biologic(device_ip=biologic_ip)
+    biologic_machine.startup()
     
     # 3. Initialize NATS client
     logger.info("Initializing NATS client with servers: %s", nats_servers)
