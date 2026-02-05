@@ -10,7 +10,7 @@ import logging
 from typing import Dict, Any, Optional, Callable, Awaitable
 from datetime import datetime, timezone
 import nats
-from puda_comms.models import (
+from .models import (
     CommandResponseStatus,
     CommandResponse,
     CommandResponseCode,
@@ -19,7 +19,7 @@ from puda_comms.models import (
     MessageType,
     ImmediateCommand,
 )
-from puda_comms.run_manager import RunManager
+from .run_manager import RunManager
 from nats.js.client import JetStreamContext
 from nats.js.api import StreamConfig, ConsumerConfig
 from nats.js.errors import NotFoundError, Error as NATSError

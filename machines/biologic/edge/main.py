@@ -139,8 +139,18 @@ async def main():
         Execute a synchronous handler in a thread pool executor.
         This allows the async wrapper to be cancelled.
         """
+        # Ensure params is a dict (not None or other type)
+        if not isinstance(params, dict):
+            params = {}
+        
+        # Extract 'channels' from params if present, to pass as kwargs
+        kwargs = {}
+        if 'channels' in params:
+            kwargs['channels'] = params.pop('channels')
+        
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, lambda: handler(**params))
+        print("executing handler with params:", params, "and kwargs:", kwargs)
+        return await loop.run_in_executor(None, lambda: handler(params=params, **kwargs))
     
     async def handle_execute(message: NATSMessage) -> CommandResponse:
         if message.command is None:
@@ -153,7 +163,7 @@ async def main():
             
         run_id = message.header.run_id
         command_name = message.command.name
-        params = message.command.params
+        params = message.command.params or {}
 
         # Try to acquire execution lock
         if not await exec_state.acquire_lock(run_id):
@@ -284,7 +294,7 @@ async def main():
     # Initial subscriptions
     await setup_subscriptions()
 
-    logger.info("Machine %s Ready. Publishing telemetry...", machine_id)
+    logger.info("==================== Machine %s Ready. Publishing telemetry... ====================", machine_id)
 
     # 4. Main Loop - Never terminates
     while True:

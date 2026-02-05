@@ -114,7 +114,7 @@ class BiologicMachine:
         Returns:
             Dictionary containing the OCV data (keyed by channel)
         """
-        logger.info("Running OCV test: params=%s", params)
+        logger.info("Running OCV test: params=%s, kwargs=%s", params, kwargs)
         return self._run_base_program(blp.OCV, params, **kwargs)
         
     def CA(
@@ -140,7 +140,7 @@ class BiologicMachine:
         Returns:
             Dictionary containing the CA data (keyed by channel)
         """
-        logger.info("Running CA test: params=%s", params)
+        logger.info("Running CA test: params=%s, kwargs=%s", params, kwargs)
         return self._run_base_program(blp.CA, params, **kwargs)
 
   
@@ -174,7 +174,7 @@ class BiologicMachine:
         Returns:
             Dictionary containing the PEIS data (keyed by channel)
         """
-        logger.info("Running PEIS test: params=%s", params)
+        logger.info("Running PEIS test: params=%s, kwargs=%s", params, kwargs)
         return self._run_base_program(blp.PEIS, params, **kwargs)
 
 
@@ -208,7 +208,7 @@ class BiologicMachine:
         Returns:
             Dictionary containing the GEIS data (keyed by channel)
         """
-        logger.info("Running GEIS test: params=%s", params)
+        logger.info("Running GEIS test: params=%s, kwargs=%s", params, kwargs)
         return self._run_base_program(blp.GEIS, params, **kwargs)
       
     def CV(
@@ -236,7 +236,7 @@ class BiologicMachine:
         Returns:
             Dictionary containing the CV data (keyed by channel)
         """
-        logger.info("Running CV test: params=%s", params)
+        logger.info("Running CV test: params=%s, kwargs=%s", params, kwargs)
         return self._run_base_program(blp.CV, params, **kwargs)
       
     def MPP_Tracking(
@@ -263,7 +263,7 @@ class BiologicMachine:
         Returns:
             Dictionary containing the MPP_Tracking data (keyed by channel)
         """
-        logger.info("Running MPP_Tracking test: params=%s", params)
+        logger.info("Running MPP_Tracking test: params=%s, kwargs=%s", params, kwargs)
         return self._run_base_program(blp.MPP_Tracking, params, **kwargs)
     
     def MPP(
@@ -292,7 +292,7 @@ class BiologicMachine:
         Returns:
             Dictionary containing the MPP data (keyed by channel)
         """
-        logger.info("Running MPP test: params=%s", params)
+        logger.info("Running MPP test: params=%s, kwargs=%s", params, kwargs)
         return self._run_base_program(blp.MPP, params, **kwargs)
     
     def MPP_Cycles(
@@ -320,5 +320,5 @@ class BiologicMachine:
         Returns:
             Dictionary containing the MPP_Cycles data (keyed by channel)
         """
-        logger.info("Running MPP_Cycles test: params=%s", params)
+        logger.info("Running MPP_Cycles test: params=%s, kwargs=%s", params, kwargs)
         return self._run_base_program(blp.MPP_Cycles, params, **kwargs)

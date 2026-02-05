@@ -67,7 +67,7 @@ class CommandResponse(BaseModel):
     completed_at: str = Field(default_factory=_get_current_timestamp, description="ISO format timestamp (auto-set on creation)")
     code: Optional[CommandResponseCode] = Field(default=None, description="Error code")
     message: Optional[str] = Field(default=None, description="Error message (human-readable description)")
-    data: Optional[Dict[str, Any]] = Field(default=None, description="Optional output data from the command handler")
+    data: Optional[Dict[Any, Any]] = Field(default=None, description="Optional output data from the command handler")
 
 class MessageHeader(BaseModel):
     """Header for NATS messages."""

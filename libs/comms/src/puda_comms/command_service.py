@@ -16,7 +16,7 @@ from typing import Dict, Any, Optional
 import nats
 from nats.js.client import JetStreamContext
 from nats.aio.msg import Msg
-from puda_comms.models import (
+from .models import (
     CommandRequest,
     CommandResponseStatus,
     NATSMessage,
