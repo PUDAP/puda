@@ -1518,7 +1518,7 @@ wheels = [
 
 [[package]]
 name = "puda-comms"
-version = "0.0.5"
+version = "0.0.6"
 source = { editable = "libs/comms" }
 dependencies = [
     { name = "nats-py" },
@@ -1552,7 +1552,7 @@ requires-dist = [{ name = "psycopg", extras = ["binary"], specifier = ">=3.2.2" 
 
 [[package]]
 name = "puda-drivers"
-version = "0.0.19"
+version = "0.0.20"
 source = { editable = "libs/drivers" }
 dependencies = [
     { name = "nats-py" },
