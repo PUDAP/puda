@@ -57,6 +57,7 @@ class CommandRequest(BaseModel):
     """Command request data for NATS messages."""
     name: str = Field(description="The command name (string) to send to the machine.")
     params: Dict[str, Any] = Field(default_factory=dict, description="The parameters to send to the machine.")
+    kwargs: Dict[str, Any] = Field(default_factory=dict, description="Additional keyword arguments (e.g., channels in Biologic).")
     step_number: int = Field(description="Execution step number (integer). Used to track the progress of a command.")
     version: str = Field(default="1.0", description="Command version.")
     machine_id: str = Field(description="Machine ID to send the command to.")

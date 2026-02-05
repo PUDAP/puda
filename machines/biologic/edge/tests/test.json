@@ -15,7 +15,9 @@
       "sweep": "log",
       "repeat": 1,
       "correction": false,
-      "wait": 0,
+      "wait": 0
+    },
+    "kwargs": {
       "channels": [0]
     },
     "step_number": 1
@@ -28,7 +30,9 @@
       "durations": [2, 2],
       "vs_initial": false,
       "time_interval": 1,
-      "voltage_interval": 0.001,
+      "voltage_interval": 0.001
+    },
+    "kwargs": {
       "channels": [0]
     },
     "step_number": 2

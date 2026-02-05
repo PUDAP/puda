@@ -134,22 +134,18 @@ async def main():
         
         return handler, None
     
-    async def _execute_handler(handler, params: dict):
+    async def _execute_handler(handler, params: dict, kwargs: dict):
         """
         Execute a synchronous handler in a thread pool executor.
         This allows the async wrapper to be cancelled.
         """
-        # Ensure params is a dict (not None or other type)
+        # Ensure params and kwargs are dicts (not None or other type)
         if not isinstance(params, dict):
             params = {}
-        
-        # Extract 'channels' from params if present, to pass as kwargs
-        kwargs = {}
-        if 'channels' in params:
-            kwargs['channels'] = params.pop('channels')
+        if not isinstance(kwargs, dict):
+            kwargs = {}
         
         loop = asyncio.get_event_loop()
-        print("executing handler with params:", params, "and kwargs:", kwargs)
         return await loop.run_in_executor(None, lambda: handler(params=params, **kwargs))
     
     async def handle_execute(message: NATSMessage) -> CommandResponse:
@@ -164,6 +160,7 @@ async def main():
         run_id = message.header.run_id
         command_name = message.command.name
         params = message.command.params or {}
+        kwargs = message.command.kwargs or {}
 
         # Try to acquire execution lock
         if not await exec_state.acquire_lock(run_id):
@@ -188,7 +185,7 @@ async def main():
                 return error_response
 
             # Execute handler in thread pool
-            task = asyncio.create_task(_execute_handler(handler, params))
+            task = asyncio.create_task(_execute_handler(handler, params, kwargs))
             exec_state.set_current_task(task)
             
             try:
@@ -237,6 +234,7 @@ async def main():
         
         command_name = message.command.name
         params = message.command.params or {}
+        kwargs = message.command.kwargs or {}
         run_id = message.header.run_id
 
         try:
@@ -248,7 +246,7 @@ async def main():
                 return error_response
 
             # Execute handler in thread pool (for consistency with execute handler)
-            handler_result = await _execute_handler(handler, params)
+            handler_result = await _execute_handler(handler, params, kwargs)
             
             logger.info("Immediate command %s completed (run_id: %s)", command_name, run_id)
             
