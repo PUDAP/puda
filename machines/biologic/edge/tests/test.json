@@ -1,0 +1,36 @@
+[
+  {
+    "name": "GEIS",
+    "machine_id": "biologic",
+    "params": {
+      "current": 0.001,
+      "amplitude_current": 0.0001,
+      "initial_frequency": 100000,
+      "final_frequency": 0.1,
+      "frequency_number": 10,
+      "duration": 0,
+      "vs_initial": false,
+      "time_interval": 1,
+      "potential_interval": 0.001,
+      "sweep": "log",
+      "repeat": 1,
+      "correction": false,
+      "wait": 0,
+      "channels": [0]
+    },
+    "step_number": 1
+  },
+  {
+    "name": "CP",
+    "machine_id": "biologic",
+    "params": {
+      "currents": [0.001, 0.0005],
+      "durations": [2, 2],
+      "vs_initial": false,
+      "time_interval": 1,
+      "voltage_interval": 0.001,
+      "channels": [0]
+    },
+    "step_number": 2
+  }
+]

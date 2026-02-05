@@ -9,64 +9,11 @@ import logging
 from typing import Dict, Any, Type
 import easy_biologic as ebl
 import easy_biologic.base_programs as blp
-from easy_biologic.lib import ec_lib
 
 logger = logging.getLogger(__name__)
 
 
-class Params(dict):
-    """
-    A dict subclass that supports both dict-like operations and attribute access.
-    
-    This allows easy_biologic programs to use both:
-    - if "sweep" in params:  (dict membership)
-    - if params.sweep == "log":  (attribute access)
-    """
-    def __getattr__(self, name):
-        if name in self:
-            return self[name]
-        raise AttributeError(f"'Params' object has no attribute '{name}'")
-    
-    def __setattr__(self, name, value):
-        self[name] = value
-
-# Helper function to convert IRange string to IRange object
-def _convert_irange_string(irange_str: str):
-    """
-    Convert a string representation of IRange to the actual IRange object.
-    
-    Supports formats:
-    - "IRange.m10" -> IRange.m10
-    - "m10" -> IRange.m10
-    - "IRange.p100" -> IRange.p100
-    - etc.
-    
-    Args:
-        irange_str: String representation of IRange (e.g., "IRange.m10" or "m10")
-        
-    Returns:
-        IRange object if conversion successful, otherwise returns the original string
-        
-    Raises:
-        ValueError: If the string doesn't match a valid IRange value
-    """
-    if not isinstance(irange_str, str):
-        return irange_str
-    
-    # Remove "IRange." prefix if present
-    if irange_str.startswith("IRange."):
-        irange_name = irange_str[7:]  # Remove "IRange." prefix
-    else:
-        irange_name = irange_str
-    
-    # Try to get the IRange attribute
-    try:
-        return getattr(ec_lib.IRange, irange_name)
-    except AttributeError:
-        raise ValueError(f"Invalid IRange value: {irange_str}. Valid values are: p100, n1, u1, m1, m10, a1")
-
-
-class BiologicMachine:
+class Biologic:
     """
     Wrapper around easy_biologic that provides command handlers for Biologic devices.
     
@@ -75,7 +22,7 @@ class BiologicMachine:
     wraps the corresponding base program class and provides a consistent interface.
     
     Example:
-        machine = BiologicMachine("192.168.1.2")
+        machine = Biologic("192.168.1.2")
         handler = getattr(machine, "OCV", None)  # Get handler dynamically
         result = handler(params={"time": 60}, channels=[1, 2])
     """
@@ -115,17 +62,6 @@ class BiologicMachine:
         Returns:
             Dictionary containing the program data
         """
-        # Convert current_range from string to IRange object if needed
-        if 'current_range' in params and isinstance(params['current_range'], str):
-            try:
-                params['current_range'] = _convert_irange_string(params['current_range'])
-            except (ValueError, AttributeError) as e:
-                logger.warning("Failed to convert current_range string '%s' to IRange object: %s. Using as-is.", 
-                             params['current_range'], e)
-        
-        # Convert dict to Params object for all programs
-        params = Params(params)
-        
         # Check program class type to determine run signature
         # MPP and MPP_Cycles use: data, by_channel, cv
         # MPP_Tracking uses: folder, by_channel
@@ -157,8 +93,6 @@ class BiologicMachine:
         program.run(**run_kwargs)
         
         return program.data
-
-    ### Base programs ###
     
     def OCV(
         self,
@@ -170,9 +104,9 @@ class BiologicMachine:
         
         Args:
             params: Dictionary containing:
-                - time: Test duration in seconds (float, > 0).
-                - time_interval: Maximum time between readings (float, > 0.0002 s). [Default: 1]
-                - voltage_interval: Maximum interval between voltage readings (float, 1e-6 to 1 V). [Default: 0.01]
+                - time: Test duration in seconds
+                - time_interval: Maximum time between readings. [Default: 1]
+                - voltage_interval: Maximum interval between voltage readings. [Default: 0.01]
             **kwargs: Additional keyword arguments passed to program constructor:
                 - channels: Optional list of channel numbers
                 - retrieve_data: Whether to automatically retrieve data after running [Default: True]
@@ -180,7 +114,7 @@ class BiologicMachine:
         Returns:
             Dictionary containing the OCV data (keyed by channel)
         """
-        logger.info("Running OCV test: params=%s, kwargs=%s", params, kwargs)
+        logger.info("Running OCV test: params=%s", params)
         return self._run_base_program(blp.OCV, params, **kwargs)
         
     def CA(
@@ -193,12 +127,12 @@ class BiologicMachine:
         
         Args:
             params: Dictionary containing:
-                - voltages: List of voltages in Volts (list[float], each element: -10 to 10 V).
-                - durations: List of times in seconds (list[float], each element: > 0).
+                - voltages: List of voltages.
+                - durations: List of times in seconds.
                 - vs_initial: If step is vs. initial or previous. [Default: False]
-                - time_interval: Maximum time interval between points (float, 0.0002 to 1000 s). [Default: 1]
-                - current_interval: Maximum current change between points (float, ±1e-12 to current_range A). [Default: 0.001]
-                - current_range: Current range. Use ec_lib.IRange (typically ±1 A). Available: IRange.p100 (±100 pA), IRange.n1 (±1 nA), IRange.u1 (±1 µA), IRange.m1 (±1 mA), IRange.m10 (±10 mA), IRange.a1 (±1 A). Can be provided as a string (e.g., "IRange.m10") which will be automatically converted. [Default: IRange.m10]
+                - time_interval: Maximum time interval between points. [Default: 1]
+                - current_interval: Maximum current change between points. [Default: 0.001]
+                - current_range: Current range. Use ec_lib.IRange. [Default: IRange.m10]
             **kwargs: Additional keyword arguments passed to program constructor:
                 - channels: Optional list of channel numbers
                 - retrieve_data: Whether to automatically retrieve data after running [Default: True]
@@ -206,30 +140,8 @@ class BiologicMachine:
         Returns:
             Dictionary containing the CA data (keyed by channel)
         """
-        logger.info("Running CA test: params=%s, kwargs=%s", params, kwargs)
+        logger.info("Running CA test: params=%s", params)
         return self._run_base_program(blp.CA, params, **kwargs)
-
-    def CP(
-        self,
-        params: dict[str, Any],
-        **kwargs
-    ) -> Dict[str, Any]:
-        """
-        Run CP (Chronoamperometry) test.
-
-        Args:
-            params: Dictionary containing:
-                - currents: List of currents in Amps. (list[float], each element: 1e-9 to current_range A)
-                - durations: List of times in seconds. (list[float], each element: > 0)
-                - vs_initial: If step is vs. initial or previous. [Default: False]
-                - time_interval: Maximum time interval between points in seconds. (float, 0.0002 to 1000). [Default: 1]
-                - voltage_interval: Maximum voltage change between points in Volts. (float, 1e-4 to 1e-2). [Default: 0.001]
-            **kwargs: Additional keyword arguments passed to program constructor:
-                - channels: Optional list of channel numbers
-                - retrieve_data: Whether to automatically retrieve data after running [Default: True]
-        """
-        logger.info("Running CP test: params=%s, kwargs=%s", params, kwargs)
-        return self._run_base_program(blp.CP, params, **kwargs)
 
   
     def PEIS(
@@ -242,19 +154,19 @@ class BiologicMachine:
         
         Args:
             params: Dictionary containing:
-                - voltage: Initial potential in Volts. (float, -10 to 10 V)
-                - amplitude_voltage: Sinus amplitude in Volts (float, 1e-4 to 0.5 V).
-                - initial_frequency: Initial frequency in Hertz (float, 10 µHz to 1 MHz).
-                - final_frequency: Final frequency in Hertz (float, 10 µHz to 1 MHz).
-                - frequency_number: Number of frequencies (int, 1 to 1000).
-                - duration: Overall duration in seconds. (float, > 0)
+                - voltage: Initial potential in Volts.
+                - amplitude_voltage: Sinus amplitude in Volts.
+                - initial_frequency: Initial frequency in Hertz.
+                - final_frequency: Final frequency in Hertz.
+                - frequency_number: Number of frequencies.
+                - duration: Overall duration in seconds.
                 - vs_initial: If step is vs. initial or previous. [Default: False]
-                - time_interval: Maximum time interval between points in seconds. (float, 0.0002 to 1000 s). [Default: 1]
-                - current_interval: Maximum time interval between points in Amps. (float, 1e-12 A to current_range A). [Default: 0.001]
+                - time_interval: Maximum time interval between points in seconds. [Default: 1]
+                - current_interval: Maximum time interval between points in Amps. [Default: 0.001]
                 - sweep: Defines whether the spacing between frequencies is logarithmic ('log') or linear ('lin'). [Default: 'log']
-                - repeat: Number of times to repeat the measurement and average the values for each frequency. (int, 1 to 10). [Default: 1]
+                - repeat: Number of times to repeat the measurement and average the values for each frequency. [Default: 1]
                 - correction: Drift correction. [Default: False]
-                - wait: Adds a delay before the measurement at each frequency. The delay is expressed as a fraction of the period. (float, 0 to 5). [Default: 0]
+                - wait: Adds a delay before the measurement at each frequency. The delay is expressed as a fraction of the period. [Default: 0]
             **kwargs: Additional keyword arguments passed to program constructor:
                 - channels: Optional list of channel numbers
                 - retrieve_data: Whether to automatically retrieve data after running [Default: True]
@@ -262,7 +174,7 @@ class BiologicMachine:
         Returns:
             Dictionary containing the PEIS data (keyed by channel)
         """
-        logger.info("Running PEIS test: params=%s, kwargs=%s", params, kwargs)
+        logger.info("Running PEIS test: params=%s", params)
         return self._run_base_program(blp.PEIS, params, **kwargs)
 
 
@@ -276,19 +188,19 @@ class BiologicMachine:
         
         Args:
             params: Dictionary containing:
-                - current: Initial current in Ampere. (float, 1e-12 to current_range A)
-                - amplitude_current: Sinus amplitude in Ampere. (float, 1e-9 to current_range A)
-                - initial_frequency: Initial frequency in Hertz. (float, 10 µHz to 1 MHz)
-                - final_frequency: Final frequency in Hertz. (float, 10 µHz to 1 MHz)
-                - frequency_number: Number of frequencies. (int, 1 to 1000)
-                - duration: Overall duration in seconds. (float, > 0)
+                - current: Initial current in Ampere.
+                - amplitude_current: Sinus amplitude in Ampere.
+                - initial_frequency: Initial frequency in Hertz.
+                - final_frequency: Final frequency in Hertz.
+                - frequency_number: Number of frequencies.
+                - duration: Overall duration in seconds.
                 - vs_initial: If step is vs. initial or previous. [Default: False]
-                - time_interval: Maximum time interval between points in seconds. (float, 0.0002 to 1000 s). [Default: 1]
+                - time_interval: Maximum time interval between points in seconds. [Default: 1]
                 - potential_interval: Maximum interval between points in Volts. [Default: 0.001]
                 - sweep: Defines whether the spacing between frequencies is logarithmic ('log') or linear ('lin'). [Default: 'log']
-                - repeat: Number of times to repeat the measurement and average the values for each frequency. (int, 1 to 10). [Default: 1]
+                - repeat: Number of times to repeat the measurement and average the values for each frequency. [Default: 1]
                 - correction: Drift correction. [Default: False]
-                - wait: Adds a delay before the measurement at each frequency. The delay is expressed as a fraction of the period. (float, 0 to 5). [Default: 0]
+                - wait: Adds a delay before the measurement at each frequency. The delay is expressed as a fraction of the period. [Default: 0]
             **kwargs: Additional keyword arguments passed to program constructor:
                 - channels: Optional list of channel numbers
                 - retrieve_data: Whether to automatically retrieve data after running [Default: True]
@@ -296,7 +208,7 @@ class BiologicMachine:
         Returns:
             Dictionary containing the GEIS data (keyed by channel)
         """
-        logger.info("Running GEIS test: params=%s, kwargs=%s", params, kwargs)
+        logger.info("Running GEIS test: params=%s", params)
         return self._run_base_program(blp.GEIS, params, **kwargs)
       
     def CV(
@@ -309,14 +221,14 @@ class BiologicMachine:
         
         Args:
             params: Dictionary containing:
-                - start: Start voltage. (float, -10 to 10 V). [Default: 0]
-                - end: End voltage. Boundary voltage in forward scan. (float, -10 to 10 V). [Default: 0.5]
-                - E2: Boundary voltage in backward scan. (float, -10 to 10 V). [Default: 0]
-                - Ef: End voltage in the final cycle scan (float, -10 to 10 V). [Default: 0]
-                - step: Voltage step. dEN/1000 (float, 1e-4 to 0.05 V). [Default: 0.01]
-                - rate: Scan rate in V/s. (float, 1e-5 to 100 V/s). [Default: 0.01]
-                - average: Average over points. (bool). [Default: False]
-                - N_Cycles: Number of cycles. (int, 0 to 1000). [Default: 0]
+                - start: Start voltage. [Default: 0]
+                - end: End voltage. Boundary voltage in forward scan. [Default: 0.5]
+                - E2: Boundary voltage in backward scan. [Default: 0]
+                - Ef: End voltage in the final cycle scan [Default: 0]
+                - step: Voltage step. dEN/1000 [Default: 0.01]
+                - rate: Scan rate in V/s. [Default: 0.01]
+                - average: Average over points. [Default: False]
+                - N_Cycles: Number of cycles. [Default: 0]
             **kwargs: Additional keyword arguments passed to program constructor:
                 - channels: Optional list of channel numbers
                 - retrieve_data: Whether to automatically retrieve data after running [Default: True]
@@ -324,7 +236,7 @@ class BiologicMachine:
         Returns:
             Dictionary containing the CV data (keyed by channel)
         """
-        logger.info("Running CV test: params=%s, kwargs=%s", params, kwargs)
+        logger.info("Running CV test: params=%s", params)
         return self._run_base_program(blp.CV, params, **kwargs)
       
     def MPP_Tracking(
@@ -351,7 +263,7 @@ class BiologicMachine:
         Returns:
             Dictionary containing the MPP_Tracking data (keyed by channel)
         """
-        logger.info("Running MPP_Tracking test: params=%s, kwargs=%s", params, kwargs)
+        logger.info("Running MPP_Tracking test: params=%s", params)
         return self._run_base_program(blp.MPP_Tracking, params, **kwargs)
     
     def MPP(
@@ -380,7 +292,7 @@ class BiologicMachine:
         Returns:
             Dictionary containing the MPP data (keyed by channel)
         """
-        logger.info("Running MPP test: params=%s, kwargs=%s", params, kwargs)
+        logger.info("Running MPP test: params=%s", params)
         return self._run_base_program(blp.MPP, params, **kwargs)
     
     def MPP_Cycles(
@@ -408,5 +320,6 @@ class BiologicMachine:
         Returns:
             Dictionary containing the MPP_Cycles data (keyed by channel)
         """
-        logger.info("Running MPP_Cycles test: params=%s, kwargs=%s", params, kwargs)
+        logger.info("Running MPP_Cycles test: params=%s", params)
         return self._run_base_program(blp.MPP_Cycles, params, **kwargs)
+

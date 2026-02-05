@@ -125,6 +125,7 @@ The `commands.json` file is a JSON array where each object represents a command 
 ```json
 {
   "name": "command_name",
+  "machine_id": "first",
   "params": {
     "param1": "value1",
     "param2": "value2"
@@ -136,6 +137,7 @@ The `commands.json` file is a JSON array where each object represents a command 
 ### Required Fields
 
 - **`name`** (string): The name of the command (corresponds to a method name on the `First` class)
+- **`machine_id`** (string): The ID of the machine to send the command to (e.g., "first", "biologic")
 - **`params`** (object): A dictionary of parameters to pass to the command
 - **`step_number`** (integer): The execution step number (used to track progress)
 
@@ -160,6 +162,8 @@ I want to create a commands.json file that:
 3. Aspirates 100ul from C2, well A1
 4. Dispenses 100ul to C2, well B4
 5. Drops the tip in C1, well A1
+
+All commands should be sent to the "first" machine.
 
 Here's the help output from First:
 [paste help(First) output here]
@@ -196,10 +200,11 @@ The [`batch_commands.py`](../libs/comms/tests/batch_commands.py) script:
 You can modify these variables in [`libs/comms/tests/batch_commands.py`](../libs/comms/tests/batch_commands.py):
 
 - `COMMANDS_JSON_PATH`: Path to your commands.json file (defaults to `commands.json` in the same directory)
-- `MACHINE_ID`: The ID of the machine to send commands to
 - `USER_ID`: A unique identifier for the user (auto-generated UUID by default)
 - `USERNAME`: The username of the person running the commands
 - `RUN_ID`: A unique identifier for this run (auto-generated UUID by default)
+
+**Note:** The `machine_id` for each command should be specified in the `commands.json` file itself, not in the Python script. This allows different commands in the same queue to be sent to different machines if needed.
 
 ### Example Output
 

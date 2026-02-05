@@ -1,0 +1,59 @@
+[
+  {
+    "name": "CV",
+    "machine_id": "biologic",
+    "params": {
+      "start": 0.0,
+      "end": 0.5,
+      "rate": 0.1,
+      "step": 0.1,
+      "E2": 0.0,
+      "Ef": 0.0,
+      "average": false,
+      "channels": [0]
+    },
+    "step_number": 1
+  },
+  {
+    "name": "OCV",
+    "machine_id": "biologic",
+    "params": {
+      "time": 2,
+      "time_interval": 1,
+      "voltage_interval": 0.01,
+      "channels": [0]
+    },
+    "step_number": 2
+  },
+  {
+    "name": "CA",
+    "machine_id": "biologic",
+    "params": {
+      "voltages": [0.5, 0.0],
+      "durations": [2, 2],
+      "vs_initial": false,
+      "time_interval": 1,
+      "current_interval": 0.001,
+      "channels": [0]
+    },
+    "step_number": 3
+  },
+  {
+    "name": "PEIS",
+    "machine_id": "biologic",
+    "params": {
+      "voltage": 0.5,
+      "use_ocv": false,
+      "amplitude_voltage": 0.01,
+      "initial_frequency": 100000,
+      "final_frequency": 0.1,
+      "frequency_number": 10,
+      "duration": 0,
+      "repeat": 1,
+      "wait": 0.1,
+      "channels": [0]
+    },
+    "step_number": 4
+  }
+]
+

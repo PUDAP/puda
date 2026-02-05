@@ -1,6 +1,7 @@
 [
   {
     "name": "load_deck",
+    "machine_id": "first",
     "params": {
       "deck_layout": {
         "C1": "trash_bin",
@@ -12,6 +13,7 @@
   },
   {
     "name": "attach_tip",
+    "machine_id": "first",
     "params": {
       "deck_slot": "A3",
       "well_name": "G8"
@@ -20,6 +22,7 @@
   },
   {
     "name": "aspirate_from",
+    "machine_id": "first",
     "params": {
       "deck_slot": "C2",
       "well_name": "A1",
@@ -29,6 +32,7 @@
   },
   {
     "name": "dispense_to",
+    "machine_id": "first",
     "params": {
       "deck_slot": "C2",
       "well_name": "B4",
@@ -38,6 +42,7 @@
   },
   {
     "name": "drop_tip",
+    "machine_id": "first",
     "params": {
       "deck_slot": "C1",
       "well_name": "A1"

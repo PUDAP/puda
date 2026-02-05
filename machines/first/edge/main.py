@@ -59,24 +59,48 @@ def _convert_handler_result_to_dict(result: Any) -> dict | None:
 
 
 async def main():
-    # 1. Initialize Objects
-    machine_id = os.getenv("MACHINE_ID", "first")
+    # 1. Get environment variables
+    machine_id = os.getenv("MACHINE_ID")
+    if not machine_id:
+        raise ValueError("MACHINE_ID environment variable is required")
+    
     # Get NATS servers from environment variable (comma-separated list)
-    nats_servers_env = os.getenv(
-        "NATS_SERVERS",
-        "nats://192.168.50.201:4222,nats://192.168.50.201:4223,nats://192.168.50.201:4224"
-    )
+    nats_servers_env = os.getenv("NATS_SERVERS")
+    if not nats_servers_env:
+        raise ValueError("NATS_SERVERS environment variable is required")
     nats_servers = [s.strip() for s in nats_servers_env.split(",")]
     
+    qubot_port = os.getenv("QUBOT_PORT")
+    if not qubot_port:
+        raise ValueError("QUBOT_PORT environment variable is required")
+    
+    sartorius_port = os.getenv("SARTORIUS_PORT")
+    if not sartorius_port:
+        raise ValueError("SARTORIUS_PORT environment variable is required")
+    
+    camera_index_str = os.getenv("CAMERA_INDEX")
+    if not camera_index_str:
+        raise ValueError("CAMERA_INDEX environment variable is required")
+    camera_index = int(camera_index_str)
+    
+    # 2. Initialize Objects
     client = MachineClient(
         servers=nats_servers,
         machine_id=machine_id
     )
     
+    # 3. Connect to NATS (with retry logic)
+    while True:
+        if await client.connect():
+            break
+        else:
+            logger.error("Failed to connect to NATS, retrying in 5 seconds...")
+            await asyncio.sleep(5)
+    
     first_machine = First(
-        qubot_port=os.getenv("QUBOT_PORT", "/dev/ttyACM0"),
-        sartorius_port=os.getenv("SARTORIUS_PORT", "/dev/ttyUSB0"),
-        camera_index=int(os.getenv("CAMERA_INDEX", "0")),
+        qubot_port=qubot_port,
+        sartorius_port=sartorius_port,
+        camera_index=camera_index,
     )
     
     # Shared execution state for cancellation
@@ -231,14 +255,6 @@ async def main():
                 code=CommandResponseCode.EXECUTION_ERROR,
                 message=str(e)
             )
-
-    # 3. Connect and Start Up (with retry logic)
-    while True:
-        if await client.connect():
-            break
-        else:
-            logger.error("Failed to connect to NATS, retrying in 5 seconds...")
-            await asyncio.sleep(5)
 
     # Start Hardware
     first_machine.startup()
