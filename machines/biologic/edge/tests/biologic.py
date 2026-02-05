@@ -1,13 +1,8 @@
 import os
-import sys
+from dotenv import load_dotenv
 import easy_biologic as ebl
 import easy_biologic.base_programs as blp
-import json # Ensure json is available
-from dotenv import load_dotenv
-
-# Add parent directory to path to import biologic_machine
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from biologic_machine import BiologicMachine
+from puda_drivers.machines import Biologic
 
 # Load environment variables from .env file
 load_dotenv()
@@ -25,7 +20,7 @@ if not device_ip:
     raise ValueError("BIOLOGIC_IP environment variable is not set. Please set it in your .env file or environment.")
 
 # Initialize BiologicMachine
-machine = BiologicMachine(device_ip)
+machine = Biologic(device_ip)
 
 # --- Protocol Sequence ---
 
