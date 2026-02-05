@@ -62,7 +62,6 @@ async def main():
         logger.info("Sending batch constructed from dicts (%d commands)...", len(requests))
         reply: NATSMessage = await service.send_queue_commands(
             requests=requests,
-            machine_id=MACHINE_ID,
             run_id=RUN_ID,
             user_id=USER_ID,
             username=USERNAME

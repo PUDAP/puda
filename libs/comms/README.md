@@ -61,6 +61,7 @@ Represents a command to be sent to a machine.
 
 **Fields:**
 - `name` (str): The command name to execute
+- `machine_id` (str): Machine ID to send the command to (required)
 - `params` (Dict[str, Any]): Command parameters (default: empty dict)
 - `step_number` (int): Execution step number for tracking progress
 - `version` (str): Command version (default: "1.0")
@@ -69,6 +70,7 @@ Represents a command to be sent to a machine.
 ```python
 command = CommandRequest(
     name="attach_tip",
+    machine_id="first",
     params={"deck_slot": "A3", "well_name": "G8"},
     step_number=2,
     version="1.0"
@@ -218,10 +220,9 @@ Queue commands are regular commands that are executed in sequence. Use `send_que
 Both `send_queue_command()`, `send_queue_commands()`, and `send_immediate_command()` accept an optional `timeout` parameter (default: 120 seconds):
 
 ```python
-# Single command
+# Single command (machine_id must be in CommandRequest)
 reply = await service.send_queue_command(
-    request=request,
-    machine_id="first",
+    request=request,  # request.machine_id must be set
     run_id=run_id,
     user_id="user123",
     username="John Doe",
@@ -229,9 +230,9 @@ reply = await service.send_queue_command(
 )
 
 # Multiple commands (timeout applies to each command)
+# Each command in the list must have machine_id set
 reply = await service.send_queue_commands(
-    requests=commands,
-    machine_id="first",
+    requests=commands,  # Each CommandRequest must have machine_id
     run_id=run_id,
     user_id="user123",
     username="John Doe",
@@ -270,8 +271,7 @@ Always check the response status and handle errors appropriately:
 
 ```python
 reply: NATSMessage = await service.send_queue_command(
-    request=request,
-    machine_id="first",
+    request=request,  # request.machine_id must be set
     run_id=run_id,
     user_id="user123",
     username="John Doe"

@@ -347,7 +347,6 @@ class CommandService:
         self,
         *,
         request: CommandRequest,
-        machine_id: str,
         run_id: str,
         user_id: str,
         username: str,
@@ -357,8 +356,7 @@ class CommandService:
         Send a queue command to the machine and wait for response.
         
         Args:
-            request: CommandRequest model containing command details
-            machine_id: Machine ID to send the command to
+            request: CommandRequest model containing command details (must include machine_id)
             run_id: Run ID for the command
             user_id: User ID who initiated the command
             username: Username who initiated the command
@@ -370,8 +368,8 @@ class CommandService:
         if not self._connected or not self.js:
             raise RuntimeError("Not connected to NATS. Call connect() first.")
         
-        # Determine subject
-        subject = f"{NAMESPACE}.{machine_id}.cmd.queue"
+        # Determine subject using machine_id from request
+        subject = f"{NAMESPACE}.{request.machine_id}.cmd.queue"
         
         logger.info(
             "Sending queue command: subject=%s, command=%s, run_id=%s, step_number=%s",
@@ -379,12 +377,12 @@ class CommandService:
         )
         
         # Get or create response handler for this machine
-        response_handler = await self._get_response_handler(machine_id)
+        response_handler = await self._get_response_handler(request.machine_id)
         # Register pending response
         response_event = response_handler.register_pending(run_id, request.step_number)
         
         # Build payload
-        payload = self._build_command_payload(request, machine_id, run_id, user_id, username)
+        payload = self._build_command_payload(request, request.machine_id, run_id, user_id, username)
 
         try:
             # Publish to JetStream
@@ -437,12 +435,12 @@ class CommandService:
         """
         request = CommandRequest(
             name="start",
+            machine_id=machine_id,
             params={},
             step_number=0
         )
         return await self.send_immediate_command(
             request=request,
-            machine_id=machine_id,
             run_id=run_id,
             user_id=user_id,
             username=username,
@@ -472,12 +470,12 @@ class CommandService:
         """
         request = CommandRequest(
             name="complete",
+            machine_id=machine_id,
             params={},
             step_number=0
         )
         return await self.send_immediate_command(
             request=request,
-            machine_id=machine_id,
             run_id=run_id,
             user_id=user_id,
             username=username,
@@ -488,7 +486,6 @@ class CommandService:
         self,
         *,
         requests: list[CommandRequest],
-        machine_id: str,
         run_id: str,
         user_id: str,
         username: str,
@@ -497,14 +494,18 @@ class CommandService:
         """
         Send multiple queue commands sequentially and wait for responses.
         
-        Automatically sends START command before the sequence and COMPLETE command after
-        successful completion. Sends commands one by one, waiting for each response before
-        sending the next. If any command fails or times out, stops immediately and returns
-        the error response. If all commands succeed, returns the last command's response.
+        Automatically sends START commands to all unique machine_ids before the sequence
+        and COMPLETE commands to all unique machine_ids after successful completion.
+        Sends commands one by one, waiting for each response before sending the next.
+        If any command fails or times out, stops immediately, completes all started runs,
+        and returns the error response. If all commands succeed, returns the last command's response.
+        
+        Each command must specify its own machine_id. Commands with different machine_ids
+        will be sent to their respective machines. All machines involved will receive
+        START commands at the beginning and COMPLETE commands at the end.
         
         Args:
-            requests: List of CommandRequest models to send sequentially
-            machine_id: Machine ID to send the commands to
+            requests: List of CommandRequest models to send sequentially (each must include machine_id)
             run_id: Run ID for all commands
             user_id: User ID who initiated the commands
             username: Username who initiated the commands
@@ -521,28 +522,42 @@ class CommandService:
             logger.warning("No commands to send")
             return None
         
+        # Collect all unique machine_ids from requests
+        machine_ids = set()
+        for req in requests:
+            if isinstance(req, dict):
+                req = CommandRequest.model_validate(req)
+            elif not isinstance(req, CommandRequest):
+                raise ValueError(f"Request must be a CommandRequest or dict, got {type(req)}")
+            machine_ids.add(req.machine_id)
+        
+        machine_ids_list = sorted(list(machine_ids))  # Sort for consistent logging
+        
         logger.info(
-            "Sending %d queue commands sequentially: machine_id=%s, run_id=%s",
+            "Sending %d queue commands sequentially to machines: %s, run_id=%s",
             len(requests),
-            machine_id,
+            machine_ids_list,
             run_id
         )
         
-        # Always send START command before sequence
-        logger.info("Sending START command before sequence")
-        start_response = await self.start_run(
-            machine_id=machine_id,
-            run_id=run_id,
-            user_id=user_id,
-            username=username,
-            timeout=timeout
-        )
-        if start_response is None:
-            logger.error("START command timed out")
-            return None
-        if start_response.response and start_response.response.status == CommandResponseStatus.ERROR:
-            logger.error("START command failed: %s", start_response.response.message)
-            return start_response
+        # Send START commands to all unique machine_ids before sequence
+        logger.info("Sending START commands to all machines: %s", machine_ids_list)
+        started_machines = set()
+        for machine_id in machine_ids_list:
+            start_response = await self.start_run(
+                machine_id=machine_id,
+                run_id=run_id,
+                user_id=user_id,
+                username=username,
+                timeout=timeout
+            )
+            if start_response is None:
+                logger.error("START command timed out for machine: %s, aborting", machine_id)
+                return None
+            if start_response.response and start_response.response.status == CommandResponseStatus.ERROR:
+                logger.error("START command failed for machine %s: %s, aborting", machine_id, start_response.response.message)
+                return start_response
+            started_machines.add(machine_id)
         
         last_response: Optional[NATSMessage] = None
         
@@ -555,16 +570,16 @@ class CommandService:
                     raise ValueError(f"Request {idx} must be a CommandRequest or dict, got {type(request)}")
                 
                 logger.info(
-                    "Sending command %d/%d: %s (step %s)",
+                    "Sending command %d/%d: %s (step %s) to machine %s",
                     idx,
                     len(requests),
                     request.name,
-                    request.step_number
+                    request.step_number,
+                    request.machine_id
                 )
             
                 response = await self.send_queue_command(
                     request=request,
-                    machine_id=machine_id,
                     run_id=run_id,
                     user_id=user_id,
                     username=username,
@@ -594,13 +609,19 @@ class CommandService:
                             response.response.code.name,
                             response.response.message
                         )
-                        await self.complete_run(
-                            machine_id=machine_id,
-                            run_id=run_id,
-                            user_id=user_id,
-                            username=username,
-                            timeout=timeout
-                        )
+                        # Complete the run on all machines that were started
+                        logger.info("Completing runs on all machines due to error")
+                        for machine_id_to_complete in started_machines:
+                            try:
+                                await self.complete_run(
+                                    machine_id=machine_id_to_complete,
+                                    run_id=run_id,
+                                    user_id=user_id,
+                                    username=username,
+                                    timeout=timeout
+                                )
+                            except Exception as e:
+                                logger.error("Failed to complete run for machine %s during error cleanup: %s", machine_id_to_complete, e)
                         return response
                     
                     # Command succeeded, store as last response
@@ -621,13 +642,19 @@ class CommandService:
                         request.name,
                         request.step_number
                     )
-                    await self.complete_run(
-                        machine_id=machine_id,
-                        run_id=run_id,
-                        user_id=user_id,
-                        username=username,
-                        timeout=timeout
-                    )
+                    # Complete the run on all machines that were started
+                    logger.info("Completing runs on all machines due to error")
+                    for machine_id_to_complete in started_machines:
+                        try:
+                            await self.complete_run(
+                                machine_id=machine_id_to_complete,
+                                run_id=run_id,
+                                user_id=user_id,
+                                username=username,
+                                timeout=timeout
+                            )
+                        except Exception as e:
+                            logger.error("Failed to complete run for machine %s during error cleanup: %s", machine_id_to_complete, e)
                     return response
             
             logger.info(
@@ -635,44 +662,46 @@ class CommandService:
                 len(requests)
             )
             
-            # Always send COMPLETE command after successful sequence
-            logger.info("Sending COMPLETE command after successful sequence")
-            complete_response = await self.complete_run(
-                machine_id=machine_id,
-                run_id=run_id,
-                user_id=user_id,
-                username=username,
-                timeout=timeout
-            )
-            if complete_response is None:
-                logger.error("COMPLETE command timed out")
-                return None
-            if complete_response.response and complete_response.response.status == CommandResponseStatus.ERROR:
-                logger.error("COMPLETE command failed: %s", complete_response.response.message)
-                return complete_response
-            # Return the last command response, not the COMPLETE response
-            return last_response
-        except Exception as e:
-            # If any error occurs during command execution, try to complete the run
-            # to clean up state (but don't fail if this also fails)
-            logger.warning("Error during command sequence, attempting to complete run: %s", e)
-            try:
-                await self.complete_run(
-                    machine_id=machine_id,
+            # Always send COMPLETE commands to all machines after successful sequence
+            logger.info("Sending COMPLETE commands to all machines: %s", machine_ids_list)
+            for machine_id_to_complete in machine_ids_list:
+                complete_response = await self.complete_run(
+                    machine_id=machine_id_to_complete,
                     run_id=run_id,
                     user_id=user_id,
                     username=username,
                     timeout=timeout
                 )
-            except Exception as cleanup_error:
-                logger.error("Failed to complete run during error cleanup: %s", cleanup_error)
+                if complete_response is None:
+                    logger.error("COMPLETE command timed out for machine: %s, aborting", machine_id_to_complete)
+                    return None
+                if complete_response.response and complete_response.response.status == CommandResponseStatus.ERROR:
+                    logger.error("COMPLETE command failed for machine %s: %s, aborting", machine_id_to_complete, complete_response.response.message)
+                    return complete_response
+            
+            # Return the last command response, not the COMPLETE response
+            return last_response
+        except Exception as e:
+            # If any error occurs during command execution, try to complete the run
+            # on all machines that were started to clean up state
+            logger.warning("Error during command sequence, attempting to complete runs on all machines: %s", e)
+            for machine_id_to_complete in started_machines:
+                try:
+                    await self.complete_run(
+                        machine_id=machine_id_to_complete,
+                        run_id=run_id,
+                        user_id=user_id,
+                        username=username,
+                        timeout=timeout
+                    )
+                except Exception as cleanup_error:
+                    logger.error("Failed to complete run for machine %s during error cleanup: %s", machine_id_to_complete, cleanup_error)
             raise
     
     async def send_immediate_command(
         self,
         *,
         request: CommandRequest,
-        machine_id: str,
         run_id: str,
         user_id: str,
         username: str,
@@ -682,8 +711,7 @@ class CommandService:
         Send an immediate command (pause, resume, cancel) to the machine.
         
         Args:
-            request: CommandRequest model containing command details
-            machine_id: Machine ID to send the command to
+            request: CommandRequest model containing command details (must include machine_id)
             run_id: Run ID for the command
             user_id: User ID who initiated the command
             username: Username who initiated the command
@@ -695,23 +723,22 @@ class CommandService:
         if not self._connected or not self.js:
             raise RuntimeError("Not connected to NATS. Call connect() first.")
         
-        
-        # Determine subject
-        subject = f"{NAMESPACE}.{machine_id}.cmd.immediate"
+        # Determine subject using machine_id from request
+        subject = f"{NAMESPACE}.{request.machine_id}.cmd.immediate"
         
         logger.info(
             "Sending immediate command: machine_id=%s, command=%s, run_id=%s, step_number=%s",
-            machine_id, request.name, run_id, request.step_number
+            request.machine_id, request.name, run_id, request.step_number
         )
         
         # Get or create response handler for this machine
-        response_handler = await self._get_response_handler(machine_id)
+        response_handler = await self._get_response_handler(request.machine_id)
         
         # Register pending response
         response_received = response_handler.register_pending(run_id, request.step_number)
         
         # Build payload
-        payload = self._build_command_payload(request, machine_id, run_id, user_id, username)
+        payload = self._build_command_payload(request, request.machine_id, run_id, user_id, username)
 
         try:
             # Publish to JetStream

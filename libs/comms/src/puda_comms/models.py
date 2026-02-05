@@ -59,6 +59,7 @@ class CommandRequest(BaseModel):
     params: Dict[str, Any] = Field(default_factory=dict, description="The parameters to send to the machine.")
     step_number: int = Field(description="Execution step number (integer). Used to track the progress of a command.")
     version: str = Field(default="1.0", description="Command version.")
+    machine_id: str = Field(description="Machine ID to send the command to.")
 
 
 class CommandResponse(BaseModel):
@@ -78,6 +79,7 @@ class MessageHeader(BaseModel):
     machine_id: str = Field(description="Machine ID")
     run_id: Optional[str] = Field(default=None, description="Unique identifier (uuid) for the run/workflow")
     timestamp: str = Field(default_factory=_get_current_timestamp, description="ISO format timestamp (auto-set on creation)")
+
 class NATSMessage(BaseModel):
     """
     Complete NATS message structure.

@@ -47,6 +47,7 @@ async def load_labware(run_id: str):
         # Send a single command
         request = CommandRequest(
             name="load_labware",
+            machine_id=MACHINE_ID,
             params={
                 "slot": "A1",
                 "labware_name": "opentrons_96_tiprack_300ul"
@@ -54,7 +55,7 @@ async def load_labware(run_id: str):
             step_number=1
         )
         reply: NATSMessage = await service.send_queue_command(
-            request=request, machine_id=MACHINE_ID, run_id=run_id, user_id=USER_ID, username=USERNAME
+            request=request, run_id=run_id, user_id=USER_ID, username=USERNAME
         )
         
         if reply is None:
@@ -72,13 +73,14 @@ async def remove_labware(run_id: str):
         # Remove the labware from the slot
         request = CommandRequest(
             name="remove_labware",
+            machine_id=MACHINE_ID,
             params={
                 "slot": "A1"
             },
             step_number=1
         )
         reply: NATSMessage = await service.send_queue_command(
-            request=request, machine_id=MACHINE_ID, run_id=run_id, user_id=USER_ID, username=USERNAME
+            request=request, run_id=run_id, user_id=USER_ID, username=USERNAME
         )
         
         if reply is None:
@@ -97,6 +99,7 @@ async def example_command_sequence(run_id: str):
         commands = [
             {
                 "name": "load_deck",
+                "machine_id": MACHINE_ID,
                 "params": {
                     "deck_layout": {
                         "C1": "trash_bin",
@@ -108,21 +111,25 @@ async def example_command_sequence(run_id: str):
             },
             {
                 "name": "attach_tip",
+                "machine_id": MACHINE_ID,
                 "params": {"slot": "A3", "well": "G8"},
                 "step_number": 2
             },
             {
                 "name": "aspirate_from",
+                "machine_id": MACHINE_ID,
                 "params": {"slot": "C2", "well": "A1", "amount": 100},
                 "step_number": 3
             },
             {
                 "name": "dispense_to",
+                "machine_id": MACHINE_ID,
                 "params": {"slot": "C2", "well": "B4", "amount": 100},
                 "step_number": 4
             },
             {
                 "name": "drop_tip",
+                "machine_id": MACHINE_ID,
                 "params": {"slot": "C1", "well": "A1"},
                 "step_number": 5
             }
@@ -134,7 +141,7 @@ async def example_command_sequence(run_id: str):
             # turn cmd into CommandRequest model
             request = CommandRequest(**cmd)
             reply: NATSMessage = await service.send_queue_command(
-                request=request, machine_id=MACHINE_ID, run_id=run_id, user_id=USER_ID, username=USERNAME
+                request=request, run_id=run_id, user_id=USER_ID, username=USERNAME
             )
             
             if reply is None:
@@ -161,10 +168,11 @@ async def example_pause(run_id: str):
     async with CommandService(servers=get_nats_servers()) as service:
         pause_request = CommandRequest(
             name=ImmediateCommand.PAUSE,
+            machine_id=MACHINE_ID,
             step_number=1
         )
         reply: NATSMessage = await service.send_immediate_command(
-            request=pause_request, machine_id=MACHINE_ID, run_id=run_id, user_id=USER_ID, username=USERNAME
+            request=pause_request, run_id=run_id, user_id=USER_ID, username=USERNAME
         )
         if reply is not None:
             logger.info("Pause command result: status=%s, message=%s", reply.response.status, reply.response.message)
@@ -180,10 +188,11 @@ async def example_resume(run_id: str):
     async with CommandService(servers=get_nats_servers()) as service:
         resume_request = CommandRequest(
             name=ImmediateCommand.RESUME,
+            machine_id=MACHINE_ID,
             step_number=1
         )
         reply:NATSMessage = await service.send_immediate_command(
-            request=resume_request, machine_id=MACHINE_ID, run_id=run_id, user_id=USER_ID, username=USERNAME
+            request=resume_request, run_id=run_id, user_id=USER_ID, username=USERNAME
         )
         if reply:
             logger.info("Resume command result: status=%s, message=%s", reply.response.status, reply.response.message)
@@ -199,10 +208,11 @@ async def example_cancel(run_id: str):
     async with CommandService(servers=get_nats_servers()) as service:
         cancel_request = CommandRequest(
             name=ImmediateCommand.CANCEL,
+            machine_id=MACHINE_ID,
             step_number=1
         )
         reply = await service.send_immediate_command(
-            request=cancel_request, machine_id=MACHINE_ID, run_id=run_id, user_id=USER_ID, username=USERNAME
+            request=cancel_request, run_id=run_id, user_id=USER_ID, username=USERNAME
         )
         if reply:
             logger.info("Cancel command result: status=%s, message=%s", reply.response.status, reply.response.message)
@@ -217,10 +227,11 @@ async def example_get_deck(run_id: str):
     async with CommandService(servers=get_nats_servers()) as service:
         request = CommandRequest(
             name="get_deck",
+            machine_id=MACHINE_ID,
             step_number=1
         )
         reply: NATSMessage = await service.send_queue_command(
-            request=request, machine_id=MACHINE_ID, run_id=run_id, user_id=USER_ID, username=USERNAME
+            request=request, run_id=run_id, user_id=USER_ID, username=USERNAME
         )
         
         if reply is None:

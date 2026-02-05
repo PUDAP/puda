@@ -1,6 +1,7 @@
 [
   {
     "name": "CV",
+    "machine_id": "biologic",
     "params": {
       "start": 0.0,
       "end": 0.5,
@@ -15,6 +16,7 @@
   },
   {
     "name": "OCV",
+    "machine_id": "biologic",
     "params": {
       "time": 2,
       "time_interval": 1,
@@ -25,6 +27,7 @@
   },
   {
     "name": "CA",
+    "machine_id": "biologic",
     "params": {
       "voltages": [0.5, 0.0],
       "durations": [2, 2],
@@ -37,6 +40,7 @@
   },
   {
     "name": "PEIS",
+    "machine_id": "biologic",
     "params": {
       "voltage": 0.5,
       "use_ocv": false,
