@@ -59,6 +59,9 @@ def _convert_handler_result_to_dict(result: Any) -> dict | None:
 
 
 async def main():
+    # Log immediately to verify function is called
+    logger.info("=== Starting First machine edge service ===")
+    
     # 1. Get environment variables
     machine_id = os.getenv("MACHINE_ID")
     if not machine_id:
@@ -83,25 +86,29 @@ async def main():
         raise ValueError("CAMERA_INDEX environment variable is required")
     camera_index = int(camera_index_str)
     
-    # 2. Initialize Objects
+    # 2. Initialize First machine
+    logger.info("Initializing First machine with qubot_port: %s, sartorius_port: %s, camera_index: %s", 
+                qubot_port, sartorius_port, camera_index)
+    first_machine = First(
+        qubot_port=qubot_port,
+        sartorius_port=sartorius_port,
+        camera_index=camera_index,
+    )
+    
+    # 3. Initialize NATS client
+    logger.info("Initializing NATS client with servers: %s", nats_servers)
     client = MachineClient(
         servers=nats_servers,
         machine_id=machine_id
     )
     
-    # 3. Connect to NATS (with retry logic)
+    # 4. Connect to NATS (with retry logic)
     while True:
         if await client.connect():
             break
         else:
             logger.error("Failed to connect to NATS, retrying in 5 seconds...")
             await asyncio.sleep(5)
-    
-    first_machine = First(
-        qubot_port=qubot_port,
-        sartorius_port=sartorius_port,
-        camera_index=camera_index,
-    )
     
     # Shared execution state for cancellation
     exec_state = ExecutionState()
@@ -257,8 +264,9 @@ async def main():
             )
 
     # Start Hardware
+    logger.info("Starting hardware initialization...")
     first_machine.startup()
-    logger.info("Hardware initialized")
+    logger.info("Hardware initialized successfully")
 
     async def setup_subscriptions():
         """Set up NATS subscriptions for queue and immediate commands."""
@@ -289,7 +297,7 @@ async def main():
     # Initial subscriptions
     await setup_subscriptions()
 
-    logger.info("Machine %s Ready. Publishing telemetry...", machine_id)
+    logger.info("==================== Machine %s Ready. Publishing telemetry... ====================", machine_id)
     # Get the get_position method from the first_machine object
     get_position = getattr(first_machine, 'get_position')
 

@@ -122,7 +122,7 @@ class CameraController:
         self._logger.info("Connecting to camera %s...", self.camera_index)
         
         try:
-            self._camera = cv2.VideoCapture(self.camera_index)
+            self._camera = cv2.VideoCapture(self.camera_index, cv2.CAP_V4L2)
             
             if not self._camera.isOpened():
                 raise IOError(f"Could not open camera {self.camera_index}")
