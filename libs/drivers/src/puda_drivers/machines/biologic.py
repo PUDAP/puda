@@ -94,8 +94,24 @@ class Biologic:
         Args:
             device_ip: IP address of the Biologic device
         """
-        self.device = ebl.BiologicDevice(device_ip)
-        logger.info("BiologicDevice initialized with IP: %s", device_ip)
+        self.device_ip = device_ip
+        self.device = None
+        logger.info("BiologicMachine initialized with IP: %s (device not yet started)", device_ip)
+    
+    def startup(self):
+        """
+        Start up the Biologic device connection.
+        
+        This method initializes the BiologicDevice and should be called
+        before running any commands. This allows for delayed initialization
+        and better control over when the device connection is established.
+        """
+        if self.device is not None:
+            logger.warning("BiologicDevice already initialized, skipping startup")
+            return
+        
+        self.device = ebl.BiologicDevice(self.device_ip)
+        logger.info("BiologicDevice started with IP: %s", self.device_ip)
     
     def _run_base_program(
         self,
@@ -121,7 +137,12 @@ class Biologic:
             
         Returns:
             Dictionary containing the program data
+            
+        Raises:
+            RuntimeError: If startup() has not been called to initialize the device
         """
+        if self.device is None:
+            raise RuntimeError("Device not initialized. Call startup() before running programs.")
         # Convert current_range from string to IRange object if needed
         if 'current_range' in params and isinstance(params['current_range'], str):
             try:
