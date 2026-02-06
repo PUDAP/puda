@@ -94,6 +94,8 @@ async def main():
         sartorius_port=sartorius_port,
         camera_index=camera_index,
     )
+    first_machine.startup()
+    logger.info("First machine initialized successfully")
     
     # 3. Initialize NATS client
     logger.info("Initializing NATS client with servers: %s", nats_servers)
@@ -105,11 +107,14 @@ async def main():
     # 4. Connect to NATS (with retry logic)
     while True:
         if await client.connect():
+            logger.info("Connected to NATS servers successfully")
             break
         else:
             logger.error("Failed to connect to NATS, retrying in 5 seconds...")
             await asyncio.sleep(5)
     
+    logger.info("==================== first-edge ready to accept messages ====================")
+
     # Shared execution state for cancellation
     exec_state = ExecutionState()
 
@@ -262,11 +267,6 @@ async def main():
                 code=CommandResponseCode.EXECUTION_ERROR,
                 message=str(e)
             )
-
-    # Start Hardware
-    logger.info("Starting hardware initialization...")
-    first_machine.startup()
-    logger.info("Hardware initialized successfully")
 
     async def setup_subscriptions():
         """Set up NATS subscriptions for queue and immediate commands."""
