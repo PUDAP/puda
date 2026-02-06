@@ -198,7 +198,7 @@ class Biologic:
         
         Args:
             params: Dictionary containing:
-                - time: Test duration in seconds (float, > 0).
+                - time: Test duration in seconds (float, > 0). [Required]
                 - time_interval: Maximum time between readings (float, > 0.0002 s). [Default: 1]
                 - voltage_interval: Maximum interval between voltage readings (float, 1e-6 to 1 V). [Default: 0.01]
             **kwargs: Additional keyword arguments passed to program constructor:
@@ -221,8 +221,8 @@ class Biologic:
         
         Args:
             params: Dictionary containing:
-                - voltages: List of voltages in Volts (list[float], each element: -10 to 10 V).
-                - durations: List of times in seconds (list[float], each element: > 0).
+                - voltages: List of voltages in Volts (list[float], each element: -10 to 10 V). [Required]
+                - durations: List of times in seconds (list[float], each element: > 0). [Required]
                 - vs_initial: If step is vs. initial or previous. [Default: False]
                 - time_interval: Maximum time interval between points (float, 0.0002 to 1000 s). [Default: 1]
                 - current_interval: Maximum current change between points (float, ±1e-12 to current_range A). [Default: 0.001]
@@ -247,8 +247,8 @@ class Biologic:
 
         Args:
             params: Dictionary containing:
-                - currents: List of currents in Amps. (list[float], each element: 1e-9 to current_range A)
-                - durations: List of times in seconds. (list[float], each element: > 0)
+                - currents: List of currents in Amps. (list[float], each element: 1e-9 to current_range A) [Required]
+                - durations: List of times in seconds. (list[float], each element: > 0) [Required]
                 - vs_initial: If step is vs. initial or previous. [Default: False]
                 - time_interval: Maximum time interval between points in seconds. (float, 0.0002 to 1000). [Default: 1]
                 - voltage_interval: Maximum voltage change between points in Volts. (float, 1e-4 to 1e-2). [Default: 0.001]
@@ -270,12 +270,12 @@ class Biologic:
         
         Args:
             params: Dictionary containing:
-                - voltage: Initial potential in Volts. (float, -10 to 10 V)
-                - amplitude_voltage: Sinus amplitude in Volts (float, 1e-4 to 0.5 V).
-                - initial_frequency: Initial frequency in Hertz (float, 10 µHz to 1 MHz).
-                - final_frequency: Final frequency in Hertz (float, 10 µHz to 1 MHz).
-                - frequency_number: Number of frequencies (int, 1 to 1000).
-                - duration: Overall duration in seconds. (float, > 0)
+                - voltage: Initial potential in Volts. (float, -10 to 10 V) [Required]
+                - amplitude_voltage: Sinus amplitude in Volts (float, 1e-4 to 0.5 V). [Required]
+                - initial_frequency: Initial frequency in Hertz (float, 10 µHz to 1 MHz). [Required]
+                - final_frequency: Final frequency in Hertz (float, 10 µHz to 1 MHz). [Required]
+                - frequency_number: Number of frequencies (int, 1 to 1000). [Required]
+                - duration: Overall duration in seconds. (float, > 0) [Required]
                 - vs_initial: If step is vs. initial or previous. [Default: False]
                 - time_interval: Maximum time interval between points in seconds. (float, 0.0002 to 1000 s). [Default: 1]
                 - current_interval: Maximum time interval between points in Amps. (float, 1e-12 A to current_range A). [Default: 0.001]
@@ -304,12 +304,12 @@ class Biologic:
         
         Args:
             params: Dictionary containing:
-                - current: Initial current in Ampere. (float, 1e-12 to current_range A)
-                - amplitude_current: Sinus amplitude in Ampere. (float, 1e-9 to current_range A)
-                - initial_frequency: Initial frequency in Hertz. (float, 10 µHz to 1 MHz)
-                - final_frequency: Final frequency in Hertz. (float, 10 µHz to 1 MHz)
-                - frequency_number: Number of frequencies. (int, 1 to 1000)
-                - duration: Overall duration in seconds. (float, > 0)
+                - current: Initial current in Ampere. (float, 1e-12 to current_range A) [Required]
+                - amplitude_current: Sinus amplitude in Ampere. (float, 1e-9 to current_range A) [Required]
+                - initial_frequency: Initial frequency in Hertz. (float, 10 µHz to 1 MHz) [Required]
+                - final_frequency: Final frequency in Hertz. (float, 10 µHz to 1 MHz) [Required]
+                - frequency_number: Number of frequencies. (int, 1 to 1000) [Required]
+                - duration: Overall duration in seconds. (float, > 0) [Required]
                 - vs_initial: If step is vs. initial or previous. [Default: False]
                 - time_interval: Maximum time interval between points in seconds. (float, 0.0002 to 1000 s). [Default: 1]
                 - potential_interval: Maximum interval between points in Volts. [Default: 0.001]
@@ -365,8 +365,8 @@ class Biologic:
         
         Args:
             params: Dictionary containing:
-                - run_time: Run time in seconds.
-                - init_vmpp: Initial v_mpp.
+                - run_time: Run time in seconds. [Required]
+                - init_vmpp: Initial v_mpp. [Required]
                 - probe_step: Voltage step for probe. [Default: 0.005 V]
                 - probe_points: Number of data points to collect for probe. [Default: 5]
                 - probe_interval: How often to probe in seconds. [Default: 2]
@@ -394,7 +394,7 @@ class Biologic:
         
         Args:
             params: Dictionary containing:
-                - run_time: Run time in seconds.
+                - run_time: Run time in seconds. [Required]
                 - probe_step: Voltage step for probe. [Default: 0.005 V]
                 - probe_points: Number of data points to collect for probe. [Default: 5]
                 - probe_interval: How often to probe in seconds. [Default: 2]
@@ -421,8 +421,8 @@ class Biologic:
         
         Args:
             params: Dictionary containing:
-                - run_time: Cycle run time in seconds.
-                - cycles: Number of cycles to perform.
+                - run_time: Cycle run time in seconds. [Required]
+                - cycles: Number of cycles to perform. [Required]
                 - probe_step: Voltage step for probe. [Default: 0.01 V]
                 - probe_points: Number of data points to collect for probe. [Default: 5]
                 - probe_interval: How often to probe in seconds. [Default: 2]
