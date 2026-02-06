@@ -5,7 +5,7 @@ from puda_drivers.core.logging import setup_logging
 
 # Optional: finding ports
 from puda_drivers.core.serialcontroller import list_serial_ports
-print(list_serial_ports())
+# print(list_serial_ports())
 
 # --- LOGGING CONFIGURATION ---
 # All loggers in imported modules (SerialController, SartoriusController) will inherit this setup.
@@ -19,7 +19,7 @@ setup_logging(
 
 
 # --- CONFIGURATION ---
-SARTORIUS_PORT = "/dev/ttyUSB0"
+SARTORIUS_PORT = "/dev/ttyUSB1"
 
 TRANSFER_VOLUME = 20  # uL
 TIP_LENGTH = 70  # mm
@@ -40,30 +40,33 @@ def test_pipette_operations():
         # SartoriusController connects automatically in __init__, no need to call connect()
 
         # Always start with initializing
+        pipette.connect()
+        pipette.eject_tip()
         pipette.initialize()
+        pipette.disconnect()
 
-        pipette.get_status()
-        pipette.get_liquid_level()
+        # pipette.get_status()
+        # pipette.get_liquid_level()
 
-        # 2. Set and get inward and outward speeds
-        print("[STEP 2] Setting and getting inward and outward speeds...")
-        pipette.set_inward_speed(3)
-        pipette.get_inward_speed()
+        # # 2. Set and get inward and outward speeds
+        # print("[STEP 2] Setting and getting inward and outward speeds...")
+        # pipette.set_inward_speed(3)
+        # pipette.get_inward_speed()
 
-        pipette.set_outward_speed(3)
-        pipette.get_outward_speed()
-        pipette.run_to_position(100)
-        asyncio.run(pipette.get_position())
+        # pipette.set_outward_speed(3)
+        # pipette.get_outward_speed()
+        # pipette.run_to_position(100)
+        # asyncio.run(pipette.get_position())
 
-        # 3. Eject Tip (if any)
-        print("[STEP 3] Ejecting Tip (if any)...")
-        pipette.eject_tip(return_position=30)
-        print(f"[STEP 3] Aspirate {TRANSFER_VOLUME} uL...")
-        pipette.aspirate(amount=TRANSFER_VOLUME)
+        # # 3. Eject Tip (if any)
+        # print("[STEP 3] Ejecting Tip (if any)...")
+        # pipette.eject_tip(return_position=30)
+        # print(f"[STEP 3] Aspirate {TRANSFER_VOLUME} uL...")
+        # pipette.aspirate(amount=TRANSFER_VOLUME)
 
-        # 4. Dispense
-        print(f"[STEP 4] Dispensing {TRANSFER_VOLUME} uL...")
-        pipette.dispense(amount=TRANSFER_VOLUME)
+        # # 4. Dispense
+        # print(f"[STEP 4] Dispensing {TRANSFER_VOLUME} uL...")
+        # pipette.dispense(amount=TRANSFER_VOLUME)
 
         # # 5. Eject Tip
         # print("\n[STEP 5] Ejecting Tip...")
