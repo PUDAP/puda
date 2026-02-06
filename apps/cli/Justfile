@@ -1,0 +1,67 @@
+# Justfile for puda-cli
+
+# Default recipe - show available commands
+default:
+    @just --list
+
+# Run the CLI in development mode
+# Usage: just dev [arguments]
+# Example: just dev nats send --help
+dev *args:
+    go run ./cmd/puda {{args}}
+
+# Build the CLI binary
+# Usage: just build
+build:
+    go build -o puda ./cmd/puda
+
+# Build and install the binary
+# Usage: just install
+install:
+    go install ./cmd/puda
+
+# Run tests
+# Usage: just test
+test:
+    go test ./...
+
+# Run tests with coverage
+# Usage: just test-coverage
+test-coverage:
+    go test -cover ./...
+
+# Format code
+# Usage: just fmt
+fmt:
+    go fmt ./...
+
+# Run linter
+# Usage: just lint
+lint:
+    golangci-lint run
+
+# Clean build artifacts
+# Usage: just clean
+clean:
+    rm -f puda
+
+# Publish using goreleaser
+# Usage: just publish
+# Note: Requires goreleaser to be installed
+# Install: https://goreleaser.com/install/
+publish:
+    @which goreleaser > /dev/null || (echo "Error: goreleaser not found. Install from https://goreleaser.com/install/" && exit 1)
+    goreleaser release
+
+# Publish using goreleaser (snapshot/dry-run)
+# Usage: just publish-snapshot
+publish-snapshot:
+    @which goreleaser > /dev/null || (echo "Error: goreleaser not found. Install from https://goreleaser.com/install/" && exit 1)
+    goreleaser release --snapshot
+
+# Run the built binary
+# Usage: just run [arguments]
+# Example: just run nats send --help
+run *args:
+    ./puda {{args}}
+
