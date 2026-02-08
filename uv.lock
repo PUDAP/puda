@@ -1552,7 +1552,7 @@ requires-dist = [{ name = "psycopg", extras = ["binary"], specifier = ">=3.2.2" 
 
 [[package]]
 name = "puda-drivers"
-version = "0.0.21"
+version = "0.0.22"
 source = { editable = "libs/drivers" }
 dependencies = [
     { name = "nats-py" },
