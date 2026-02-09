@@ -1,0 +1,22 @@
+{
+  "user_id": "zhao",
+  "username": "zhao",
+  "description": "Test the biologic machine",
+  "commands": [
+    {
+      "step_number": 1,
+      "name": "CV",
+      "machine_id": "biologic",
+      "params": {
+        "voltage_min": -0.1,
+        "voltage_max": 0.1,
+        "scan_rate": 0.01,
+        "cycles": 1
+      },
+      "kwargs": {
+        "channels": [0],
+        "retrieve_data": true
+      }
+    }
+  ]
+}

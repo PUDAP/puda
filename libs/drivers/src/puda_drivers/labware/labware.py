@@ -21,7 +21,8 @@ class StandardLabware(ABC):
             cols: The number of columns in the labware.
         """
         self._definition = self.load_definition(file_name=labware_name + ".json")
-        self.name = self._definition.get("metadata", {}).get("displayName", "displayName not found")
+        self.name = labware_name
+        self.display_name = self._definition.get("metadata", {}).get("displayName", "displayName not found")
         self._wells = self._definition.get("wells", {})
 
     @staticmethod
