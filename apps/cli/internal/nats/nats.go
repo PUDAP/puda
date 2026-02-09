@@ -256,8 +256,8 @@ func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []Comma
 	return nil
 }
 
-// RunBatchCommands executes a batch of commands via NATS
-func RunBatchCommands(commandsFile string, timeout int, userID, username, natsServers string) error {
+// SendBatchCommands executes a batch of commands via NATS
+func SendBatchCommands(commandsFile string, timeout int, userID, username, natsServers string) error {
 	// Load from .env file (unless overridden by command line)
 	envUserID, envUsername, envNatsServers, err := LoadEnvConfig()
 	if err != nil {

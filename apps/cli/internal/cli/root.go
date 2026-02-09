@@ -10,7 +10,11 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "puda",
 	Short: "PUDA CLI - Command-line interface for PUDA",
-	Long:  "PUDA CLI provides commands for interacting with PUDA machines via NATS",
+	Long:  "PUDA CLI provides commands for the platform",
+	Run: func(cmd *cobra.Command, args []string) {
+		// Show help when no subcommand is provided
+		cmd.Help()
+	},
 }
 
 // Execute runs the root command
@@ -22,7 +26,8 @@ func Execute() error {
 	return nil
 }
 
+// init registers all top-level commands with the root command
 func init() {
+	// Register top-level commands
 	rootCmd.AddCommand(natsCmd)
 }
-
