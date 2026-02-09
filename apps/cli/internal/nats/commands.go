@@ -5,21 +5,34 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/PUDAP/puda/apps/cli/internal/puda"
 )
 
-// LoadCommands loads commands from a JSON file
-func LoadCommands(filePath string) ([]CommandRequest, error) {
+// LoadProtocol loads a protocol file (JSON with commands and metadata) from disk
+func LoadProtocol(filePath string) (*puda.ProtocolFile, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read commands file: %w", err)
 	}
 
-	var commands []CommandRequest
-	if err := json.Unmarshal(data, &commands); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON: %w", err)
+	var protocolFile puda.ProtocolFile
+	if err := json.Unmarshal(data, &protocolFile); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON: expected an object with 'commands' field: %w", err)
 	}
 
-	return commands, nil
+	if len(protocolFile.Commands) == 0 {
+		return nil, fmt.Errorf("commands array is empty or missing")
+	}
+
+	// Initialize nil params to empty maps
+	for i := range protocolFile.Commands {
+		if protocolFile.Commands[i].Params == nil {
+			protocolFile.Commands[i].Params = make(map[string]interface{})
+		}
+	}
+
+	return &protocolFile, nil
 }
 
 // GetCurrentTimestamp returns the current timestamp in UTC format
@@ -28,15 +41,15 @@ func GetCurrentTimestamp() string {
 }
 
 // BuildCommandPayload builds a NATS message payload from a command request
-func BuildCommandPayload(request CommandRequest, machineID, runID, userID, username string) NATSMessage {
+func BuildCommandPayload(request puda.CommandRequest, machineID, runID, userID, username string) puda.NATSMessage {
 	if request.Version == "" {
 		request.Version = "1.0"
 	}
 	runIDPtr := &runID
-	return NATSMessage{
-		Header: MessageHeader{
+	return puda.NATSMessage{
+		Header: puda.MessageHeader{
 			Version:     "1.0",
-			MessageType: MessageTypeCommand,
+			MessageType: puda.MessageTypeCommand,
 			UserID:      userID,
 			Username:    username,
 			MachineID:   machineID,
@@ -48,7 +61,7 @@ func BuildCommandPayload(request CommandRequest, machineID, runID, userID, usern
 }
 
 // GetResponseMessage extracts a human-readable message from a response
-func GetResponseMessage(response *NATSMessage) string {
+func GetResponseMessage(response *puda.NATSMessage) string {
 	if response.Response == nil {
 		return "unknown error"
 	}

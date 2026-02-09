@@ -17,6 +17,9 @@ type Config struct {
 }
 
 // LoadEnvConfig loads configuration from .env file
+// Returns userID, username, natsServers, error
+// USER_ID and USERNAME are optional (can be provided in JSON file instead)
+// NATS_SERVERS is required
 func LoadEnvConfig() (string, string, string, error) {
 	// Try to load .env file from current directory or project root
 	envPath := ".env"
@@ -24,7 +27,7 @@ func LoadEnvConfig() (string, string, string, error) {
 		// Try parent directory (project root)
 		envPath = filepath.Join("..", "..", ".env")
 		if _, err := os.Stat(envPath); os.IsNotExist(err) {
-			return "", "", "", fmt.Errorf("no .env file found. Please create a .env file in the project root with USER_ID, USERNAME, and NATS_SERVERS variables")
+			return "", "", "", fmt.Errorf("no .env file found. Please create a .env file in the project root with NATS_SERVERS variable")
 		}
 	}
 
@@ -36,19 +39,8 @@ func LoadEnvConfig() (string, string, string, error) {
 	envUsername := os.Getenv("USERNAME")
 	envNatsServers := os.Getenv("NATS_SERVERS")
 
-	missing := []string{}
-	if envUserID == "" {
-		missing = append(missing, "USER_ID")
-	}
-	if envUsername == "" {
-		missing = append(missing, "USERNAME")
-	}
 	if envNatsServers == "" {
-		missing = append(missing, "NATS_SERVERS")
-	}
-
-	if len(missing) > 0 {
-		return "", "", "", fmt.Errorf("missing required environment variables in .env file: %s", strings.Join(missing, ", "))
+		return "", "", "", fmt.Errorf("NATS_SERVERS is required in .env file")
 	}
 
 	return envUserID, envUsername, envNatsServers, nil

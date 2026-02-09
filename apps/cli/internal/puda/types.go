@@ -1,4 +1,4 @@
-package nats
+package puda
 
 // CommandRequest represents a command request
 type CommandRequest struct {
@@ -57,4 +57,12 @@ type NATSMessage struct {
 type MachineHeartbeat struct {
 	MachineID string `json:"machine_id"`
 	Timestamp string `json:"timestamp"`
+}
+
+// ProtocolFile represents the structure of a protocol JSON file
+type ProtocolFile struct {
+	UserID      string           `json:"user_id"`
+	Username    string           `json:"username"`
+	Description string           `json:"description"`
+	Commands    []CommandRequest `json:"commands"`
 }

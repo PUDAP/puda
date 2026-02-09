@@ -13,32 +13,26 @@ import (
 
 // natsStatusCmd is a subcommand of natsCmd that retrieves machine status from NATS Key-Value store
 //
-// Usage: puda nats status [--machine-id <machine_id>]
+// Usage: puda nats status [machine-id]
 var natsStatusCmd = &cobra.Command{
-	Use:   "status",
+	Use:   "status [machine-id]",
 	Short: "Get machine status from NATS Key-Value store or list alive machines",
 	Long: `Get the current status of a machine from NATS Key-Value store, or list all alive machines.
 
-If --machine-id is provided, retrieves the status from the NATS JetStream Key-Value bucket.
-If --machine-id is not provided, listens to heartbeat messages and returns a list of alive machines.
+If machine-id is provided, retrieves the status from the NATS JetStream Key-Value bucket.
+If machine-id is not provided, listens to heartbeat messages and returns a list of alive machines.
 
 Requires a .env file in the project root with:
   NATS_SERVERS: Comma-separated list of NATS server URLs
 
 Examples:
-  puda nats status --machine-id first
-  puda nats status`,
+  puda nats status
+  puda nats status [machine-id]`,
 	RunE: getMachineStatus,
 }
 
-// Status command flags
-var (
-	machineID string
-)
-
 // init registers flags for the status command
 func init() {
-	natsStatusCmd.Flags().StringVar(&machineID, "machine-id", "", "Machine ID to retrieve status for (optional - if not provided, lists all alive machines)")
 	natsStatusCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Comma-separated NATS server URLs - overrides NATS_SERVERS from .env")
 }
 
@@ -71,9 +65,9 @@ func getMachineStatus(cmd *cobra.Command, args []string) error {
 	}
 	defer nc.Close()
 
-	// If machine-id is provided, get status from KV store
-	if machineID != "" {
-		return getSingleMachineStatus(nc, machineID)
+	// If machine-id is provided as positional argument, get status from KV store
+	if len(args) > 0 && args[0] != "" {
+		return getSingleMachineStatus(nc, args[0])
 	}
 
 	// Otherwise, listen to heartbeats and return list of alive machines
@@ -160,21 +154,20 @@ func listAliveMachines(nc *natsio.Conn) error {
 	// This should catch at least one heartbeat cycle since machines send every second
 	time.Sleep(3 * time.Second)
 
-	// Convert to list format
-	var machines []nats.MachineHeartbeat
-	for machineID, timestamp := range machineHeartbeats {
-		machines = append(machines, nats.MachineHeartbeat{
-			MachineID: machineID,
-			Timestamp: timestamp.Format(time.RFC3339),
-		})
+	// Check if any machines were found
+	if len(machineHeartbeats) == 0 {
+		fmt.Println("No alive machines found")
+		return nil
 	}
 
-	// Print result as JSON
-	jsonBytes, err := json.MarshalIndent(machines, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal machine list: %w", err)
+	// Print table header
+	fmt.Printf("%-20s %-30s\n", "MACHINE ID", "LAST HEARTBEAT")
+	fmt.Println(strings.Repeat("-", 52))
+
+	// Print each machine in table format
+	for machineID, timestamp := range machineHeartbeats {
+		fmt.Printf("%-20s %-30s\n", machineID, timestamp.Format(time.RFC3339))
 	}
-	fmt.Println(string(jsonBytes))
 
 	return nil
 }

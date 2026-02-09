@@ -10,13 +10,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PUDAP/puda/apps/cli/internal/puda"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 )
 
 // SendStartCommand sends a START command to a machine
-func SendStartCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID, userID, username string, timeoutSeconds int) (*NATSMessage, error) {
-	request := CommandRequest{
+func SendStartCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID, userID, username string, timeoutSeconds int) (*puda.NATSMessage, error) {
+	request := puda.CommandRequest{
 		Name:       "start",
 		MachineID:  machineID,
 		Params:     make(map[string]interface{}),
@@ -27,8 +28,8 @@ func SendStartCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID,
 }
 
 // SendCompleteCommand sends a COMPLETE command to a machine
-func SendCompleteCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID, userID, username string, timeoutSeconds int) (*NATSMessage, error) {
-	request := CommandRequest{
+func SendCompleteCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID, userID, username string, timeoutSeconds int) (*puda.NATSMessage, error) {
+	request := puda.CommandRequest{
 		Name:       "complete",
 		MachineID:  machineID,
 		Params:     make(map[string]interface{}),
@@ -39,7 +40,7 @@ func SendCompleteCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, run
 }
 
 // SendImmediateCommand sends an immediate command to a machine
-func SendImmediateCommand(nc *nats.Conn, js nats.JetStreamContext, request CommandRequest, runID, userID, username string, timeoutSeconds int) (*NATSMessage, error) {
+func SendImmediateCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.CommandRequest, runID, userID, username string, timeoutSeconds int) (*puda.NATSMessage, error) {
 	subject := fmt.Sprintf("puda.%s.cmd.immediate", request.MachineID)
 	payload := BuildCommandPayload(request, request.MachineID, runID, userID, username)
 
@@ -50,11 +51,11 @@ func SendImmediateCommand(nc *nats.Conn, js nats.JetStreamContext, request Comma
 
 	// Subscribe to response stream before publishing
 	responseSubject := fmt.Sprintf("puda.%s.cmd.response.immediate", request.MachineID)
-	responseCh := make(chan *NATSMessage, 1)
+	responseCh := make(chan *puda.NATSMessage, 1)
 
 	// Create ephemeral consumer for response stream
 	sub, err := js.Subscribe(responseSubject, func(msg *nats.Msg) {
-		var response NATSMessage
+		var response puda.NATSMessage
 		if err := json.Unmarshal(msg.Data, &response); err != nil {
 			log.Printf("Failed to unmarshal response: %v", err)
 			msg.Ack()
@@ -97,7 +98,7 @@ func SendImmediateCommand(nc *nats.Conn, js nats.JetStreamContext, request Comma
 }
 
 // SendQueueCommand sends a queued command to a machine
-func SendQueueCommand(nc *nats.Conn, js nats.JetStreamContext, request CommandRequest, runID, userID, username string, timeoutSeconds int) (*NATSMessage, error) {
+func SendQueueCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.CommandRequest, runID, userID, username string, timeoutSeconds int) (*puda.NATSMessage, error) {
 	subject := fmt.Sprintf("puda.%s.cmd.queue", request.MachineID)
 	payload := BuildCommandPayload(request, request.MachineID, runID, userID, username)
 
@@ -108,11 +109,11 @@ func SendQueueCommand(nc *nats.Conn, js nats.JetStreamContext, request CommandRe
 
 	// Subscribe to response stream before publishing
 	responseSubject := fmt.Sprintf("puda.%s.cmd.response.queue", request.MachineID)
-	responseCh := make(chan *NATSMessage, 1)
+	responseCh := make(chan *puda.NATSMessage, 1)
 
 	// Create ephemeral consumer for response stream
 	sub, err := js.Subscribe(responseSubject, func(msg *nats.Msg) {
-		var response NATSMessage
+		var response puda.NATSMessage
 		if err := json.Unmarshal(msg.Data, &response); err != nil {
 			log.Printf("Failed to unmarshal response: %v", err)
 			msg.Ack()
@@ -155,7 +156,7 @@ func SendQueueCommand(nc *nats.Conn, js nats.JetStreamContext, request CommandRe
 }
 
 // SendQueueCommands sends a batch of queued commands sequentially
-func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []CommandRequest, runID, userID, username string, timeoutSeconds int) error {
+func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []puda.CommandRequest, runID, userID, username string, timeoutSeconds int) error {
 	if len(requests) == 0 {
 		return fmt.Errorf("no commands to send")
 	}
@@ -184,7 +185,7 @@ func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []Comma
 		if err != nil {
 			return fmt.Errorf("START command failed for machine %s: %w", machineID, err)
 		}
-		if response.Response != nil && response.Response.Status == StatusError {
+		if response.Response != nil && response.Response.Status == puda.StatusError {
 			return fmt.Errorf("START command failed for machine %s: %s", machineID, GetResponseMessage(response))
 		}
 		startedMachines[machineID] = true
@@ -219,7 +220,7 @@ func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []Comma
 			return fmt.Errorf("command %d/%d returned response with no response data", idx+1, len(requests))
 		}
 
-		if response.Response.Status == StatusError {
+		if response.Response.Status == puda.StatusError {
 			// Complete all started runs
 			log.Printf("Completing runs on all machines due to error")
 			for machineID := range startedMachines {
@@ -257,44 +258,48 @@ func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []Comma
 }
 
 // SendBatchCommands executes a batch of commands via NATS
-func SendBatchCommands(commandsFile string, timeout int, userID, username, natsServers string) error {
-	// Load from .env file (unless overridden by command line)
-	envUserID, envUsername, envNatsServers, err := LoadEnvConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load environment configuration: %w", err)
+func SendBatchCommands(commandsFile string, timeout int, natsServers string) error {
+	// Load NATS_SERVERS from .env file (unless overridden by command line)
+	_, _, envNatsServers, err := LoadEnvConfig()
+	if err != nil && natsServers == "" {
+		// Only error if .env is missing AND no flag provided
+		return fmt.Errorf("NATS_SERVERS is required (set in .env or use --nats-servers flag): %w", err)
 	}
 
-	// Use command line args if provided, otherwise use .env values
-	finalUserID := userID
-	if finalUserID == "" {
-		finalUserID = envUserID
-	}
-	finalUsername := username
-	if finalUsername == "" {
-		finalUsername = envUsername
-	}
 	finalNatsServers := natsServers
 	if finalNatsServers == "" {
 		finalNatsServers = envNatsServers
 	}
 
-	if finalUserID == "" {
-		return fmt.Errorf("USER_ID is required (set in .env or use --user-id flag)")
-	}
-	if finalUsername == "" {
-		return fmt.Errorf("USERNAME is required (set in .env or use --username flag)")
-	}
 	if finalNatsServers == "" {
 		return fmt.Errorf("NATS_SERVERS is required (set in .env or use --nats-servers flag)")
 	}
 
-	// Load commands from JSON file
-	commands, err := LoadCommands(commandsFile)
+	// Load commands from JSON file with metadata
+	commandResult, err := LoadProtocol(commandsFile)
 	if err != nil {
 		return fmt.Errorf("failed to load commands: %w", err)
 	}
 
+	commands := commandResult.Commands
 	log.Printf("Loaded %d commands from file", len(commands))
+
+	// user_id and username must be provided in the JSON file
+	if commandResult.UserID == "" {
+		return fmt.Errorf("user_id is required in the JSON file")
+	}
+	if commandResult.Username == "" {
+		return fmt.Errorf("username is required in the JSON file")
+	}
+
+	finalUserID := commandResult.UserID
+	finalUsername := commandResult.Username
+
+	log.Printf("Using user_id from file: %s", finalUserID)
+	log.Printf("Using username from file: %s", finalUsername)
+	if commandResult.Description != "" {
+		log.Printf("Description: %s", commandResult.Description)
+	}
 
 	// Generate unique run_id
 	runID := uuid.New().String()
