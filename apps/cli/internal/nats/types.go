@@ -52,3 +52,9 @@ type NATSMessage struct {
 	Command  *CommandRequest  `json:"command,omitempty"`
 	Response *CommandResponse `json:"response,omitempty"`
 }
+
+// MachineHeartbeat represents a machine's heartbeat information
+type MachineHeartbeat struct {
+	MachineID string `json:"machine_id"`
+	Timestamp string `json:"timestamp"`
+}

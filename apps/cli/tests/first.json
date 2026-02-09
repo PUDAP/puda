@@ -1,0 +1,53 @@
+[
+  {
+    "name": "load_deck",
+    "machine_id": "first",
+    "params": {
+      "deck_layout": {
+        "C1": "trash_bin",
+        "C2": "polyelectric_8_wellplate_30000ul",
+        "C3": "opentrons_96_tiprack_300ul"
+      }
+    },
+    "step_number": 1
+  },
+  {
+    "name": "attach_tip",
+    "machine_id": "first",
+    "params": {
+      "deck_slot": "C3",
+      "well_name": "A1"
+    },
+    "step_number": 2
+  },
+  {
+    "name": "aspirate_from",
+    "machine_id": "first",
+    "params": {
+      "deck_slot": "C2",
+      "well_name": "A2",
+      "amount": 100
+    },
+    "step_number": 3
+  },
+  {
+    "name": "dispense_to",
+    "machine_id": "first",
+    "params": {
+      "deck_slot": "C2",
+      "well_name": "B4",
+      "amount": 100
+    },
+    "step_number": 4
+  },
+  {
+    "name": "drop_tip",
+    "machine_id": "first",
+    "params": {
+      "deck_slot": "C1",
+      "well_name": "A1"
+    },
+    "step_number": 5
+  }
+]
+

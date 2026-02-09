@@ -7,10 +7,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// sendCmd is a subcommand of natsCmd that sends commands to machines via NATS
+// natsCommandSendCmd is a subcommand of natsCommandCmd that sends commands to machines via NATS
 //
-// Usage: puda nats send --file <path>
-var natsSendCmd = &cobra.Command{
+// Usage: puda nats command send --file <path>
+var natsCommandSendCmd = &cobra.Command{
 	Use:   "send",
 	Short: "Send a sequence of commands to machines via NATS",
 	Long: `Send a sequence of commands to machines via NATS using CommandService.
@@ -22,11 +22,11 @@ Requires a .env file in the project root with:
   NATS_SERVERS: Comma-separated list of NATS server URLs
 
 Example:
-  puda nats send --file commands.json`,
+  puda nats command send --file commands.json`,
 	RunE: sendBatchCommands,
 }
 
-// Command flags
+// Command send flags
 var (
 	commandsFile string
 	timeout      int
@@ -37,12 +37,12 @@ var (
 
 // init registers flags for the send command
 func init() {
-	natsSendCmd.Flags().StringVarP(&commandsFile, "file", "f", "", "Path to JSON file containing array of commands (required)")
-	natsSendCmd.Flags().IntVarP(&timeout, "timeout", "t", 120, "Timeout per command in seconds (default: 120)")
-	natsSendCmd.Flags().StringVar(&userID, "user-id", "", "User ID (UUID string) - overrides USER_ID from .env")
-	natsSendCmd.Flags().StringVar(&username, "username", "", "Username - overrides USERNAME from .env")
-	natsSendCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Comma-separated NATS server URLs - overrides NATS_SERVERS from .env")
-	natsSendCmd.MarkFlagRequired("file")
+	natsCommandSendCmd.Flags().StringVarP(&commandsFile, "file", "f", "", "Path to JSON file containing array of commands (required)")
+	natsCommandSendCmd.Flags().IntVarP(&timeout, "timeout", "t", 120, "Timeout per command in seconds (default: 120)")
+	natsCommandSendCmd.Flags().StringVar(&userID, "user-id", "", "User ID (UUID string) - overrides USER_ID from .env")
+	natsCommandSendCmd.Flags().StringVar(&username, "username", "", "Username - overrides USERNAME from .env")
+	natsCommandSendCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Comma-separated NATS server URLs - overrides NATS_SERVERS from .env")
+	natsCommandSendCmd.MarkFlagRequired("file")
 }
 
 // sendBatchCommands executes the send command
@@ -52,3 +52,4 @@ func sendBatchCommands(cmd *cobra.Command, args []string) error {
 	}
 	return nil
 }
+

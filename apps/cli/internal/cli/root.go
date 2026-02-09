@@ -30,4 +30,5 @@ func Execute() error {
 func init() {
 	// Register top-level commands
 	rootCmd.AddCommand(natsCmd)
+	rootCmd.AddCommand(machineCmd)
 }

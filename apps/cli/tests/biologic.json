@@ -1,0 +1,44 @@
+[
+  {
+    "step_number": 1,
+    "name": "load_deck",
+    "machine_id": "first",
+    "params": {
+      "deck_layout": {
+        "C1": "trash_bin",
+        "C2": "polyelectric_8_wellplate_30000ul",
+        "C3": "opentrons_96_tiprack_300ul",
+        "A2": "MEA_cell_MTP"
+      }
+    }
+  },
+  {
+    "step_number": 2,
+    "name": "move_electrode",
+    "machine_id": "first",
+    "params": {
+      "deck_slot": "A2",
+      "well_name": "A1"
+    }
+  },
+  {
+      "step_number": 3,
+      "name": "CV",
+      "machine_id": "biologic",
+      "params": {
+          "voltage_min": -1.0,
+          "voltage_max": 1.0,
+          "scan_rate": 0.01,
+          "cycles": 1
+      },
+      "kwargs": {
+          "channels": [0],
+          "retrieve_data": true
+      }
+  },
+  {
+    "step_number": 4,
+    "name": "home",
+    "machine_id": "first"
+  }
+]
