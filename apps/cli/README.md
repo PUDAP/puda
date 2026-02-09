@@ -20,17 +20,6 @@ brew install just
 ### Run in development mode
 ```bash
 just dev [arguments]
-# Example: just dev nats send --help
-```
-
-### Build
-```bash
-just build
-```
-
-### Install globally
-```bash
-just install
 ```
 
 ### Run tests
@@ -53,24 +42,15 @@ just clean
 Requires [goreleaser](https://goreleaser.com/install/) to be installed:
 
 ```bash
+git tag -a v0.0.1 -m "first release"
+git push origin v0.0.1
+
 just publish
 ```
 
 For a snapshot/dry-run:
 ```bash
 just publish-snapshot
-```
-
-## Usage
-
-### With .env file configured
-```bash
-puda nats send --file commands.json
-```
-
-### With command-line overrides
-```bash
-puda nats send --file commands.json --user-id "..." --username "..." --nats-servers "..."
 ```
 
 ## Available Commands
