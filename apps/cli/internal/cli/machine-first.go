@@ -1,12 +1,6 @@
 package cli
 
-import (
-	"fmt"
-	"os"
-	"os/exec"
-
-	"github.com/spf13/cobra"
-)
+import "github.com/spf13/cobra"
 
 // machineFirstCmd is a subcommand of machineCmd for first machine operations
 var machineFirstCmd = &cobra.Command{
@@ -17,25 +11,15 @@ var machineFirstCmd = &cobra.Command{
 For help on subcommands, add --help after: "puda machine first --help"`,
 }
 
-// machineFirstHelpCmd is a subcommand that shows Python help for FirstMachine
+// machineFirstHelpCmd is a subcommand that shows help information
 var machineFirstHelpCmd = &cobra.Command{
 	Use:   "help",
-	Short: "Show Python help documentation for FirstMachine",
-	Long: `Show Python help documentation for FirstMachine class.
+	Short: "Show help information for FirstMachine",
+	Long: `Show help information for FirstMachine.
 
-This command calls Python's help() function on puda_drivers.machines.First
-to display all available methods and their documentation.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		// Call Python help() on FirstMachine
-		pythonCmd := exec.Command("python3", "-c", "from puda_drivers.machines import First; help(First)")
-		output, err := pythonCmd.CombinedOutput()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error running Python help: %v\n", err)
-			fmt.Fprintf(os.Stderr, "Output: %s\n", string(output))
-			os.Exit(1)
-		}
-		fmt.Print(string(output))
-	},
+Subcommands:
+  commands - Show available commands/methods for FirstMachine
+  labware  - Show available labware`,
 }
 
 // init registers the first machine command and its subcommands
