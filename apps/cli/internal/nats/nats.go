@@ -98,7 +98,7 @@ func SendImmediateCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.
 }
 
 // SendQueueCommand sends a queued command to a machine
-func SendQueueCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.CommandRequest, runID, userID, username string, timeoutSeconds int) (*puda.NATSMessage, error) {
+func SendQueueCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.CommandRequest, runID, userID, username string) (*puda.NATSMessage, error) {
 	subject := fmt.Sprintf("puda.%s.cmd.queue", request.MachineID)
 	payload := BuildCommandPayload(request, request.MachineID, runID, userID, username)
 
@@ -145,14 +145,9 @@ func SendQueueCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.Comm
 		return nil, fmt.Errorf("failed to publish command: %w", err)
 	}
 
-	// Wait for response with timeout
-	timeout := time.Duration(timeoutSeconds) * time.Second
-	select {
-	case response := <-responseCh:
-		return response, nil
-	case <-time.After(timeout):
-		return nil, fmt.Errorf("timeout waiting for response after %d seconds", timeoutSeconds)
-	}
+	// Wait for response (no timeout)
+	response := <-responseCh
+	return response, nil
 }
 
 // SendQueueCommands sends a batch of queued commands sequentially
@@ -195,7 +190,7 @@ func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []puda.
 	for idx, request := range requests {
 		log.Printf("Sending command %d/%d: %s (step %d) to machine %s", idx+1, len(requests), request.Name, request.StepNumber, request.MachineID)
 
-		response, err := SendQueueCommand(nc, js, request, runID, userID, username, timeoutSeconds)
+		response, err := SendQueueCommand(nc, js, request, runID, userID, username)
 		if err != nil {
 			// Complete all started runs
 			log.Printf("Completing runs on all machines due to error")
