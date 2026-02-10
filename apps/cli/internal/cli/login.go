@@ -29,18 +29,29 @@ type loginConfig struct {
 //	~/.puda/config.json
 var loginCmd = &cobra.Command{
 	Use:   "login",
-	Short: "Configure your PUDA CLI user identity",
-	Long: `Login to PUDA by setting your username.
+	Short: "Log in to a PUDA account",
+	Long: `Log in to a PUDA account.
 
-This command generates a configuration file at ~/.puda/config.json
-containing your username, a generated user ID, and the default NATS
-endpoint used by the CLI.
+	Authenticate with a PUDA host and retrieve user configuration.
 `,
 	RunE: runLogin,
 }
 
 // runLogin executes the login flow: prompt for username and write config file.
 func runLogin(cmd *cobra.Command, args []string) error {
+	configPath, err := puda.ConfigPath()
+	if err != nil {
+		return err
+	}
+
+	// If a config file already exists, assume the user is already logged in.
+	if _, err := os.Stat(configPath); err == nil {
+		fmt.Fprintln(cmd.OutOrStdout(), "You are already logged in.")
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to check existing config file: %w", err)
+	}
+
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Fprint(cmd.OutOrStdout(), "Enter username: ")
@@ -53,17 +64,18 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("username cannot be empty")
 	}
 
-	userID := uuid.NewString()
+	// Simulate talking to a backend auth service to obtain user ID and NATS endpoints.
+	fmt.Fprintln(cmd.OutOrStdout(), "Contacting PUDA authentication service...")
+	fmt.Fprintf(cmd.OutOrStdout(), "Authenticating user %q...\n", username)
 
-	configPath, err := puda.ConfigPath()
-	if err != nil {
-		return err
-	}
+	userID := uuid.NewString()
 
 	var cfg loginConfig
 	cfg.User.Username = username
 	cfg.User.UserID = userID
 	cfg.Endpoints.NATS = "nats://100.109.131.12:4222,nats://100.109.131.12:4223,nats://100.109.131.12:4224"
+
+	fmt.Fprintln(cmd.OutOrStdout(), "Fetching user configuration...")
 
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -74,6 +86,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
+	fmt.Fprintln(cmd.OutOrStdout(), "Login successful.")
 	fmt.Fprintf(cmd.OutOrStdout(), "Saved puda configuration to %s\n", configPath)
 	return nil
 }

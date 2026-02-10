@@ -51,6 +51,8 @@ func runConfigEdit(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	fmt.Fprintln(cmd.OutOrStdout(), "PUDA logged in.")
+
 	if err := openInEditor(configPath); err != nil {
 		return fmt.Errorf("failed to open editor: %w", err)
 	}

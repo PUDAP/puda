@@ -33,4 +33,5 @@ func init() {
 	rootCmd.AddCommand(machineCmd)
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(logoutCmd)
 }
