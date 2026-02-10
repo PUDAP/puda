@@ -1,15 +1,6 @@
 # puda-cli
 
-This project uses [just](https://github.com/casey/just) for task automation. Install just first:
-
-```bash
-# Install just (choose your method)
-# macOS
-brew install just
-
-# Linux
-# See https://github.com/casey/just#installation
-```
+This project uses [just](https://github.com/casey/just) for task automation. Install just first
 
 ## Development
 
