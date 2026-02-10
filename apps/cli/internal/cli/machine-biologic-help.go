@@ -3,8 +3,8 @@ package cli
 import (
 	"fmt"
 	"os"
-	"os/exec"
 
+	"github.com/PUDAP/puda/apps/cli/internal/puda"
 	"github.com/spf13/cobra"
 )
 
@@ -17,15 +17,10 @@ var machineBiologicHelpCommandsCmd = &cobra.Command{
 This command calls Python's help() function on puda_drivers.machines.Biologic
 to display all available methods and their documentation.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		// Call Python help() on BiologicMachine
-		pythonCmd := exec.Command("python3", "-c", "from puda_drivers.machines import Biologic; help(Biologic)")
-		output, err := pythonCmd.CombinedOutput()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error running Python help: %v\n", err)
-			fmt.Fprintf(os.Stderr, "Output: %s\n", string(output))
+		if err := puda.ShowPublicMethods("puda_drivers.machines", "Biologic"); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Print(string(output))
 	},
 }
 
