@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/PUDAP/puda/apps/cli/internal/nats"
+	"github.com/PUDAP/puda/apps/cli/internal/puda"
 	"github.com/spf13/cobra"
 )
 
@@ -36,14 +37,14 @@ Example:
 
 // Protocol send flags
 var (
-	protocolFile string
-	timeout      int
-	natsServers  string
+	protocolFilePath string
+	timeout          int
+	natsServers      string
 )
 
 // init registers flags for the send command
 func init() {
-	natsProtocolSendCmd.Flags().StringVarP(&protocolFile, "file", "f", "", "Path to JSON file containing protocol (required)")
+	natsProtocolSendCmd.Flags().StringVarP(&protocolFilePath, "file", "f", "", "Path to JSON file containing protocol (required)")
 	natsProtocolSendCmd.Flags().IntVarP(&timeout, "timeout", "t", 120, "Timeout per command in seconds (default: 120)")
 	natsProtocolSendCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Comma-separated NATS server URLs - overrides NATS_SERVERS from .env")
 	natsProtocolSendCmd.MarkFlagRequired("file")
@@ -51,7 +52,13 @@ func init() {
 
 // sendProtocol executes the send command
 func sendProtocol(cmd *cobra.Command, args []string) error {
-	if err := nats.SendBatchCommands(protocolFile, timeout, natsServers); err != nil {
+	// Load protocol JSON from file
+	protocolJSON, err := puda.LoadProtocol(protocolFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to load protocol file: %w", err)
+	}
+
+	if err := nats.SendProtocol(protocolJSON, timeout, natsServers); err != nil {
 		return fmt.Errorf("failed to run batch commands: %w", err)
 	}
 	return nil
