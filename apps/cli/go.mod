@@ -3,7 +3,6 @@ module github.com/PUDAP/puda/apps/cli
 go 1.25.5
 
 require (
-	github.com/joho/godotenv v1.5.1
 	github.com/nats-io/nats.go v1.35.0
 	github.com/spf13/cobra v1.10.2
 )
