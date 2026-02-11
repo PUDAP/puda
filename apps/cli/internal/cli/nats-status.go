@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PUDAP/puda/apps/cli/internal/nats"
+	"github.com/PUDAP/puda/apps/cli/internal/puda"
 	natsio "github.com/nats-io/nats.go"
 	"github.com/spf13/cobra"
 )
@@ -38,28 +38,27 @@ func init() {
 
 // getMachineStatus executes the status command
 func getMachineStatus(cmd *cobra.Command, args []string) error {
-	// Load from .env file (unless overridden by command line)
-	_, _, envNatsServers, err := nats.LoadEnvConfig()
+	// Load from PUDA config file (unless overridden by command line)
+	cfg, err := puda.LoadConfig()
 	if err != nil && natsServers == "" {
 		// Only error if no command line override provided
-		return fmt.Errorf("failed to load environment configuration: %w", err)
+		return fmt.Errorf("failed to load PUDA configuration: %w", err)
 	}
 
-	// Use command line args if provided, otherwise use .env values
+	// Use command line args if provided, otherwise use PUDA config value
 	finalNatsServers := natsServers
 	if finalNatsServers == "" {
-		finalNatsServers = envNatsServers
+		if cfg != nil {
+			finalNatsServers = cfg.Endpoints.NATS
+		}
 	}
 
 	if finalNatsServers == "" {
-		return fmt.Errorf("NATS_SERVERS is required (set in .env or use --nats-servers flag)")
+		return fmt.Errorf("NATS endpoint is required (set in PUDA config or use --nats-servers flag)")
 	}
 
-	// Parse NATS servers
-	servers := nats.ParseNATSServers(finalNatsServers)
-
 	// Connect to NATS
-	nc, err := natsio.Connect(strings.Join(servers, ","), natsio.MaxReconnects(3), natsio.ReconnectWait(2))
+	nc, err := natsio.Connect(finalNatsServers, natsio.MaxReconnects(3), natsio.ReconnectWait(2))
 	if err != nil {
 		return fmt.Errorf("failed to connect to NATS: %w", err)
 	}

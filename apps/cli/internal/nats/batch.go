@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -48,8 +47,6 @@ func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []puda.
 	for id := range machineIDs {
 		machineIDList = append(machineIDList, id)
 	}
-
-	log.Printf("Sending %d queue commands sequentially to machines: %v, run_id=%s", len(requests), machineIDList, runID)
 
 	// Set up signal handling for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -149,20 +146,20 @@ func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []puda.
 
 // SendProtocol executes a puda protocol via NATS
 func SendProtocol(protocolJSON []byte, timeout int, natsServers string) error {
-	// Load NATS_SERVERS from .env file (unless overridden by command line)
-	_, _, envNatsServers, err := LoadEnvConfig()
+	// Load NATS endpoint from PUDA config (unless overridden by command line)
+	cfg, err := puda.LoadConfig()
 	if err != nil && natsServers == "" {
-		// Only error if .env is missing AND no flag provided
-		return fmt.Errorf("NATS_SERVERS is required (set in .env or use --nats-servers flag): %w", err)
+		// Only error if config is missing AND no flag provided
+		return fmt.Errorf("NATS endpoint is required (set in PUDA config or use --nats-servers flag): %w", err)
 	}
 
 	finalNatsServers := natsServers
-	if finalNatsServers == "" {
-		finalNatsServers = envNatsServers
+	if finalNatsServers == "" && cfg != nil {
+		finalNatsServers = cfg.Endpoints.NATS
 	}
 
 	if finalNatsServers == "" {
-		return fmt.Errorf("NATS_SERVERS is required (set in .env or use --nats-servers flag)")
+		return fmt.Errorf("NATS endpoint is required (set in PUDA config or use --nats-servers flag)")
 	}
 
 	// Parse protocol JSON
@@ -170,9 +167,6 @@ func SendProtocol(protocolJSON []byte, timeout int, natsServers string) error {
 	if err := json.Unmarshal(protocolJSON, &protocolFile); err != nil {
 		return fmt.Errorf("failed to parse protocol JSON: %w", err)
 	}
-
-	commands := protocolFile.Commands
-	log.Printf("Loaded %d commands from protocol", len(commands))
 
 	// user_id and username must be provided in the JSON file
 	if protocolFile.UserID == "" {
@@ -185,16 +179,8 @@ func SendProtocol(protocolJSON []byte, timeout int, natsServers string) error {
 	finalUserID := protocolFile.UserID
 	finalUsername := protocolFile.Username
 
-	log.Printf("Using user_id from protocol: %s", finalUserID)
-	log.Printf("Using username from protocol: %s", finalUsername)
-	if protocolFile.Description != "" {
-		log.Printf("Description: %s", protocolFile.Description)
-	}
-
-	// Generate unique run_id
-	runID := uuid.New().String()
-
 	// Set up logging to both console and file
+	runID := uuid.New().String()
 	logsDir := "./logs"
 	if err := os.MkdirAll(logsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create logs directory: %w", err)
@@ -212,17 +198,18 @@ func SendProtocol(protocolJSON []byte, timeout int, natsServers string) error {
 	log.SetOutput(multiWriter)
 	defer log.SetOutput(os.Stderr) // Restore default log output (stderr) when done
 
-	log.Printf("Run ID: %s", runID)
-	log.Printf("User: %s (%s)", finalUsername, finalUserID)
+	log.Printf("Protocol created by %s (%s) at %s", finalUsername, finalUserID, protocolFile.Timestamp)
 	log.Printf("Description: %s", protocolFile.Description)
+
+	log.Printf("Run ID: %s", runID)
+	log.Printf("Ran by: %s (%s)", cfg.User.Username, cfg.User.UserID)
 	log.Printf("Logging output to: %s", logFilePath)
 
 	// Parse NATS servers
-	servers := ParseNATSServers(finalNatsServers)
-	log.Printf("NATS servers: %v", servers)
+	log.Printf("Connecting to NATS servers: %v", finalNatsServers)
 
 	// Connect to NATS
-	nc, err := nats.Connect(strings.Join(servers, ","), nats.MaxReconnects(3), nats.ReconnectWait(2*time.Second))
+	nc, err := nats.Connect(finalNatsServers, nats.MaxReconnects(3), nats.ReconnectWait(2*time.Second))
 	if err != nil {
 		return fmt.Errorf("failed to connect to NATS: %w", err)
 	}
@@ -233,7 +220,10 @@ func SendProtocol(protocolJSON []byte, timeout int, natsServers string) error {
 		return fmt.Errorf("failed to get JetStream context: %w", err)
 	}
 
-	log.Printf("Connected to NATS, sending batch commands...")
+	log.Printf("Connected to NATS servers")
+
+	commands := protocolFile.Commands
+	log.Printf("Loaded %d commands from protocol\n", len(commands))
 
 	// Send batch commands
 	if err := SendQueueCommands(nc, js, commands, runID, finalUserID, finalUsername, timeout); err != nil {

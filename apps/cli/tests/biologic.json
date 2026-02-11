@@ -2,6 +2,7 @@
   "user_id": "zhao",
   "username": "zhao",
   "description": "Test the biologic machine",
+  "timestamp": "2026-02-10T10:00:00Z",
   "commands": [
     {
       "step_number": 1,

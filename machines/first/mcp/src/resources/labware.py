@@ -9,14 +9,20 @@ from puda_drivers import labware
 
 
 async def get_available_labware_resource() -> str:
-    """Returns a JSON array of available labware names.
+    """Returns a JSON object mapping labware names to their row/column information.
     
-    Provides a list of all labware types that are available for use
-    with the First machine.
+    Provides a dictionary of all labware types that are available for use
+    with the First machine, along with their row and column information.
     
     Returns:
-        str: JSON-formatted array of labware names.
+        str: JSON-formatted object mapping labware names to dictionaries with
+        'wells' containing 'rows' and 'cols' lists.
     """
-    labware_list = labware.get_available_labware()
-    return json.dumps(labware_list, indent=2)
+    labware_dict = labware.get_available_labware()
+    # Format as {labware_name: {"wells": {"rows": [...], "cols": [...]}}}
+    formatted_dict = {
+        name: {"wells": {"rows": data["rows"], "cols": data["cols"]}}
+        for name, data in labware_dict.items()
+    }
+    return json.dumps(formatted_dict, indent=2)
 

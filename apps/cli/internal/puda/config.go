@@ -1,6 +1,7 @@
 package puda
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,4 +41,38 @@ func ConfigPath() (string, error) {
 		return "", fmt.Errorf("failed to determine home directory: %w", err)
 	}
 	return filepath.Join(homeDir, ".puda", "config.json"), nil
+}
+
+// LoadConfig loads the PUDA configuration file and returns it as a PUDAConfig.
+func LoadConfig() (*PUDAConfig, error) {
+	configPath, err := ConfigPath()
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine PUDA config path: %w", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("PUDA config file not found at %s. Please run 'puda login' to create it", configPath)
+		}
+		return nil, fmt.Errorf("failed to read PUDA config file %s: %w", configPath, err)
+	}
+
+	var fileCfg PUDAConfig
+	if err := json.Unmarshal(data, &fileCfg); err != nil {
+		return nil, fmt.Errorf("failed to parse PUDA config file %s: %w", configPath, err)
+	}
+
+	// Validate that all required values are present
+	if fileCfg.User.Username == "" {
+		return nil, fmt.Errorf("username is missing in PUDA config file %s", configPath)
+	}
+	if fileCfg.User.UserID == "" {
+		return nil, fmt.Errorf("user ID is missing in PUDA config file %s", configPath)
+	}
+	if fileCfg.Endpoints.NATS == "" {
+		return nil, fmt.Errorf("NATS endpoint is missing in PUDA config file %s", configPath)
+	}
+
+	return &fileCfg, nil
 }

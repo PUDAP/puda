@@ -259,13 +259,13 @@ class First:
         self._logger.info("Deck layout loaded successfully")
         
     ### Pipette operations ###
-    def attach_tip(self, deck_slot: str, well_name: Optional[str] = None):
+    def attach_tip(self, deck_slot: str, well_name: str):
         """
-        Attach a tip from a deck slot.
+        Attach a tip from a deck slot and well.
 
         Args:
             deck_slot: Deck slot name (e.g., 'A1', 'B2')
-            well_name: Optional well name within the deck slot (e.g., 'A1' for a well in a tiprack)
+            well_name: Well name (e.g., 'A1' for a well in a tiprack)
         
         Note:
             This method is idempotent - if a tip is already attached, it will
