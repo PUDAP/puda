@@ -25,7 +25,7 @@ async def generate_machine_commands(instructions: str) -> str:
     try:
         # Create a prompt for the model to extract structured protocol information
         commands_json = (get_available_commands_resource())
-        labware_lines = [f"{labware.StandardLabware(lw)}" for lw in labware.get_available_labware()]
+        labware_lines = [f"{labware.StandardLabware(lw)}" for lw in labware.get_available_labware().keys()]
         prompt = f"""
         You are an expert in creating First machine protocols. Convert the following natural language instructions into a structured JSON representation of a First machine protocol.
         

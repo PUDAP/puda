@@ -1,6 +1,7 @@
 # src/puda_drivers/labware/labware.py
 
 import json
+import re
 import inspect
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -26,16 +27,51 @@ class StandardLabware(ABC):
         self._wells = self._definition.get("wells", {})
 
     @staticmethod
-    def get_available_labware() -> List[str]:
+    def get_available_labware() -> Dict[str, Dict[str, List[str]]]:
         """
-        Get all available labware names from JSON definition files.
+        Get all available labware names and their row/column information from JSON definition files.
         
         Returns:
-            Sorted list of labware names (without .json extension) found in the labware directory.
+            Dictionary mapping labware names (without .json extension) to dictionaries with
+            'rows' and 'cols' lists. Data is extracted from the "ordering" array in each JSON file.
         """
         labware_dir = Path(__file__).parent
         json_files = sorted(labware_dir.glob("*.json"))
-        return [f.stem for f in json_files]
+        result = {}
+        
+        for json_file in json_files:
+            try:
+                with open(json_file, "r", encoding="utf-8") as f:
+                    definition = json.load(f)
+                
+                # Extract rows and columns from ordering array
+                ordering = definition.get("ordering", [])
+                rows_set = set()
+                cols_set = set()
+                
+                for row in ordering:
+                    for well_id in row:
+                        # Parse well ID (e.g., "A1" -> row="A", col="1")
+                        match = re.match(r"([A-Z]+)(\d+)", well_id)
+                        if match:
+                            row_letter = match.group(1)
+                            col_number = match.group(2)
+                            rows_set.add(row_letter)
+                            cols_set.add(col_number)
+                
+                # Sort rows alphabetically and cols numerically
+                rows_list = sorted(rows_set)
+                cols_list = sorted(cols_set, key=int)
+                
+                result[json_file.stem] = {
+                    "rows": rows_list,
+                    "cols": cols_list
+                }
+            except (json.JSONDecodeError, KeyError, FileNotFoundError, AttributeError):
+                # Skip files that can't be parsed or don't have the expected structure
+                continue
+        
+        return result
 
     def load_definition(self, file_name: str = "definition.json") -> Dict[str, Any]:
         """
