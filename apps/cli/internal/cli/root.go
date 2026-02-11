@@ -7,10 +7,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Version is set at build time via ldflags
+// Example: go build -ldflags "-X github.com/PUDAP/puda/apps/cli/internal/cli.Version=1.0.0"
+var Version = "dev"
+
 var rootCmd = &cobra.Command{
-	Use:   "puda",
-	Short: "PUDA CLI - Command-line interface for PUDA",
-	Long:  "PUDA CLI provides commands for the platform",
+	Use:     "puda",
+	Short:   "PUDA CLI - Command-line interface for PUDA",
+	Long:    "PUDA CLI provides commands for the platform",
+	Version: Version,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Show help when no subcommand is provided
 		cmd.Help()

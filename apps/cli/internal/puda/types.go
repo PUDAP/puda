@@ -64,5 +64,17 @@ type ProtocolFile struct {
 	UserID      string           `json:"user_id"`
 	Username    string           `json:"username"`
 	Description string           `json:"description"`
+	Timestamp   string           `json:"timestamp"`
 	Commands    []CommandRequest `json:"commands"`
+}
+
+// PUDAConfig represents the structure of the PUDA CLI configuration file.
+type PUDAConfig struct {
+	User struct {
+		Username string `json:"username"`
+		UserID   string `json:"userid"`
+	} `json:"user"`
+	Endpoints struct {
+		NATS string `json:"nats"`
+	} `json:"endpoints"`
 }
