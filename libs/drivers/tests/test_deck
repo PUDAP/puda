@@ -1,0 +1,54 @@
+import pytest
+from puda_drivers.move.deck import Deck
+
+class TestDeckErrorSequences:
+    """Validation for wrong command sequences and invalid deck operations."""
+
+    def test_load_labware_invalid_slot_format(self):
+        """Verify that malformed slot names (e.g., '1A') raise an exception."""
+        deck = Deck(rows=3, cols=3)
+        # Expecting ValueError or KeyError depending on internal implementation
+        with pytest.raises((ValueError, KeyError)):
+            deck.load_labware("1A", "opentrons_96_tiprack_300ul")
+
+    def test_load_labware_out_of_bounds_row(self):
+        """Verify that accessing a non-existent row (Row C on a 2x2 deck) raises an error."""
+        deck = Deck(rows=2, cols=2)  # Only Rows A and B exist
+        with pytest.raises((ValueError, KeyError), match="(?i)slot|bounds|invalid"):
+            deck.load_labware("C1", "opentrons_96_tiprack_300ul")
+
+    def test_load_labware_out_of_bounds_col(self):
+        """Verify that accessing a non-existent column (Col 3 on a 2x2 deck) raises an error."""
+        deck = Deck(rows=2, cols=2)  # Only Columns 1 and 2 exist
+        with pytest.raises((ValueError, KeyError), match="(?i)slot|bounds|invalid"):
+            deck.load_labware("A3", "opentrons_96_tiprack_300ul")
+
+    def test_load_undefined_labware_id(self):
+        """Verify that loading an unknown labware definition raises an error."""
+        deck = Deck(rows=3, cols=3)
+        # Should fail because 'ghost_plate_99' does not exist in the labware database
+        with pytest.raises(Exception): 
+            deck.load_labware("A1", "ghost_plate_99")
+
+    def test_invalid_deck_initialization(self):
+        """Verify that initializing a deck with negative dimensions is prevented."""
+        with pytest.raises((ValueError, AssertionError)):
+            Deck(rows=-1, cols=5)
+
+    def test_interaction_with_empty_slot(self):
+        """Verify that trying to get labware from an empty slot raises a logical exception."""
+        deck = Deck(rows=3, cols=3)
+        # Accessing an empty slot should not return a valid object for aspiration
+        with pytest.raises(RuntimeError, match="(?i)empty|no labware"):
+            # Assuming get_slot_content is the method to retrieve the labware object
+            deck.get_slot_content("B2") 
+
+    def test_unknown_well_in_labware(self):
+        """Verify that requesting an unknown well (e.g., 'Z1') from a valid plate raises an error."""
+        deck = Deck(rows=3, cols=3)
+        deck.load_labware("A1", "opentrons_96_tiprack_300ul")
+        
+        labware = deck.get_slot_content("A1")
+        # Standard plates don't have a 'Z' row; this should trigger an exception
+        with pytest.raises((ValueError, KeyError)):
+            labware.well("Z1")
