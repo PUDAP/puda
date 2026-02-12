@@ -85,22 +85,16 @@ func ValidateCommandStructure(commands []CommandRequest) []ValidationError {
 }
 
 // ValidateProtocol validates a protocol file and returns validation errors
-// It validates both the protocol structure and all commands
-func ValidateProtocol(filePath string) (*ProtocolFile, []ValidationError, error) {
-	// Load protocol JSON from file - this validates the JSON structure
-	protocolJSON, err := LoadProtocol(filePath)
-	if err != nil {
-		return nil, nil, fmt.Errorf("validation failed: %w", err)
-	}
-
-	// Parse protocol JSON
-	var protocolFile ProtocolFile
-	if err := json.Unmarshal(protocolJSON, &protocolFile); err != nil {
-		return nil, nil, fmt.Errorf("failed to parse protocol JSON: %w", err)
-	}
-
+// It validates the command structure
+// Returns validation errors and an error (non-nil if validation fails)
+func ValidateProtocol(protocolFile *ProtocolFile) ([]ValidationError, error) {
 	// Validate commands
-	errors := ValidateCommandStructure(protocolFile.Commands)
+	validationErrors := ValidateCommandStructure(protocolFile.Commands)
 
-	return &protocolFile, errors, nil
+	// If there are validation errors, return them as an error
+	if len(validationErrors) > 0 {
+		return validationErrors, fmt.Errorf("protocol validation failed: %v", validationErrors)
+	}
+
+	return validationErrors, nil
 }

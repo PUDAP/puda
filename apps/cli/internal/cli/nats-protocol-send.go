@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 
+	"github.com/PUDAP/puda/apps/cli/internal/db"
 	"github.com/PUDAP/puda/apps/cli/internal/nats"
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
 	"github.com/spf13/cobra"
@@ -14,7 +16,7 @@ import (
 var natsProtocolSendCmd = &cobra.Command{
 	Use:   "send",
 	Short: "Send a protocol to machines via NATS",
-	Long: `Send a protocol to machines via NATS using CommandService.
+	Long: `Send a protocol to machines via NATS.
 Loads a protocol from a JSON file and sends commands sequentially, stopping on first error.
 
 The JSON file must be an object with the following structure:
@@ -32,33 +34,55 @@ Requires a .env file in the project root with:
 
 Example:
   puda nats protocol send --file protocol.json`,
-	RunE: sendProtocol,
+	RunE:         sendProtocol,
+	SilenceUsage: true,
 }
 
 // Protocol send flags
 var (
 	protocolFilePath string
-	timeout          int
 	natsServers      string
 )
 
 // init registers flags for the send command
 func init() {
 	natsProtocolSendCmd.Flags().StringVarP(&protocolFilePath, "file", "f", "", "Path to JSON file containing protocol (required)")
-	natsProtocolSendCmd.Flags().IntVarP(&timeout, "timeout", "t", 120, "Timeout per command in seconds (default: 120)")
 	natsProtocolSendCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Comma-separated NATS server URLs - overrides NATS_SERVERS from .env")
 	natsProtocolSendCmd.MarkFlagRequired("file")
 }
 
 // sendProtocol executes the send command
 func sendProtocol(cmd *cobra.Command, args []string) error {
-	// Load protocol JSON from file
+	// Load and parse protocol file
 	protocolJSON, err := puda.LoadProtocol(protocolFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to load protocol file: %w", err)
 	}
 
-	if err := nats.SendProtocol(protocolJSON, timeout, natsServers); err != nil {
+	var protocolFile puda.ProtocolFile
+	if err := json.Unmarshal(protocolJSON, &protocolFile); err != nil {
+		return fmt.Errorf("failed to parse protocol JSON: %w", err)
+	}
+
+	// Validate protocol
+	_, err = puda.ValidateProtocol(&protocolFile)
+	if err != nil {
+		return err // Error already formatted by ValidateProtocol
+	}
+
+	// Insert protocol into database
+	store, err := db.Connect()
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+	defer store.Disconnect()
+
+	err = store.InsertProtocol(protocolFile)
+	if err != nil {
+		return fmt.Errorf("failed to insert protocol into database: %w", err)
+	}
+
+	if err := nats.SendProtocol(&protocolFile, natsServers); err != nil {
 		return fmt.Errorf("failed to run batch commands: %w", err)
 	}
 	return nil

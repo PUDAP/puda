@@ -20,14 +20,17 @@ var logoutCmd = &cobra.Command{
 
 // runLogout deletes the configuration file if it exists.
 func runLogout(cmd *cobra.Command, args []string) error {
-	configPath, err := puda.ConfigPath()
+	configPath, err := puda.GlobalConfigPath()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to determine global config path: %w", err)
 	}
 
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		fmt.Fprintln(cmd.OutOrStdout(), "You are not logged in.")
-		return nil
+	if _, err := os.Stat(configPath); err != nil {
+		if os.IsNotExist(err) {
+			fmt.Fprintln(cmd.OutOrStdout(), "You are not logged in.")
+			return nil
+		}
+		return fmt.Errorf("failed to check config file: %w", err)
 	}
 
 	if err := os.Remove(configPath); err != nil {

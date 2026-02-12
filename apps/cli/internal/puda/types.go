@@ -61,6 +61,7 @@ type MachineHeartbeat struct {
 
 // ProtocolFile represents the structure of a protocol JSON file
 type ProtocolFile struct {
+	ProtocolID  string           `json:"protocol_id"`
 	UserID      string           `json:"user_id"`
 	Username    string           `json:"username"`
 	Description string           `json:"description"`
@@ -68,8 +69,18 @@ type ProtocolFile struct {
 	Commands    []CommandRequest `json:"commands"`
 }
 
-// PUDAConfig represents the structure of the PUDA CLI configuration file.
-type PUDAConfig struct {
+// GlobalConfig represents the structure of the global PUDA CLI configuration file.
+// This is stored in the user's config directory and only contains user identity.
+type GlobalConfig struct {
+	User struct {
+		Username string `json:"username"`
+		UserID   string `json:"userid"`
+	} `json:"user"`
+}
+
+// ProjectConfig represents the structure of the project-level PUDA CLI configuration file.
+// This is stored in each project directory and contains project-specific settings.
+type ProjectConfig struct {
 	User struct {
 		Username string `json:"username"`
 		UserID   string `json:"userid"`
@@ -77,4 +88,10 @@ type PUDAConfig struct {
 	Endpoints struct {
 		NATS string `json:"nats"`
 	} `json:"endpoints"`
+	Database struct {
+		Path string `json:"path"`
+	} `json:"database"`
+	Logs struct {
+		Dir string `json:"dir"`
+	} `json:"logs"`
 }

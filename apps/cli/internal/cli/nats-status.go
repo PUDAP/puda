@@ -39,7 +39,7 @@ func init() {
 // getMachineStatus executes the status command
 func getMachineStatus(cmd *cobra.Command, args []string) error {
 	// Load from PUDA config file (unless overridden by command line)
-	cfg, err := puda.LoadConfig()
+	cfg, err := puda.LoadProjectConfig()
 	if err != nil && natsServers == "" {
 		// Only error if no command line override provided
 		return fmt.Errorf("failed to load PUDA configuration: %w", err)

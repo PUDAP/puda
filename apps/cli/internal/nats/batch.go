@@ -12,16 +12,17 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/PUDAP/puda/apps/cli/internal/db"
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 )
 
 // completeAllMachines sends COMPLETE commands to all started machines
-func completeAllMachines(nc *nats.Conn, js nats.JetStreamContext, startedMachines map[string]bool, runID, userID, username string, timeoutSeconds int) {
+func completeAllMachines(nc *nats.Conn, js nats.JetStreamContext, startedMachines map[string]bool, runID, userID, username string, timeoutSeconds int, store *db.Store) {
 	log.Printf("Completing runs on all machines")
 	for machineID := range startedMachines {
-		_, completeErr := SendCompleteCommand(nc, js, machineID, runID, userID, username, timeoutSeconds)
+		_, completeErr := SendCompleteCommand(nc, js, machineID, runID, userID, username, timeoutSeconds, store)
 		if completeErr != nil {
 			log.Printf("Failed to complete run for machine %s: %v", machineID, completeErr)
 		}
@@ -29,7 +30,8 @@ func completeAllMachines(nc *nats.Conn, js nats.JetStreamContext, startedMachine
 }
 
 // SendQueueCommands sends a batch of queued commands sequentially
-func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []puda.CommandRequest, runID, userID, username string, timeoutSeconds int) error {
+func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []puda.CommandRequest, runID, userID, username string, store *db.Store) error {
+	const defaultTimeout = 30 // for immediate commands which should complete pretty much instantly
 	if len(requests) == 0 {
 		return fmt.Errorf("no commands to send")
 	}
@@ -63,7 +65,7 @@ func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []puda.
 	go func() {
 		<-sigChan
 		log.Printf("Interrupt signal received, sending COMPLETE commands to all machines...")
-		completeAllMachines(nc, js, startedMachines, runID, userID, username, timeoutSeconds)
+		completeAllMachines(nc, js, startedMachines, runID, userID, username, defaultTimeout, store)
 		interrupted <- true
 		cancel()
 	}()
@@ -80,13 +82,13 @@ func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []puda.
 		default:
 		}
 
-		response, err := SendStartCommand(nc, js, machineID, runID, userID, username, timeoutSeconds)
+		response, err := SendStartCommand(nc, js, machineID, runID, userID, username, defaultTimeout, store)
 		if err != nil {
-			completeAllMachines(nc, js, startedMachines, runID, userID, username, timeoutSeconds)
+			completeAllMachines(nc, js, startedMachines, runID, userID, username, defaultTimeout, store)
 			return fmt.Errorf("START command failed for machine %s: %w", machineID, err)
 		}
 		if response.Response != nil && response.Response.Status == puda.StatusError {
-			completeAllMachines(nc, js, startedMachines, runID, userID, username, timeoutSeconds)
+			completeAllMachines(nc, js, startedMachines, runID, userID, username, defaultTimeout, store)
 			return fmt.Errorf("START command failed for machine %s: %s", machineID, GetResponseMessage(response))
 		}
 		startedMachines[machineID] = true
@@ -105,22 +107,22 @@ func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []puda.
 
 		log.Printf("Sending command %d/%d: %s (step %d) to machine %s", idx+1, len(requests), request.Name, request.StepNumber, request.MachineID)
 
-		response, err := SendQueueCommand(nc, js, request, runID, userID, username)
+		response, err := SendQueueCommand(nc, js, request, runID, userID, username, store)
 		if err != nil {
 			// Complete all started runs
-			completeAllMachines(nc, js, startedMachines, runID, userID, username, timeoutSeconds)
+			completeAllMachines(nc, js, startedMachines, runID, userID, username, defaultTimeout, store)
 			return fmt.Errorf("command %d/%d failed or timed out: %w", idx+1, len(requests), err)
 		}
 
 		if response.Response == nil {
 			// Complete all started runs
-			completeAllMachines(nc, js, startedMachines, runID, userID, username, timeoutSeconds)
+			completeAllMachines(nc, js, startedMachines, runID, userID, username, defaultTimeout, store)
 			return fmt.Errorf("command %d/%d returned response with no response data", idx+1, len(requests))
 		}
 
 		if response.Response.Status == puda.StatusError {
 			// Complete all started runs
-			completeAllMachines(nc, js, startedMachines, runID, userID, username, timeoutSeconds)
+			completeAllMachines(nc, js, startedMachines, runID, userID, username, defaultTimeout, store)
 			return fmt.Errorf("command %d/%d failed with error: %s", idx+1, len(requests), GetResponseMessage(response))
 		}
 
@@ -139,18 +141,27 @@ func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []puda.
 
 	// Send COMPLETE commands to all machines
 	log.Printf("Sending COMPLETE commands to all machines: %v", machineIDList)
-	completeAllMachines(nc, js, machineIDs, runID, userID, username, timeoutSeconds)
+	completeAllMachines(nc, js, machineIDs, runID, userID, username, defaultTimeout, store)
 
 	return nil
 }
 
 // SendProtocol executes a puda protocol via NATS
-func SendProtocol(protocolJSON []byte, timeout int, natsServers string) error {
-	// Load NATS endpoint from PUDA config (unless overridden by command line)
-	cfg, err := puda.LoadConfig()
+func SendProtocol(protocolFile *puda.ProtocolFile, natsServers string) error {
+	// Initialize database connection (optional - if it fails, database operations will be skipped gracefully)
+	store, err := db.Connect()
+	if err != nil {
+		log.Printf("Warning: failed to connect to database for command logging: %v", err)
+		store = nil
+	} else {
+		defer store.Disconnect()
+	}
+
+	// Load project config for NATS endpoint and logs directory
+	cfg, err := puda.LoadProjectConfig()
 	if err != nil && natsServers == "" {
 		// Only error if config is missing AND no flag provided
-		return fmt.Errorf("NATS endpoint is required (set in PUDA config or use --nats-servers flag): %w", err)
+		return fmt.Errorf("NATS endpoint is required (set in puda.config or use --nats-servers flag): %w", err)
 	}
 
 	finalNatsServers := natsServers
@@ -162,26 +173,32 @@ func SendProtocol(protocolJSON []byte, timeout int, natsServers string) error {
 		return fmt.Errorf("NATS endpoint is required (set in PUDA config or use --nats-servers flag)")
 	}
 
-	// Parse protocol JSON
-	var protocolFile puda.ProtocolFile
-	if err := json.Unmarshal(protocolJSON, &protocolFile); err != nil {
-		return fmt.Errorf("failed to parse protocol JSON: %w", err)
-	}
-
-	// user_id and username must be provided in the JSON file
+	// user_id and username must be provided in the protocol file
 	if protocolFile.UserID == "" {
-		return fmt.Errorf("user_id is required in the JSON file")
+		return fmt.Errorf("user_id is required in the protocol file")
 	}
 	if protocolFile.Username == "" {
-		return fmt.Errorf("username is required in the JSON file")
+		return fmt.Errorf("username is required in the protocol file")
 	}
 
 	finalUserID := protocolFile.UserID
 	finalUsername := protocolFile.Username
 
-	// Set up logging to both console and file
+	// Insert run into database
 	runID := uuid.New().String()
-	logsDir := "./logs"
+	if store != nil {
+		if err := store.InsertRun(runID, &protocolFile.ProtocolID); err != nil {
+			// Log warning but don't fail - database logging is optional
+			log.Printf("Warning: failed to insert run into database: %v", err)
+		}
+	}
+
+	// Set up logging to both console and file
+	// Retrieve logs directory from project config, return error if not set
+	if cfg == nil || cfg.Logs.Dir == "" {
+		return fmt.Errorf("logs directory path is not set in project config, please run 'puda config edit' to set logs.dir")
+	}
+	logsDir := cfg.Logs.Dir
 	if err := os.MkdirAll(logsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create logs directory: %w", err)
 	}
@@ -226,7 +243,7 @@ func SendProtocol(protocolJSON []byte, timeout int, natsServers string) error {
 	log.Printf("Loaded %d commands from protocol\n", len(commands))
 
 	// Send batch commands
-	if err := SendQueueCommands(nc, js, commands, runID, finalUserID, finalUsername, timeout); err != nil {
+	if err := SendQueueCommands(nc, js, commands, runID, finalUserID, finalUsername, store); err != nil {
 		log.Printf("Batch commands failed: %v", err)
 		return err
 	}

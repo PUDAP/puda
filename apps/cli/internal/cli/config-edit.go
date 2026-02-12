@@ -26,7 +26,7 @@ Otherwise, the OS default application for JSON files is used.`,
 
 // runConfigEdit ensures the config file exists and opens it in an editor.
 func runConfigEdit(cmd *cobra.Command, args []string) error {
-	configPath, err := puda.ConfigPath()
+	configPath, err := puda.GlobalConfigPath()
 	if err != nil {
 		return err
 	}
