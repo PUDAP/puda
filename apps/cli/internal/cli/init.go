@@ -133,11 +133,11 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	// Initialize database
-	database, err := db.Connect()
+	store, err := db.Connect()
 	if err != nil {
 		return fmt.Errorf("failed to initialize database: %w", err)
 	}
-	defer database.Close()
+	defer store.Disconnect()
 
 	// TODO: Add more initialization steps here
 	// - Create project directory structure

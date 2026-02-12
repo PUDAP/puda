@@ -16,8 +16,6 @@ CREATE TABLE IF NOT EXISTS protocol (
 CREATE TABLE IF NOT EXISTS run (
     run_id TEXT PRIMARY KEY,
     protocol_id TEXT REFERENCES protocol(protocol_id) ON DELETE SET NULL,
-    machine_id TEXT,
-    data_payload TEXT, -- JSON object
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

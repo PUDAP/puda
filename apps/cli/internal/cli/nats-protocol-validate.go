@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -43,12 +44,21 @@ func init() {
 
 // validateProtocol executes the validate command
 func validateProtocol(cmd *cobra.Command, args []string) error {
-	protocolFile, errors, err := puda.ValidateProtocol(protocolFilePath)
+	// Load and parse protocol file
+	protocolJSON, err := puda.LoadProtocol(protocolFilePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to load protocol file: %w", err)
 	}
 
-	// Validate file metadata (optional fields)
+	var protocolFile puda.ProtocolFile
+	if err := json.Unmarshal(protocolJSON, &protocolFile); err != nil {
+		return fmt.Errorf("failed to parse protocol JSON: %w", err)
+	}
+
+	// Validate protocol
+	validationErrors, err := puda.ValidateProtocol(&protocolFile)
+
+	// Print file metadata
 	if protocolFile.UserID != "" {
 		fmt.Fprintf(os.Stdout, "  user_id: %s\n", protocolFile.UserID)
 	}
@@ -59,16 +69,16 @@ func validateProtocol(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stdout, "  description: %s\n", protocolFile.Description)
 	}
 
-	if len(errors) == 0 {
-		fmt.Fprintf(os.Stdout, "✓ Validation passed: %d command(s) are valid\n", len(protocolFile.Commands))
-		return nil
+	if err != nil {
+		// Print validation errors
+		fmt.Fprintf(os.Stderr, "✗ Validation failed: %d error(s) found\n\n", len(validationErrors))
+		for _, verr := range validationErrors {
+			fmt.Fprintf(os.Stderr, "  Command #%d: %s - %s\n", verr.CommandIndex+1, verr.Field, verr.Message)
+		}
+		return err
 	}
 
-	// Print validation errors
-	fmt.Fprintf(os.Stderr, "✗ Validation failed: %d error(s) found\n\n", len(errors))
-	for _, err := range errors {
-		fmt.Fprintf(os.Stderr, "  Command #%d: %s - %s\n", err.CommandIndex+1, err.Field, err.Message)
-	}
-
-	return fmt.Errorf("validation failed with %d error(s)", len(errors))
+	// Validation passed
+	fmt.Fprintf(os.Stdout, "✓ Validation passed: %d command(s) are valid\n", len(protocolFile.Commands))
+	return nil
 }

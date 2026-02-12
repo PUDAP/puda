@@ -6,12 +6,13 @@ import (
 	"log"
 	"time"
 
+	"github.com/PUDAP/puda/apps/cli/internal/db"
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
 	"github.com/nats-io/nats.go"
 )
 
 // SendImmediateCommand sends an immediate command to a machine
-func SendImmediateCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.CommandRequest, runID, userID, username string, timeoutSeconds int) (*puda.NATSMessage, error) {
+func SendImmediateCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.CommandRequest, runID, userID, username string, timeoutSeconds int, store *db.Store) (*puda.NATSMessage, error) {
 	subject := fmt.Sprintf("puda.%s.cmd.immediate", request.MachineID)
 	payload := BuildCommandPayload(request, request.MachineID, runID, userID, username)
 
@@ -62,6 +63,13 @@ func SendImmediateCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.
 	timeout := time.Duration(timeoutSeconds) * time.Second
 	select {
 	case response := <-responseCh:
+		// Insert into database if response exists and store is available
+		if store != nil && response.Response != nil {
+			if err := store.InsertCommandLog(response, "immediate"); err != nil {
+				log.Printf("Failed to insert command log: %v", err)
+				// Don't fail the command if logging fails
+			}
+		}
 		return response, nil
 	case <-time.After(timeout):
 		return nil, fmt.Errorf("timeout waiting for response after %d seconds", timeoutSeconds)
@@ -69,7 +77,7 @@ func SendImmediateCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.
 }
 
 // SendQueueCommand sends a queued command to a machine
-func SendQueueCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.CommandRequest, runID, userID, username string) (*puda.NATSMessage, error) {
+func SendQueueCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.CommandRequest, runID, userID, username string, store *db.Store) (*puda.NATSMessage, error) {
 	subject := fmt.Sprintf("puda.%s.cmd.queue", request.MachineID)
 	payload := BuildCommandPayload(request, request.MachineID, runID, userID, username)
 
@@ -118,11 +126,18 @@ func SendQueueCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.Comm
 
 	// Wait for response (no timeout)
 	response := <-responseCh
+	// Insert into database if response exists and store is available
+	if store != nil && response.Response != nil {
+		if err := store.InsertCommandLog(response, "queue"); err != nil {
+			log.Printf("Failed to insert command log: %v", err)
+			// Don't fail the command if logging fails
+		}
+	}
 	return response, nil
 }
 
 // SendStartCommand sends a START command to a machine
-func SendStartCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID, userID, username string, timeoutSeconds int) (*puda.NATSMessage, error) {
+func SendStartCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID, userID, username string, timeoutSeconds int, store *db.Store) (*puda.NATSMessage, error) {
 	request := puda.CommandRequest{
 		Name:       "start",
 		MachineID:  machineID,
@@ -130,11 +145,11 @@ func SendStartCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID,
 		StepNumber: 0,
 		Version:    "1.0",
 	}
-	return SendImmediateCommand(nc, js, request, runID, userID, username, timeoutSeconds)
+	return SendImmediateCommand(nc, js, request, runID, userID, username, timeoutSeconds, store)
 }
 
 // SendCompleteCommand sends a COMPLETE command to a machine
-func SendCompleteCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID, userID, username string, timeoutSeconds int) (*puda.NATSMessage, error) {
+func SendCompleteCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID, userID, username string, timeoutSeconds int, store *db.Store) (*puda.NATSMessage, error) {
 	request := puda.CommandRequest{
 		Name:       "complete",
 		MachineID:  machineID,
@@ -142,5 +157,5 @@ func SendCompleteCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, run
 		StepNumber: 0,
 		Version:    "1.0",
 	}
-	return SendImmediateCommand(nc, js, request, runID, userID, username, timeoutSeconds)
+	return SendImmediateCommand(nc, js, request, runID, userID, username, timeoutSeconds, store)
 }

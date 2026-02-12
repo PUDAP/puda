@@ -61,6 +61,7 @@ type MachineHeartbeat struct {
 
 // ProtocolFile represents the structure of a protocol JSON file
 type ProtocolFile struct {
+	ProtocolID  string           `json:"protocol_id"`
 	UserID      string           `json:"user_id"`
 	Username    string           `json:"username"`
 	Description string           `json:"description"`
