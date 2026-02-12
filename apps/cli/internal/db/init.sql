@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS command_log (
     command_log_id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT REFERENCES run(run_id) ON DELETE CASCADE,
     step_number INTEGER,
+    command_name TEXT,
     payload TEXT NOT NULL, -- JSON object
     machine_id TEXT,
     command_type TEXT CHECK (command_type IN ('queue', 'immediate')),

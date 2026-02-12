@@ -190,8 +190,10 @@ func (s *Store) InsertCommandLog(message *puda.NATSMessage, commandType string) 
 	machineID := message.Header.MachineID
 
 	var stepNumber *int
+	var commandName *string
 	if message.Command != nil {
 		stepNumber = &message.Command.StepNumber
+		commandName = &message.Command.Name
 	}
 
 	payloadJSON, err := marshalJSON(message)
@@ -200,11 +202,11 @@ func (s *Store) InsertCommandLog(message *puda.NATSMessage, commandType string) 
 	}
 
 	query := `
-		INSERT OR IGNORE INTO command_log (run_id, step_number, payload, machine_id, command_type, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT OR IGNORE INTO command_log (run_id, step_number, command_name, payload, machine_id, command_type, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
-	_, err = s.db.Exec(query, runID, stepNumber, payloadJSON, machineID, commandType, time.Now())
+	_, err = s.db.Exec(query, runID, stepNumber, commandName, payloadJSON, machineID, commandType, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to insert command_log: %w", err)
 	}
