@@ -17,15 +17,24 @@ var configListCmd = &cobra.Command{
 
 // runConfigList displays the configuration values in key=value format.
 func runConfigList(cmd *cobra.Command, args []string) error {
-	cfg, err := puda.LoadConfig()
+	// Try to load project config first, fall back to global config
+	cfg, err := puda.LoadProjectConfig()
 	if err != nil {
-		return fmt.Errorf("failed to load configuration: %w", err)
+		// If not in a project, just show global config
+		globalCfg, err := puda.LoadGlobalConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load configuration: %w", err)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "user.user_id=%s\n", globalCfg.User.UserID)
+		fmt.Fprintf(cmd.OutOrStdout(), "user.username=%s\n", globalCfg.User.Username)
+		return nil
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(), "user.user_id=%s\n", cfg.User.UserID)
 	fmt.Fprintf(cmd.OutOrStdout(), "user.username=%s\n", cfg.User.Username)
 	fmt.Fprintf(cmd.OutOrStdout(), "endpoints.nats=%s\n", cfg.Endpoints.NATS)
+	fmt.Fprintf(cmd.OutOrStdout(), "database.path=%s\n", cfg.Database.Path)
+	fmt.Fprintf(cmd.OutOrStdout(), "logs.dir=%s\n", cfg.Logs.Dir)
 
 	return nil
 }
-

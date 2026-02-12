@@ -146,11 +146,11 @@ func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []puda.
 
 // SendProtocol executes a puda protocol via NATS
 func SendProtocol(protocolJSON []byte, timeout int, natsServers string) error {
-	// Load NATS endpoint from PUDA config (unless overridden by command line)
-	cfg, err := puda.LoadConfig()
+	// Load NATS endpoint from project PUDA config (unless overridden by command line)
+	cfg, err := puda.LoadProjectConfig()
 	if err != nil && natsServers == "" {
 		// Only error if config is missing AND no flag provided
-		return fmt.Errorf("NATS endpoint is required (set in PUDA config or use --nats-servers flag): %w", err)
+		return fmt.Errorf("NATS endpoint is required (set in puda.config or use --nats-servers flag): %w", err)
 	}
 
 	finalNatsServers := natsServers
@@ -182,6 +182,9 @@ func SendProtocol(protocolJSON []byte, timeout int, natsServers string) error {
 	// Set up logging to both console and file
 	runID := uuid.New().String()
 	logsDir := "./logs"
+	if cfg != nil && cfg.Logs.Dir != "" {
+		logsDir = cfg.Logs.Dir
+	}
 	if err := os.MkdirAll(logsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create logs directory: %w", err)
 	}

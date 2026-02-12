@@ -12,21 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// loginConfig represents the structure of the login configuration file.
-type loginConfig struct {
-	User struct {
-		Username string `json:"username"`
-		UserID   string `json:"userid"`
-	} `json:"user"`
-	Endpoints struct {
-		NATS string `json:"nats"`
-	} `json:"endpoints"`
-}
-
 // loginCmd configures the user's identity for PUDA CLI.
-// It prompts for a username and writes a JSON configuration file to:
-//
-//	~/.puda/config.json
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Log in to a PUDA account",
@@ -39,7 +25,7 @@ var loginCmd = &cobra.Command{
 
 // runLogin executes the login flow: prompt for username and write config file.
 func runLogin(cmd *cobra.Command, args []string) error {
-	configPath, err := puda.ConfigPath()
+	configPath, err := puda.GlobalConfigPath()
 	if err != nil {
 		return err
 	}
@@ -68,12 +54,9 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	fmt.Fprintln(cmd.OutOrStdout(), "Contacting PUDA authentication service...")
 	fmt.Fprintf(cmd.OutOrStdout(), "Authenticating user %q...\n", username)
 
-	userID := uuid.NewString()
-
-	var cfg loginConfig
+	var cfg puda.GlobalConfig
 	cfg.User.Username = username
-	cfg.User.UserID = userID
-	cfg.Endpoints.NATS = "nats://100.109.131.12:4222,nats://100.109.131.12:4223,nats://100.109.131.12:4224"
+	cfg.User.UserID = uuid.NewString()
 
 	fmt.Fprintln(cmd.OutOrStdout(), "Fetching user configuration...")
 

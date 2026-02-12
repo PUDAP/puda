@@ -12,10 +12,11 @@ import (
 var Version = "dev"
 
 var rootCmd = &cobra.Command{
-	Use:     "puda",
-	Short:   "PUDA CLI - Command-line interface for PUDA",
-	Long:    "PUDA CLI provides commands for the platform",
-	Version: Version,
+	Use:           "puda",
+	Short:         "PUDA CLI - Command-line interface for PUDA",
+	Long:          "PUDA CLI provides commands for the platform",
+	Version:       Version,
+	SilenceErrors: true,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Show help when no subcommand is provided
 		cmd.Help()
@@ -39,4 +40,5 @@ func init() {
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(logoutCmd)
+	rootCmd.AddCommand(initCmd)
 }
