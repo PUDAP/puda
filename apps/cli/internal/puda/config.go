@@ -9,38 +9,30 @@ import (
 
 // GlobalConfigPath returns the path to the main/global PUDA configuration file.
 //
-// Preference order:
-//  1. XDG / OS-specific config directory (os.UserConfigDir), e.g.:
-//     - Linux:   ~/.config/puda/config.json
-//     - macOS:   ~/Library/Application Support/puda/config.json
-//     - Windows: %AppData%\\puda\\config.json
-//  2. Legacy location in the home directory: ~/.puda/config.json
+// The config file is always stored in the OS-specific user config directory:
+//   - Linux:   ~/.config/puda/config.json
+//   - macOS:   ~/Library/Application Support/puda/config.json
+//   - Windows: %AppData%\\puda\\config.json
 //
-// If a legacy config file exists and the new location does not, the legacy
-// path is returned to avoid breaking existing installations.
+// The directory is created if it doesn't exist.
 func GlobalConfigPath() (string, error) {
-	// Try OS-specific user config directory first.
-	if base, err := os.UserConfigDir(); err == nil && base != "" {
-		newDir := filepath.Join(base, "puda")
-		newPath := filepath.Join(newDir, "config.json")
-
-		// If a legacy file exists but the new one doesn't, keep using legacy.
-		if home, err := os.UserHomeDir(); err == nil && home != "" {
-			legacyPath := filepath.Join(home, ".puda", "config.json")
-			if _, err := os.Stat(legacyPath); err == nil {
-				return legacyPath, nil
-			}
-		}
-
-		return newPath, nil
-	}
-
-	// Fallback: use legacy location in the home directory.
-	homeDir, err := os.UserHomeDir()
+	base, err := os.UserConfigDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to determine home directory: %w", err)
+		return "", fmt.Errorf("failed to determine user config directory: %w", err)
 	}
-	return filepath.Join(homeDir, ".puda", "config.json"), nil
+	if base == "" {
+		return "", fmt.Errorf("user config directory is empty")
+	}
+
+	configDir := filepath.Join(base, "puda")
+	configPath := filepath.Join(configDir, "config.json")
+
+	// Ensure the directory exists before returning the path
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		return "", fmt.Errorf("failed to create config directory %s: %w", configDir, err)
+	}
+
+	return configPath, nil
 }
 
 // loadGlobalConfigFromPath loads a global PUDA configuration file from the specified path.
@@ -107,6 +99,7 @@ func LoadGlobalConfig() (*GlobalConfig, error) {
 
 // ProjectConfigPath returns the path to the project-level puda.config file.
 // It recursively searches for puda.config starting from the current directory and walking up the directory tree.
+// If the config file is found, its directory is ensured to exist before returning.
 func ProjectConfigPath() (string, error) {
 	// Start from current working directory
 	dir, err := os.Getwd()
@@ -118,6 +111,11 @@ func ProjectConfigPath() (string, error) {
 	for {
 		configPath := filepath.Join(dir, "puda.config")
 		if _, err := os.Stat(configPath); err == nil {
+			// Ensure the directory exists before returning the path
+			configDir := filepath.Dir(configPath)
+			if err := os.MkdirAll(configDir, 0755); err != nil {
+				return "", fmt.Errorf("failed to create config directory %s: %w", configDir, err)
+			}
 			return configPath, nil
 		}
 
