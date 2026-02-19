@@ -71,7 +71,7 @@ func findDriversPath() (string, error) {
 		dir = parent
 	}
 
-	return "", fmt.Errorf("libs/drivers directory not found")
+	return "", fmt.Errorf("puda_drivers module not found")
 }
 
 // ShowPublicMethods executes a Python script to display all public methods of a class
