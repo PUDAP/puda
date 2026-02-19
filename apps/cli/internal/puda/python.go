@@ -86,6 +86,15 @@ func ShowPublicMethods(modulePath string, className string) error {
 
 	// Python script with show_public_methods function
 	pythonScript := fmt.Sprintf(`import inspect
+import sys
+
+# Set stdout encoding to UTF-8 to handle Unicode characters on Windows
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+elif hasattr(sys.stdout, 'encoding'):
+    # Fallback for older Python versions: set environment variable behavior
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 def show_public_methods(cls):
     # Get all members that are functions and don't start with _
@@ -105,8 +114,10 @@ from %s import %s
 show_public_methods(%s)
 `, modulePath, className, className)
 
-	// Execute Python script
+	// Execute Python script with UTF-8 encoding environment variable
+	// This ensures UTF-8 encoding on Windows even if Python version doesn't support reconfigure
 	pythonCmd := exec.Command("python3", "-c", pythonScript)
+	pythonCmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8")
 	output, err := pythonCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("error running Python help: %w\nOutput: %s", err, string(output))
