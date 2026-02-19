@@ -1,6 +1,34 @@
 # puda-cli
 
-## Running puda.exe on Windows
+## Setup
+
+After extracting, place in the project folder, then follow these steps:
+
+1. **Login**: Run `puda login` and enter your username.
+
+2. **Initialize project**: 
+   ```bash
+   puda init <project_folder>
+   ```
+   Or if you're already the project folder:
+   ```bash
+   puda init .
+   ```
+
+3. **Install OpenSkills**:
+   ```bash
+   npx openskills install PUDAP/skills
+   ```
+
+4. **Sync OpenSkills**:
+   ```bash
+   npx openskills sync
+   ```
+
+
+## Troubleshooting
+
+### Windows Issues
 
 If you see **"Python was not found"** when running `puda.exe`, the executable is using Windows PATH and not finding your Python. Use the method below.
 
