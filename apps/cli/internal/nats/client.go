@@ -149,12 +149,12 @@ func SendStartCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID,
 }
 
 // SendCompleteCommand sends a COMPLETE command to a machine
-func SendCompleteCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID, userID, username string, timeoutSeconds int, store *db.Store) (*puda.NATSMessage, error) {
+func SendCompleteCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID, userID, username string, timeoutSeconds int, stepNumber int, store *db.Store) (*puda.NATSMessage, error) {
 	request := puda.CommandRequest{
 		Name:       "complete",
 		MachineID:  machineID,
 		Params:     make(map[string]interface{}),
-		StepNumber: 0,
+		StepNumber: stepNumber,
 		Version:    "1.0",
 	}
 	return SendImmediateCommand(nc, js, request, runID, userID, username, timeoutSeconds, store)
