@@ -12,92 +12,31 @@ This is a **monorepo** that manages multiple related packages and services in a 
 - Easier refactoring across package boundaries
 - Single lockfile for dependency management
 
-## Machines
+## Folder Structure
 
-Machine services are standalone applications that run on physical machines and handle device control and communication.
+```
+puda/
+├── pyproject.toml      # Root UV workspace configuration
+├── uv.lock             # Shared lockfile for all Python dependencies
+├── pnpm-workspace.yaml # pnpm workspace configuration
+├── machines/           # Edge services that run on minipcs connected to the machines
+│   ├── first/          # First machine service
+│   ├── biologic/       # Biologic machine service
+│   └── opentron/       # Opentrons machine service
+├── services/           # Application services that run independently of physical machines
+│   └── logger/         # Logs command responses on NATS to PostgreSQL database
+├── infra/              # Infrastructure deployment and configuration files
+│   ├── nats/           # NATS messaging infrastructure setup and configuration
+│   └── postgres/       # PostgreSQL database setup
+├── libs/               # Shared libraries used across services and applications
+│   ├── drivers/        # Hardware drivers for laboratory automation equipment
+│   └── comms/          # NATS-based communication library for machine-to-machine messaging
+├── apps/               # Standalone applications and tools
+│   ├── cli/            # Golang Command-line interface for agents to interact with PUDA
+│   └── backend/        # LangGraph-based backend for orchestration (not in use because there are better agents out there)
+└── docs/               # Documentation
+```
 
-### `machines/first/`
-
-Service for the "first" machine. Integrates motion control, deck management, liquid handling, and camera capabilities.
-
-- **Language**: Python
-- **Dependencies**: `puda-drivers`, `puda-comms`
-- **Features**:
-  - NATS-based command queue and immediate command handling
-  - Execution state management with cancellation support
-  - Telemetry publishing (position, health, heartbeat)
-  - Hardware initialization and lifecycle management
-
-### `machines/opentron/`
-
-Services for Opentrons robot integration.
-
-- **`edge/`**: Edge service for Opentrons robots
-  - NATS client implementation
-  - Robot control and status reporting
-- **`mcp/`**: MCP (Model Context Protocol) server for Opentrons integration
-
-## Services
-
-Application services that run independently of physical machines.
-
-### `services/logger/`
-
-Logger service that listens to NATS response streams and logs command responses to PostgreSQL database.
-
-## Infrastructure
-
-Infrastructure deployment and configuration files.
-
-### `infra/nats/`
-
-NATS messaging infrastructure setup and configuration.
-
-- **Components**:
-  - Docker Compose configuration for NATS cluster
-  - Kubernetes manifests for high-availability deployment
-  - Stream configuration scripts
-  - NATS configuration files
-
-## Libraries
-
-Shared libraries used across services and applications.
-
-### `libs/drivers/`
-
-Hardware drivers for laboratory automation equipment.
-
-- **Package**: `puda-drivers`
-- **Features**:
-  - **Motion Control**: G-code compatible motion systems (e.g., QuBot)
-  - **Liquid Handling**: Sartorius rLINE® pipettes and dispensers
-  - **Camera Control**: Webcam and USB camera support
-  - **Labware Management**: Standard labware definitions and deck layout management
-  - **Serial Communication**: Robust serial port management with automatic reconnection
-  - **Logging**: Configurable logging with optional file output
-
-- **Key Components**:
-  - `machines/`: Machine classes (e.g., `First`)
-  - `move/`: Motion control and deck management
-  - `transfer/liquid/`: Liquid handling controllers
-  - `cv/`: Computer vision and camera interfaces
-  - `labware/`: Labware definitions and management
-  - `core/`: Core utilities (position, serial controller, logging)
-
-### `libs/comms/`
-
-NATS-based communication library for machine-to-machine messaging.
-
-- **Package**: `puda-comms`
-- **Features**:
-  - `MachineClient`: NATS client for machines with JetStream support
-  - `ExecutionState`: Execution state management with cancellation support
-  - Subject pattern: `puda.{machine_id}.{category}.{sub_category}`
-  - Support for queue commands, immediate commands, telemetry, and events
-
-- **Key Components**:
-  - `machine_client.py`: NATS client implementation
-  - `execution_state.py`: Execution state and cancellation management
 
 ## Monorepo Structure
 
@@ -166,27 +105,3 @@ See [`docs/uv.md`](docs/uv.md) for detailed information about working with UV wo
    docker compose up -d
    ```
 
-## Project Structure
-
-```
-puda/
-├── pyproject.toml     # Root UV workspace configuration
-├── uv.lock           # Shared lockfile for all Python dependencies
-├── pnpm-workspace.yaml # pnpm workspace configuration
-├── machines/          # Machine services (workspace members)
-│   ├── first/         # First machine service
-│   │   ├── edge/      # Edge service (workspace member)
-│   │   └── mcp/       # MCP server (workspace member)
-│   └── opentron/      # Opentrons robot services
-│       ├── edge/      # Edge service (workspace member)
-│       └── mcp/       # MCP server (workspace member)
-├── services/          # Application services (workspace members)
-│   └── logger/        # Logger service (workspace member)
-├── infra/             # Infrastructure deployment configs
-│   ├── nats/          # NATS messaging infrastructure
-│   └── postgres/      # PostgreSQL database setup
-├── libs/               # Shared libraries (workspace members)
-│   ├── drivers/       # Hardware drivers (puda-drivers)
-│   └── comms/          # Communication library (puda-comms)
-└── docs/               # Documentation
-```
