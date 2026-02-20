@@ -41,4 +41,5 @@ func init() {
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(logoutCmd)
 	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(dbCmd)
 }
