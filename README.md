@@ -4,13 +4,20 @@ Physical Unified Device Architecture - A platform for laboratory automation and 
 
 ## Overview
 
-PUDA is a modular platform that provides hardware drivers, communication infrastructure, and machine services for laboratory automation equipment. The platform uses NATS for distributed communication and supports various laboratory devices including motion systems, liquid handling equipment, and cameras.
+PUDA is a modular platform that provides hardware drivers, communication infrastructure, and machine services for laboratory automation and orchestration. The platform uses NATS for distributed communication and supports various laboratory hardware.
 
 This is a **monorepo** that manages multiple related packages and services in a single repository, enabling:
 - Shared code and dependencies across packages
 - Coordinated versioning and releases
 - Easier refactoring across package boundaries
 - Single lockfile for dependency management
+
+## Design Goals
+
+PUDA is designed with two core principles:
+
+1. **Modularity** - Distinct separation of concerns between the Driver, Communication, and Orchestration layers to ensure independent scalability, maintainability and interchangeability.
+2. **AI-Native** - Prioritize programmatic access and low level commands to support autonomous agents
 
 ## Folder Structure
 
