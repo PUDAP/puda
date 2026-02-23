@@ -9,7 +9,8 @@ import (
 )
 
 const skillsNodeURL = "https://nodejs.org/en/download"
-const skillsRepo = "PUDAP/skills"
+const pudaSkillsRepo = "PUDAP/skills"
+const streamlitSkillsRepo = "streamlit/agent-skills"
 
 // skillsCmd is the parent for OpenSkills-related subcommands
 var skillsCmd = &cobra.Command{
@@ -22,10 +23,11 @@ var skillsCmd = &cobra.Command{
 var skillsInstallCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Install and sync OpenSkills",
-	Long: `Install OpenSkills from PUDAP/skills and sync to AGENTS.md (non-interactive).
+	Long: `Install OpenSkills from PUDAP/skills and streamlit/agent-skills, then sync to AGENTS.md (non-interactive).
 
 Runs:
   npx openskills install PUDAP/skills --yes
+  npx openskills install streamlit/agent-skills --yes
   npx openskills sync --yes
 
 Node.js required: ` + skillsNodeURL,
@@ -36,9 +38,9 @@ Node.js required: ` + skillsNodeURL,
 var skillsUpdateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update OpenSkills and sync AGENTS.md",
-	Long: `Refresh skills from PUDAP/skills and update AGENTS.md (non-interactive).
+	Long: `Refresh skills from the repo and update AGENTS.md.
 
-Runs the same as install to pull latest and sync.`,
+Runs: npx openskills update`,
 	RunE: runSkillsUpdate,
 }
 
@@ -71,8 +73,11 @@ func installSkillsInCwd() error {
 	if err := ensureNpx(); err != nil {
 		return err
 	}
-	if err := runNpx("openskills", "install", skillsRepo, "--yes"); err != nil {
+	if err := runNpx("openskills", "install", pudaSkillsRepo, "--yes"); err != nil {
 		return fmt.Errorf("openskills install failed: %w", err)
+	}
+	if err := runNpx("openskills", "install", streamlitSkillsRepo, "--yes"); err != nil {
+		return fmt.Errorf("openskills install %s failed: %w", streamlitSkillsRepo, err)
 	}
 	if err := runNpx("openskills", "sync", "--yes"); err != nil {
 		return fmt.Errorf("openskills sync failed: %w", err)
@@ -89,9 +94,11 @@ func runSkillsInstall(cmd *cobra.Command, args []string) error {
 }
 
 func runSkillsUpdate(cmd *cobra.Command, args []string) error {
-	if err := installSkillsInCwd(); err != nil {
+	if err := ensureNpx(); err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "PUDA skills updated and synced successfully.\n")
+	if err := runNpx("openskills", "update"); err != nil {
+		return fmt.Errorf("openskills update failed: %w", err)
+	}
 	return nil
 }
