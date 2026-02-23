@@ -19,10 +19,10 @@ import (
 )
 
 // completeAllMachines sends COMPLETE commands to all started machines
-func completeAllMachines(nc *nats.Conn, js nats.JetStreamContext, startedMachines map[string]bool, runID, userID, username string, timeoutSeconds int, store *db.Store) {
+func completeAllMachines(nc *nats.Conn, js nats.JetStreamContext, startedMachines map[string]bool, runID, userID, username string, timeoutSeconds int, stepNumber int, store *db.Store) {
 	log.Printf("Completing runs on all machines")
 	for machineID := range startedMachines {
-		_, completeErr := SendCompleteCommand(nc, js, machineID, runID, userID, username, timeoutSeconds, store)
+		_, completeErr := SendCompleteCommand(nc, js, machineID, runID, userID, username, timeoutSeconds, stepNumber, store)
 		if completeErr != nil {
 			log.Printf("Failed to complete run for machine %s: %v", machineID, completeErr)
 		}
@@ -32,6 +32,8 @@ func completeAllMachines(nc *nats.Conn, js nats.JetStreamContext, startedMachine
 // SendQueueCommands sends a batch of queued commands sequentially
 func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []puda.CommandRequest, runID, userID, username string, store *db.Store) error {
 	const defaultTimeout = 30 // for immediate commands which should complete pretty much instantly
+	completeStepNumber := len(requests) + 1
+
 	if len(requests) == 0 {
 		return fmt.Errorf("no commands to send")
 	}
@@ -65,7 +67,7 @@ func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []puda.
 	go func() {
 		<-sigChan
 		log.Printf("Interrupt signal received, sending COMPLETE commands to all machines...")
-		completeAllMachines(nc, js, startedMachines, runID, userID, username, defaultTimeout, store)
+		completeAllMachines(nc, js, startedMachines, runID, userID, username, defaultTimeout, completeStepNumber, store)
 		interrupted <- true
 		cancel()
 	}()
@@ -84,11 +86,11 @@ func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []puda.
 
 		response, err := SendStartCommand(nc, js, machineID, runID, userID, username, defaultTimeout, store)
 		if err != nil {
-			completeAllMachines(nc, js, startedMachines, runID, userID, username, defaultTimeout, store)
+			completeAllMachines(nc, js, startedMachines, runID, userID, username, defaultTimeout, completeStepNumber, store)
 			return fmt.Errorf("START command failed for machine %s: %w", machineID, err)
 		}
 		if response.Response != nil && response.Response.Status == puda.StatusError {
-			completeAllMachines(nc, js, startedMachines, runID, userID, username, defaultTimeout, store)
+			completeAllMachines(nc, js, startedMachines, runID, userID, username, defaultTimeout, completeStepNumber, store)
 			return fmt.Errorf("START command failed for machine %s: %s", machineID, GetResponseMessage(response))
 		}
 		startedMachines[machineID] = true
@@ -110,19 +112,19 @@ func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []puda.
 		response, err := SendQueueCommand(nc, js, request, runID, userID, username, store)
 		if err != nil {
 			// Complete all started runs
-			completeAllMachines(nc, js, startedMachines, runID, userID, username, defaultTimeout, store)
+			completeAllMachines(nc, js, startedMachines, runID, userID, username, defaultTimeout, completeStepNumber, store)
 			return fmt.Errorf("command %d/%d failed or timed out: %w", idx+1, len(requests), err)
 		}
 
 		if response.Response == nil {
 			// Complete all started runs
-			completeAllMachines(nc, js, startedMachines, runID, userID, username, defaultTimeout, store)
+			completeAllMachines(nc, js, startedMachines, runID, userID, username, defaultTimeout, completeStepNumber, store)
 			return fmt.Errorf("command %d/%d returned response with no response data", idx+1, len(requests))
 		}
 
 		if response.Response.Status == puda.StatusError {
 			// Complete all started runs
-			completeAllMachines(nc, js, startedMachines, runID, userID, username, defaultTimeout, store)
+			completeAllMachines(nc, js, startedMachines, runID, userID, username, defaultTimeout, completeStepNumber, store)
 			return fmt.Errorf("command %d/%d failed with error: %s", idx+1, len(requests), GetResponseMessage(response))
 		}
 
@@ -141,7 +143,7 @@ func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []puda.
 
 	// Send COMPLETE commands to all machines
 	log.Printf("Sending COMPLETE commands to all machines: %v", machineIDList)
-	completeAllMachines(nc, js, machineIDs, runID, userID, username, defaultTimeout, store)
+	completeAllMachines(nc, js, machineIDs, runID, userID, username, defaultTimeout, completeStepNumber, store)
 
 	return nil
 }

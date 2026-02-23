@@ -18,6 +18,11 @@ Hardware drivers for the PUDA (Physical Unified Device Architecture) platform. T
 pip install puda-drivers
 ```
 
+## Available machines
+
+- **Biologic**
+- **First**
+
 ## Quick Start
 
 ### Logging Configuration
@@ -51,66 +56,6 @@ setup_logging(
 
 When file logging is enabled, logs are saved to timestamped files (unless a custom name is provided) in the `logs/` folder. The logs folder is created automatically if it doesn't exist.
 
-### First Machine Example
-
-The `First` machine integrates motion control, deck management, liquid handling, and camera capabilities:
-
-```python
-import time
-import logging
-from puda_drivers.machines import First
-from puda_drivers.core.logging import setup_logging
-
-# Configure logging
-setup_logging(
-    enable_file_logging=False,
-    log_level=logging.DEBUG,
-)
-
-# Initialize the First machine
-machine = First(
-    qubot_port="/dev/ttyACM0",
-    sartorius_port="/dev/ttyUSB0",
-    camera_index=0,
-)
-
-# Start up the machine (connects all controllers, homes gantry, and initializes pipette)
-machine.startup()
-
-# Load labware onto the deck
-machine.load_deck({
-    "C1": "trash_bin",
-    "C2": "polyelectric_8_wellplate_30000ul",
-    "A3": "opentrons_96_tiprack_300ul",
-})
-
-# Start video recording
-machine.start_video_recording()
-
-# Perform liquid handling operations
-machine.attach_tip(slot="A3", well="G8")
-machine.aspirate_from(slot="C2", well="A1", amount=100, height_from_bottom=10.0)
-machine.dispense_to(slot="C2", well="B4", amount=100, height_from_bottom=30.0)
-machine.drop_tip(slot="C1", well="A1", height_from_bottom=10)
-
-# Stop video recording
-machine.stop_video_recording()
-
-# Shutdown the machine (gracefully disconnects all controllers)
-machine.shutdown()
-```
-
-**Discovering Available Methods**: To explore what methods are available on any class instance, you can use Python's built-in `help()` function:
-
-```python
-machine = First()
-help(machine)  # See methods for the First machine
-help(machine.qubot)  # See GCodeController methods
-help(machine.pipette)  # See SartoriusController methods
-help(machine.camera)  # See CameraController methods
-```
-
-Alternatively, you can read the source code directly in the `src/puda_drivers/` directory.
 
 ## Device Support
 
