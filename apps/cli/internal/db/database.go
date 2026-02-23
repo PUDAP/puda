@@ -213,3 +213,18 @@ func (s *Store) InsertCommandLog(message *puda.NATSMessage, commandType string) 
 
 	return nil
 }
+
+// Query executes a SQL query that returns rows (e.g., SELECT).
+func (s *Store) Query(query string) (*sql.Rows, error) {
+	return s.db.Query(query)
+}
+
+// ExecSQL executes a SQL command that doesn't return rows (e.g., INSERT, UPDATE, DELETE).
+func (s *Store) ExecSQL(query string) (sql.Result, error) {
+	return s.db.Exec(query)
+}
+
+// GetInitSQL returns the initialization SQL schema.
+func GetInitSQL() string {
+	return initSQL
+}

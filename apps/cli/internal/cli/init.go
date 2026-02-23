@@ -20,6 +20,7 @@ var initCmd = &cobra.Command{
 This command sets up a new PUDA project in the specified directory (or current directory if not specified).
 It will:
   - Initialize the database schema
+  - Install OpenSkills in the project (puda skills install)
   - Set up project structure (more features coming soon)
 
 The database path must be set in your config before running this command.
@@ -138,6 +139,11 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to initialize database: %w", err)
 	}
 	defer store.Disconnect()
+
+	// Install skills in the project directory (runs in targetDir via Chdir above)
+	if err := installSkillsInCwd(); err != nil {
+		return fmt.Errorf("failed to install skills: %w", err)
+	}
 
 	// TODO: Add more initialization steps here
 	// - Create project directory structure
