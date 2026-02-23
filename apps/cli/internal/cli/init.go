@@ -1,13 +1,16 @@
 package cli
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/PUDAP/puda/apps/cli/internal/db"
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
@@ -105,6 +108,17 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("user ID is missing in global config. Please run 'puda login' first")
 	}
 
+	// Ask for experiment objective
+	fmt.Fprint(cmd.OutOrStdout(), "Objective of the experiment: ")
+	scanner := bufio.NewScanner(cmd.InOrStdin())
+	var objective string
+	if scanner.Scan() {
+		objective = strings.TrimSpace(scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("failed to read objective: %w", err)
+	}
+
 	// Create or update project config file using username and user_id from global config
 	// Set project-specific defaults (relative to project directory)
 	var projectConfig puda.ProjectConfig
@@ -113,6 +127,28 @@ func runInit(cmd *cobra.Command, args []string) error {
 	projectConfig.Endpoints.NATS = "nats://100.109.131.12:4222,nats://100.109.131.12:4223,nats://100.109.131.12:4224"
 	projectConfig.Database.Path = "puda.db"
 	projectConfig.Logs.Dir = "./logs"
+
+	// Generate or preserve experiment_id and objective
+	if isExistingProject {
+		if data, err := os.ReadFile(projectConfigPath); err == nil {
+			var existing puda.ProjectConfig
+			if json.Unmarshal(data, &existing) == nil {
+				if existing.ExperimentID != "" {
+					projectConfig.ExperimentID = existing.ExperimentID
+				}
+				if existing.Objective != "" {
+					projectConfig.Objective = existing.Objective
+				}
+			}
+		}
+	}
+	if projectConfig.ExperimentID == "" {
+		projectConfig.ExperimentID = uuid.New().String()
+	}
+	if projectConfig.Objective == "" {
+		projectConfig.Objective = objective
+	}
+
 	configData, err := json.MarshalIndent(projectConfig, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
@@ -120,6 +156,16 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	if err := os.WriteFile(projectConfigPath, configData, 0644); err != nil {
 		return fmt.Errorf("failed to write project config file: %w", err)
+	}
+
+	// Create experiment.md with experiment_id and objective for LLM memory
+	experimentMdPath := filepath.Join(targetDir, "experiment.md")
+	experimentMdContent := fmt.Sprintf("# Experiment\n\nexperiment_id: %s\n", projectConfig.ExperimentID)
+	if projectConfig.Objective != "" {
+		experimentMdContent += fmt.Sprintf("\nobjective: %s\n", projectConfig.Objective)
+	}
+	if err := os.WriteFile(experimentMdPath, []byte(experimentMdContent), 0644); err != nil {
+		return fmt.Errorf("failed to write experiment.md: %w", err)
 	}
 
 	// Change to target directory for database initialization
