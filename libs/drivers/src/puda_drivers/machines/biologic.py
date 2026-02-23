@@ -13,9 +13,9 @@ logger = logging.getLogger(__name__)
 
 # only import easy_biologic on windows
 if sys.platform == "win32":
-    import easy_biologic as ebl
-    import easy_biologic.base_programs as blp
-    from easy_biologic.lib import ec_lib
+    import puda_biologic as ebl
+    import puda_biologic.base_programs as blp
+    from puda_biologic.lib import ec_lib
 else:
     ebl = None
     blp = None
@@ -70,7 +70,44 @@ def _convert_irange_string(irange_str: str):
     try:
         return getattr(ec_lib.IRange, irange_name)
     except AttributeError:
-        raise ValueError(f"Invalid IRange value: {irange_str}. Valid values are: p100, n1, u1, m1, m10, a1")
+        raise ValueError(f"Invalid IRange value: {irange_str}. Valid values are: p100, n1, u1, m1, m10, a1, AUTO")
+
+
+def _convert_erange_string(erange_str: str):
+    """
+    Convert a string representation of ERange to the actual ERange object.
+
+    Supports formats:
+    - "ERange.v2_5" -> ERange.v2_5
+    - "v2_5" -> ERange.v2_5
+    - "ERange.AUTO" -> ERange.AUTO
+    - etc.
+
+    Args:
+        erange_str: String representation of ERange (e.g., "ERange.v10" or "v10")
+
+    Returns:
+        ERange object if conversion successful, otherwise returns the original string
+
+    Raises:
+        ValueError: If the string doesn't match a valid ERange value
+    """
+    if not isinstance(erange_str, str):
+        return erange_str
+
+    # Remove "ERange." prefix if present
+    if erange_str.startswith("ERange."):
+        erange_name = erange_str[7:]  # Remove "ERange." prefix
+    else:
+        erange_name = erange_str
+
+    # Try to get the ERange attribute
+    try:
+        return getattr(ec_lib.ERange, erange_name)
+    except AttributeError:
+        raise ValueError(
+            f"Invalid ERange value: {erange_str}. Valid values are: v2_5, v5, v10, AUTO"
+        )
 
 
 class Biologic:
@@ -150,7 +187,17 @@ class Biologic:
             except (ValueError, AttributeError) as e:
                 logger.warning("Failed to convert current_range string '%s' to IRange object: %s. Using as-is.", 
                              params['current_range'], e)
-        
+
+        # Convert voltage_range from string to ERange object if needed
+        if 'voltage_range' in params and isinstance(params['voltage_range'], str):
+            try:
+                params['voltage_range'] = _convert_erange_string(params['voltage_range'])
+            except (ValueError, AttributeError) as e:
+                logger.warning(
+                    "Failed to convert voltage_range string '%s' to ERange object: %s. Using as-is.",
+                    params['voltage_range'], e
+                )
+
         # Convert dict to Params object for all programs
         params = Params(params)
         
@@ -345,6 +392,8 @@ class Biologic:
                 - rate: Scan rate in V/s. (float, 1e-5 to 100 V/s). [Default: 0.01]
                 - average: Average over points. (bool). [Default: False]
                 - N_Cycles: Number of cycles. (int, 0 to 1000). [Default: 0]
+                - voltage_range: Voltage range. Use ec_lib.ERange. Available: ERange.v2_5, ERange.v5, ERange.v10, ERange.AUTO. Can be provided as a string (e.g., "ERange.AUTO") which will be automatically converted. [Default: AUTO]
+                - current_range: Current range. Use ec_lib.IRange. Available: IRange.p100 (±100 pA), IRange.n1 (±1 nA), IRange.u1 (±1 µA), IRange.m1 (±1 mA), IRange.m10 (±10 mA), IRange.a1 (±1 A), IRange.AUTO. Can be provided as a string (e.g., "IRange.m10") which will be automatically converted. [Default: AUTO]
             **kwargs: Additional keyword arguments passed to program constructor:
                 - channels: Optional list of channel numbers
                 - retrieve_data: Whether to automatically retrieve data after running [Default: True]
