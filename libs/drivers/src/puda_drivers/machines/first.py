@@ -155,6 +155,7 @@ class First:
         """
         self._logger.info("Homing qubot gantry...")
         self.qubot.home()
+        self.pipette.initialize()
         self._logger.info("Qubot gantry homing complete")
         
     def shutdown(self):

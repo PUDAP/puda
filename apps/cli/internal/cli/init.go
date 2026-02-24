@@ -112,7 +112,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 	projectConfig.User.UserID = globalConfig.User.UserID
 	projectConfig.Endpoints.NATS = "nats://100.109.131.12:4222,nats://100.109.131.12:4223,nats://100.109.131.12:4224"
 	projectConfig.Database.Path = "puda.db"
-	projectConfig.Logs.Dir = "./logs"
 	configData, err := json.MarshalIndent(projectConfig, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
@@ -139,11 +138,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to initialize database: %w", err)
 	}
 	defer store.Disconnect()
-
-	// Install skills in the project directory (runs in targetDir via Chdir above)
-	if err := installSkillsInCwd(); err != nil {
-		return fmt.Errorf("failed to install skills: %w", err)
-	}
 
 	// TODO: Add more initialization steps here
 	// - Create project directory structure

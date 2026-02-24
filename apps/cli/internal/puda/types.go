@@ -91,7 +91,4 @@ type ProjectConfig struct {
 	Database struct {
 		Path string `json:"path"`
 	} `json:"database"`
-	Logs struct {
-		Dir string `json:"dir"`
-	} `json:"logs"`
 }
