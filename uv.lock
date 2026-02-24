@@ -1507,11 +1507,11 @@ wheels = [
 
 [[package]]
 name = "puda-biologic"
-version = "0.0.6"
+version = "0.0.8"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f6/d3/e396b85da56bf5343219e70f748a7bb470b0a72b7e0aa6027128283e2caf/puda_biologic-0.0.6.tar.gz", hash = "sha256:2a2490105b9881475faeba5dfe27b9ab3aeb5e88161090093c4fd250f3e2f508", size = 34090648, upload-time = "2026-02-23T09:26:40.427Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/73/9d/6eab16c5aa1b0b770ccd49aa6f06a5d21d6a54cc1c3d625e7e3fe8565c33/puda_biologic-0.0.8.tar.gz", hash = "sha256:7b1fea12643b1b6caefa86879c790d19596bf311ec2079eb7916ce5a9d3d1afe", size = 34121103, upload-time = "2026-02-24T02:34:03.77Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/09/f6/3227a4fd877e8d9a1ac637b59d78fc30724da89c2db54adfb5572b196611/puda_biologic-0.0.6-py3-none-any.whl", hash = "sha256:c41b8607d4223e7a85b5718808c1e9ed1abd8641e7643725ef5187edc197c221", size = 35896619, upload-time = "2026-02-23T09:25:45.928Z" },
+    { url = "https://files.pythonhosted.org/packages/8d/05/dad6ce89dfe52f2d5f8cc769cdfc8158d985a1bcf085bf9a4df297fcd687/puda_biologic-0.0.8-py3-none-any.whl", hash = "sha256:5ee7a80ca86533f783f9c8041f9e33e53a7ab3711db340477a52aa4ca823fbea", size = 35896733, upload-time = "2026-02-24T02:35:04.631Z" },
 ]
 
 [[package]]
@@ -1570,7 +1570,7 @@ requires-dist = [
     { name = "nats-py", specifier = ">=2.12.0" },
     { name = "numpy", specifier = "==2.4.2" },
     { name = "opencv-python", specifier = ">=4.12.0.88" },
-    { name = "puda-biologic", specifier = ">=0.0.6" },
+    { name = "puda-biologic", specifier = ">=0.0.8" },
     { name = "pyserial", specifier = "~=3.5" },
 ]
 
