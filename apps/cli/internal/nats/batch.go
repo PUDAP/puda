@@ -196,11 +196,7 @@ func SendProtocol(protocolFile *puda.ProtocolFile, natsServers string) error {
 	}
 
 	// Set up logging to both console and file
-	// Retrieve logs directory from project config, return error if not set
-	if cfg == nil || cfg.Logs.Dir == "" {
-		return fmt.Errorf("logs directory path is not set in project config, please run 'puda config edit' to set logs.dir")
-	}
-	logsDir := cfg.Logs.Dir
+	logsDir := filepath.Join(cfg.ProjectRoot, protocolFile.ExperimentID, "logs")
 	if err := os.MkdirAll(logsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create logs directory: %w", err)
 	}

@@ -15,16 +15,10 @@ After extracting, place in the project folder, then follow these steps:
    puda init .
    ```
 
-3. **Install OpenSkills**:
+3. **Install Skills**:
    ```bash
-   npx openskills install PUDAP/skills
+   puda skills install
    ```
-
-4. **Sync OpenSkills**:
-   ```bash
-   npx openskills sync
-   ```
-
 
 ## Troubleshooting
 

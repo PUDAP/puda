@@ -1,6 +1,6 @@
 [project]
 name = "puda-drivers"
-version = "0.0.27"
+version = "0.0.30"
 description = "Hardware drivers for the PUDA platform."
 readme = "README.md"
 authors = [
@@ -24,7 +24,7 @@ dependencies = [
     "numpy==2.4.2",  # Explicit numpy to ensure proper Windows wheels (avoids MINGW-W64 builds)
     "opencv-python>=4.12.0.88",
     "pyserial~=3.5",
-    "puda-biologic>=0.0.6",
+    "puda-biologic>=0.0.8",
 ]
 [dependency-groups]
 dev = [
