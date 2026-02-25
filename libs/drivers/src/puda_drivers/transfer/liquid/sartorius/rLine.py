@@ -132,6 +132,10 @@ class SartoriusController(SerialController):
             )
         return value_str
 
+    def _reset_volume(self) -> None:
+        """Reset tracked volume to zero (e.g. after initialization)."""
+        self._volume = 0
+
     def initialize(self) -> None:
         """
         Initialize the pipette unit (RZ command).
@@ -146,6 +150,7 @@ class SartoriusController(SerialController):
         self.execute(command="RZ")
         self._logger.info("** Pipette Initialization Complete **\n")
         self.set_tip_attached(attached=False)
+        self._reset_volume()
 
     def get_inward_speed(self) -> int:
         """
@@ -321,14 +326,14 @@ class SartoriusController(SerialController):
                 return_position, "RB"
             )
             self._logger.info(
-                "** Running Blowout and returning to position %s (RB %s) **",
+                "** Running Blowout and returning to position %s (RB%s) **",
                 return_position,
                 return_position,
             )
             self.execute(command="RB", value=position_str)
         else:
             self._logger.info("** Running Blowout (RB) **")
-            self.execute(command="RB")
+            self.execute(command="RB" + return_position)
 
         self._logger.info("** Blowout Complete **\n")
 

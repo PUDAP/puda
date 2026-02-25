@@ -409,6 +409,17 @@ class First:
         time.sleep(5)
         self._logger.info("Dispense completed: %d µL to deck slot '%s', well '%s'", amount, deck_slot, well_name)
         
+    def blowout(self, *, return_position: Optional[int] = None):
+        """
+        Blow out the pipette.
+        
+        Args:
+            return_position: Optional position to return to after blowout. Defaults to None.
+        """
+        self._logger.info("Blowing out pipette")
+        self.pipette.run_blowout(return_position=return_position)
+        self._logger.info("Blowout completed")
+
     # Electrode operations
     def move_electrode(self, deck_slot: str, well_name: str, height_from_bottom: float = 0.0):
         """
