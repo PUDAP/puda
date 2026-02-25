@@ -22,8 +22,7 @@ var natsStatusCmd = &cobra.Command{
 If machine-id is provided, retrieves the status from the NATS JetStream Key-Value bucket.
 If machine-id is not provided, listens to heartbeat messages and returns a list of alive machines.
 
-Requires a .env file in the project root with:
-  NATS_SERVERS: Comma-separated list of NATS server URLs
+Optional: --nats-servers to override NATS server URLs in config file.
 
 Examples:
   puda nats status
@@ -33,7 +32,7 @@ Examples:
 
 // init registers flags for the status command
 func init() {
-	natsStatusCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Comma-separated NATS server URLs - overrides NATS_SERVERS from .env")
+	natsStatusCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Optional: Comma-separated NATS server URLs - overrides puda.config file")
 }
 
 // getMachineStatus executes the status command

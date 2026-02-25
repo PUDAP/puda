@@ -17,20 +17,9 @@ var natsProtocolSendCmd = &cobra.Command{
 	Use:   "send",
 	Short: "Send a protocol to machines via NATS",
 	Long: `Send a protocol to machines via NATS.
-Loads a protocol from a JSON file and sends commands sequentially, stopping on first error.
+Loads a protocol JSON file from the given path and sends commands sequentially, stopping on first error. 
 
-The JSON file must be an object with the following structure:
-  {
-    "user_id": "user123",
-    "username": "john",
-    "description": "Test run",
-    "commands": [...]
-  }
-
-The user_id and username must be provided in the JSON file.
-
-Requires a .env file in the project root with:
-  NATS_SERVERS: Comma-separated list of NATS server URLs
+Optional: --nats-servers to override NATS server URLs in config file.
 
 Example:
   puda nats protocol send --file protocol.json`,
@@ -47,7 +36,7 @@ var (
 // init registers flags for the send command
 func init() {
 	natsProtocolSendCmd.Flags().StringVarP(&protocolFilePath, "file", "f", "", "Path to JSON file containing protocol (required)")
-	natsProtocolSendCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Comma-separated NATS server URLs - overrides NATS_SERVERS from .env")
+	natsProtocolSendCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Optional: Comma-separated NATS server URLs - overrides config file")
 	natsProtocolSendCmd.MarkFlagRequired("file")
 }
 
