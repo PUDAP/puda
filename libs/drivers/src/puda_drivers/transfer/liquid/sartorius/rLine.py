@@ -333,7 +333,7 @@ class SartoriusController(SerialController):
             self.execute(command="RB", value=position_str)
         else:
             self._logger.info("** Running Blowout (RB) **")
-            self.execute(command="RB" + return_position)
+            self.execute(command="RB")
 
         self._logger.info("** Blowout Complete **\n")
 
