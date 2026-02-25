@@ -118,10 +118,20 @@ func SendQueueCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.Comm
 	}
 	defer sub.Unsubscribe()
 
-	// Publish command
-	_, err = js.Publish(subject, payloadJSON)
-	if err != nil {
-		return nil, fmt.Errorf("failed to publish command: %w", err)
+	// Publish command with ack wait long enough for busy streams (default is 5s), retry up to 3 times
+	const publishAckWait = 10 * time.Second
+	const maxPublishRetries = 3
+	for attempt := 1; attempt <= maxPublishRetries; attempt++ {
+		_, err = js.Publish(subject, payloadJSON, nats.AckWait(publishAckWait))
+		if err == nil {
+			break
+		}
+		if attempt < maxPublishRetries {
+			log.Printf("Publish attempt %d/%d failed: %v; retrying...", attempt, maxPublishRetries, err)
+			time.Sleep(time.Second * time.Duration(attempt))
+		} else {
+			return nil, fmt.Errorf("failed to publish command after %d attempts: %w", maxPublishRetries, err)
+		}
 	}
 
 	// Wait for response (no timeout)
