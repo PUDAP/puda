@@ -5,7 +5,7 @@ import "github.com/spf13/cobra"
 // natsProtocolCmd is the parent command for protocol-related operations
 //
 // Subcommands:
-//   - send: Send a protocol to machines via NATS
+//   - run: Run a protocol on machines via NATS
 //   - validate: Validate a protocol JSON file
 var natsProtocolCmd = &cobra.Command{
 	Use:   "protocol",
@@ -13,14 +13,14 @@ var natsProtocolCmd = &cobra.Command{
 	Long: `Commands for working with protocols via NATS.
 
 Subcommands:
-  send     - Send a protocol to machines via NATS
+  run      - Run a puda protocol via NATS
   validate - Validate a protocol JSON file
 
-For help on subcommands, add --help after: "puda nats protocol send --help"`,
+For help on subcommands, add --help after: "puda nats protocol run --help"`,
 }
 
 // init registers all protocol subcommands
 func init() {
-	natsProtocolCmd.AddCommand(natsProtocolSendCmd)
+	natsProtocolCmd.AddCommand(natsProtocolRunCmd)
 	natsProtocolCmd.AddCommand(natsProtocolValidateCmd)
 }

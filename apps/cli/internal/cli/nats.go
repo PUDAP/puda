@@ -12,7 +12,7 @@ var natsCmd = &cobra.Command{
 	Short: "Communication using nats.io",
 	Long: `Commands for interacting with machines via NATS
 
-For help on subcommands, add --help after: "puda nats protocol send --help"`,
+For help on subcommands, add --help after: "puda nats protocol run --help"`,
 }
 
 // init registers all NATS subcommands

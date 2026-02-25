@@ -10,38 +10,38 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// natsProtocolSendCmd is a subcommand of natsProtocolCmd that sends a protocol to machines via NATS
+// natsProtocolRunCmd is a subcommand of natsProtocolCmd that runs a protocol on machines via NATS
 //
-// Usage: puda nats protocol send --file <path>
-var natsProtocolSendCmd = &cobra.Command{
-	Use:   "send",
-	Short: "Send a protocol to machines via NATS",
-	Long: `Send a protocol to machines via NATS.
-Loads a protocol JSON file from the given path and sends commands sequentially, stopping on first error. 
+// Usage: puda nats protocol run --file <path>
+var natsProtocolRunCmd = &cobra.Command{
+	Use:   "run",
+	Short: "Run a protocol on machines via NATS",
+	Long: `Run a protocol on machines via NATS.
+Loads a protocol JSON file from the given path and runs commands sequentially, stopping on first error. 
 
 Optional: --nats-servers to override NATS server URLs in config file.
 
 Example:
-  puda nats protocol send --file protocol.json`,
-	RunE:         sendProtocol,
+  puda nats protocol run --file protocol.json`,
+	RunE:         runProtocol,
 	SilenceUsage: true,
 }
 
-// Protocol send flags
+// Protocol run flags
 var (
 	protocolFilePath string
 	natsServers      string
 )
 
-// init registers flags for the send command
+// init registers flags for the run command
 func init() {
-	natsProtocolSendCmd.Flags().StringVarP(&protocolFilePath, "file", "f", "", "Path to JSON file containing protocol (required)")
-	natsProtocolSendCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Optional: Comma-separated NATS server URLs - overrides config file")
-	natsProtocolSendCmd.MarkFlagRequired("file")
+	natsProtocolRunCmd.Flags().StringVarP(&protocolFilePath, "file", "f", "", "Path to JSON file containing protocol (required)")
+	natsProtocolRunCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Optional: Comma-separated NATS server URLs - overrides config file")
+	natsProtocolRunCmd.MarkFlagRequired("file")
 }
 
-// sendProtocol executes the send command
-func sendProtocol(cmd *cobra.Command, args []string) error {
+// runProtocol executes the run command
+func runProtocol(cmd *cobra.Command, args []string) error {
 	// Load and parse protocol file
 	protocolJSON, err := puda.LoadProtocol(protocolFilePath)
 	if err != nil {
@@ -72,7 +72,7 @@ func sendProtocol(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := nats.SendProtocol(&protocolFile, natsServers); err != nil {
-		return fmt.Errorf("failed to run batch commands: %w", err)
+		return fmt.Errorf("failed to run protocol: %w", err)
 	}
 	return nil
 }
