@@ -46,6 +46,7 @@ class ImmediateCommand(str, Enum):
     PAUSE = 'pause'
     RESUME = 'resume'
     CANCEL = 'cancel'
+    RESET = 'reset'
 
 
 def _get_current_timestamp() -> str:

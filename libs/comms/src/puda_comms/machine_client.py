@@ -662,6 +662,11 @@ class MachineClient:
                     # Call handler and use its response
                     response = await handler(message)
                 
+                case ImmediateCommand.RESET:
+                    await self.run_manager.clear_run()
+                    await self.publish_state({'state': 'idle', 'run_id': None})
+                    response = CommandResponse(status=CommandResponseStatus.SUCCESS)
+                
                 case ImmediateCommand.CANCEL:
                     if not run_id:
                         response = CommandResponse(

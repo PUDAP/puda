@@ -72,6 +72,20 @@ class RunManager:
             logger.info("Completed run %s on machine %s", run_id, self.machine_id)
             return True
     
+    async def clear_run(self) -> Optional[str]:
+        """
+        Clear the active run_id regardless of value. Used by RESET command.
+        
+        Returns:
+            The cleared run_id if one was active, None otherwise
+        """
+        async with self._lock:
+            cleared = self._active_run_id
+            self._active_run_id = None
+            if cleared is not None:
+                logger.info("Cleared run %s on machine %s", cleared, self.machine_id)
+            return cleared
+    
     async def validate_run_id(self, run_id: str) -> bool:
         """
         Check if run_id matches active run. Returns True if valid.

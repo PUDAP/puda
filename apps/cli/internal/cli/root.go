@@ -37,6 +37,7 @@ func init() {
 	// Register top-level commands
 	rootCmd.AddCommand(natsCmd)
 	rootCmd.AddCommand(machineCmd)
+	rootCmd.AddCommand(resetCmd)
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(logoutCmd)

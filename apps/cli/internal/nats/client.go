@@ -169,3 +169,15 @@ func SendCompleteCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, run
 	}
 	return SendImmediateCommand(nc, js, request, runID, userID, username, timeoutSeconds, store)
 }
+
+// SendResetCommand sends a RESET immediate command to a machine
+func SendResetCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID, userID, username string, timeoutSeconds int, store *db.Store) (*puda.NATSMessage, error) {
+	request := puda.CommandRequest{
+		Name:       puda.ImmediateCommandReset,
+		MachineID:  machineID,
+		Params:     make(map[string]interface{}),
+		StepNumber: 0,
+		Version:    "1.0",
+	}
+	return SendImmediateCommand(nc, js, request, runID, userID, username, timeoutSeconds, store)
+}
