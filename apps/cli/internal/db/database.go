@@ -182,11 +182,24 @@ func (s *Store) InsertMeasurement(sampleID string, dataPayload interface{}) (str
 
 // InsertCommandLog inserts a new command log entry into the command_log table.
 func (s *Store) InsertCommandLog(message *puda.NATSMessage, commandType string) error {
-	if message.Header.RunID == nil {
-		return fmt.Errorf("run_id is required in NATSMessage header")
+	var runID interface{}
+	if message.Header.RunID != nil {
+		// If a run_id is provided, only keep it if it actually exists in the run table.
+		// Otherwise, fall back to NULL so that commands like RESET that are not tied
+		// to a persisted run do not violate the foreign key constraint.
+		var exists int
+		err := s.db.QueryRow("SELECT 1 FROM run WHERE run_id = ?", *message.Header.RunID).Scan(&exists)
+		if err == nil {
+			runID = *message.Header.RunID
+		} else if err == sql.ErrNoRows {
+			runID = nil
+		} else {
+			return fmt.Errorf("failed to verify run_id: %w", err)
+		}
+	} else {
+		runID = nil
 	}
 
-	runID := *message.Header.RunID
 	machineID := message.Header.MachineID
 
 	var stepNumber *int

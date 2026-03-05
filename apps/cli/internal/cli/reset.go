@@ -26,33 +26,18 @@ var resetCmd = &cobra.Command{
 
 // resetMachineCmd is the subcommand for reset machine <machine>
 var resetMachineCmd = &cobra.Command{
-	Use:   "machine",
+	Use:   "machine [machineID]",
 	Short: "Reset a machine",
 	Long:  `Send the reset immediate command to a machine (e.g. biologic, first).`,
-}
-
-// resetMachineBiologicCmd sends reset to the biologic machine
-var resetMachineBiologicCmd = &cobra.Command{
-	Use:   "biologic",
-	Short: "Reset the Biologic machine",
-	Long:  `Send the reset immediate command to the Biologic electrochemical testing device.`,
-	RunE:  runResetMachine("biologic"),
-}
-
-// resetMachineFirstCmd sends reset to the first machine
-var resetMachineFirstCmd = &cobra.Command{
-	Use:   "first",
-	Short: "Reset the First machine",
-	Long:  `Send the reset immediate command to the First machine (liquid handling robot, motion system, camera).`,
-	RunE:  runResetMachine("first"),
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runResetMachine(args[0])(cmd, args)
+	},
 }
 
 func init() {
 	rootCmd.AddCommand(resetCmd)
 	resetCmd.AddCommand(resetMachineCmd)
-	resetMachineCmd.AddCommand(resetMachineBiologicCmd)
-	resetMachineCmd.AddCommand(resetMachineFirstCmd)
-
 	resetMachineCmd.PersistentFlags().StringVar(&resetNatsServers, "nats-servers", "", "Comma-separated NATS server URLs (overrides puda.config)")
 }
 
