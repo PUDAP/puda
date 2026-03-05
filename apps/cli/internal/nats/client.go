@@ -149,7 +149,7 @@ func SendQueueCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.Comm
 // SendStartCommand sends a START command to a machine
 func SendStartCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID, userID, username string, timeoutSeconds int, store *db.Store) (*puda.NATSMessage, error) {
 	request := puda.CommandRequest{
-		Name:       "start",
+		Name:       puda.ImmediateCommandStart,
 		MachineID:  machineID,
 		Params:     make(map[string]interface{}),
 		StepNumber: 0,
@@ -161,7 +161,7 @@ func SendStartCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID,
 // SendCompleteCommand sends a COMPLETE command to a machine
 func SendCompleteCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID, userID, username string, timeoutSeconds int, stepNumber int, store *db.Store) (*puda.NATSMessage, error) {
 	request := puda.CommandRequest{
-		Name:       "complete",
+		Name:       puda.ImmediateCommandComplete,
 		MachineID:  machineID,
 		Params:     make(map[string]interface{}),
 		StepNumber: stepNumber,
