@@ -8,7 +8,6 @@ import (
 	"github.com/PUDAP/puda/apps/cli/internal/db"
 	"github.com/PUDAP/puda/apps/cli/internal/nats"
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
-	"github.com/google/uuid"
 	natsio "github.com/nats-io/nats.go"
 	"github.com/spf13/cobra"
 )
@@ -86,8 +85,7 @@ func runResetMachine(machineID string) func(*cobra.Command, []string) error {
 			return fmt.Errorf("failed to get JetStream context: %w", err)
 		}
 
-		runID := uuid.New().String()
-		response, err := nats.SendResetCommand(nc, js, machineID, runID, userID, username, resetTimeoutSeconds, store)
+		response, err := nats.SendResetCommand(nc, js, machineID, "", userID, username, resetTimeoutSeconds, store)
 		if err != nil {
 			return err
 		}

@@ -664,6 +664,7 @@ class MachineClient:
                 
                 case ImmediateCommand.RESET:
                     await self.run_manager.clear_run()
+                    logger.info("Resetting machine")
                     await self.publish_state({'state': 'idle', 'run_id': None})
                     response = CommandResponse(status=CommandResponseStatus.SUCCESS)
                 
