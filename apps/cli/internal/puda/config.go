@@ -139,7 +139,7 @@ func LoadProjectConfig() (*ProjectConfig, error) {
 
 	// Check if file exists first
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("puda.config not found in current directory. Please run 'puda init' to create it")
+		return nil, fmt.Errorf("puda.config file not found in current directory. Please run 'puda init' to create it first")
 	}
 
 	return loadProjectConfigFromPath(configPath)

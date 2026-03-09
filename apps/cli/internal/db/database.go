@@ -28,7 +28,7 @@ type Store struct {
 func Connect() (*Store, error) {
 	cfg, err := puda.LoadProjectConfig()
 	if err != nil {
-		return nil, fmt.Errorf("not in a PUDA project: %w", err)
+		return nil, err
 	}
 
 	dbPath := cfg.Database.Path

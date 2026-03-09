@@ -15,9 +15,9 @@ const (
 	ImmediateCommandStart    = "start"
 	ImmediateCommandComplete = "complete"
 	ImmediateCommandPause    = "pause"
-	ImmediateCommandResume  = "resume"
-	ImmediateCommandCancel  = "cancel"
-	ImmediateCommandReset   = "reset"
+	ImmediateCommandResume   = "resume"
+	ImmediateCommandCancel   = "cancel"
+	ImmediateCommandReset    = "reset"
 )
 
 // CommandResponseStatus represents the status of a command response
@@ -92,9 +92,8 @@ type GlobalConfig struct {
 // ProjectConfig represents the structure of the project-level PUDA CLI configuration file.
 // This is stored in each project directory and contains project-specific settings.
 type ProjectConfig struct {
-	ExperimentID string `json:"experiment_id"`
-	Objective    string `json:"objective,omitempty"`
-	User struct {
+	Objective string `json:"objective,omitempty"`
+	User      struct {
 		Username string `json:"username"`
 		UserID   string `json:"userid"`
 	} `json:"user"`

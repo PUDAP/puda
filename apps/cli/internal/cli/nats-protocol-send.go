@@ -62,7 +62,7 @@ func runProtocol(cmd *cobra.Command, args []string) error {
 	// Insert protocol into database
 	store, err := db.Connect()
 	if err != nil {
-		return fmt.Errorf("failed to connect to database: %w", err)
+		return err
 	}
 	defer store.Disconnect()
 

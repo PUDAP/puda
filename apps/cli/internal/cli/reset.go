@@ -35,7 +35,6 @@ var resetMachineCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(resetCmd)
 	resetCmd.AddCommand(resetMachineCmd)
 	resetMachineCmd.PersistentFlags().StringVar(&resetNatsServers, "nats-servers", "", "Comma-separated NATS server URLs (overrides puda.config)")
 }
