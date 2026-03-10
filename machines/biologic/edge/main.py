@@ -6,12 +6,22 @@ execution via NATS messaging, telemetry publishing, and connection management.
 """
 import asyncio
 import logging
-import os
-from dotenv import load_dotenv
 from puda_drivers.machines import Biologic
 from puda_comms import EdgeNatsClient, EdgeRunner
+from pydantic import Field, IPvAnyAddress
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-load_dotenv()
+class Config(BaseSettings):
+    machine_id: str = Field(description="Machine identifier")
+    nats_servers: list[str]
+    biologic_ip: IPvAnyAddress
+
+    # Configuration to handle case-sensitivity and env files
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False
+    )
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,41 +32,32 @@ logger = logging.getLogger(__name__)
 
 
 async def main():
-    logger.info("=== Starting Biologic machine edge service ===")
+    logger.info("Loading configuration from environment")
+    config = Config()
+    logger.info("Config loaded: machine_id=%s, biologic_ip=%s", config.machine_id, config.biologic_ip)
 
-    machine_id = os.getenv("MACHINE_ID")
-    if not machine_id:
-        raise ValueError("MACHINE_ID environment variable is required")
-    nats_servers_env = os.getenv("NATS_SERVERS")
-    if not nats_servers_env:
-        raise ValueError("NATS_SERVERS environment variable is required")
-    nats_servers = [s.strip() for s in nats_servers_env.split(",")]
-    biologic_ip = os.getenv("BIOLOGIC_IP")
-    if not biologic_ip:
-        raise ValueError("BIOLOGIC_IP environment variable is required")
-
-    logger.info("Initializing Biologic machine with IP: %s", biologic_ip)
-    driver = Biologic(device_ip=biologic_ip)
+    logger.info("Connecting to Biologic device at %s", config.biologic_ip)
+    driver = Biologic(device_ip=config.biologic_ip)
     driver.startup()
-    logger.info("Biologic machine initialized successfully")
+    logger.info("Biologic device connected and ready")
 
-    logger.info("Initializing NATS client with servers: %s", nats_servers)
-    edge_nats_client = EdgeNatsClient(servers=nats_servers, machine_id=machine_id)
+    logger.info("Connecting to NATS at %s", config.nats_servers)
+    edge_nats_client = EdgeNatsClient(servers=config.nats_servers, machine_id=config.machine_id)
 
-    async def telemetry_tick():
+    async def telemetry_handler():
         await edge_nats_client.publish_heartbeat()
         await edge_nats_client.publish_health({"cpu": 45.2, "mem": 60.1, "temp": 35.0})
 
     runner = EdgeRunner(
         nats_client=edge_nats_client,
         machine_driver=driver,
-        telemetry_tick=telemetry_tick,
+        telemetry_handler=telemetry_handler,
     )
     await runner.connect()
-    logger.info("==================== biologic-edge ready to accept messages ====================")
+    logger.info("NATS client connected")
     logger.info(
-        "==================== Machine %s Ready. Publishing telemetry... ====================",
-        machine_id,
+        "==================== %s Edge Service ready. Publishing telemetry... ====================",
+        config.machine_id,
     )
     await runner.run()
 

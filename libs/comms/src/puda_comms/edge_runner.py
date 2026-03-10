@@ -89,8 +89,8 @@ class EdgeRunner:
         self,
         nats_client: EdgeNatsClient,
         machine_driver: Any,
-        telemetry_tick: Callable[[], Awaitable[None]],
-        state_payload_fn: Callable[[], dict] | None = None,
+        telemetry_handler: Callable[[], Awaitable[None]],
+        state_handler: Callable[[], dict] | None = None,
     ) -> None:
         """
         Args:
@@ -98,16 +98,17 @@ class EdgeRunner:
                 state, logs, and telemetry.
             machine_driver: Driver instance exposing command handlers (methods
                 invoked by name from incoming NATS commands).
-            telemetry_tick: Async callable run every second to publish
+            telemetry_handler: Async callable run every second to publish
                 heartbeat, position, health, etc.; no arguments.
-            state_payload_fn: Optional callable returning a dict to merge into
+            state_handler: Optional callable returning a dict to merge into
                 the state payload (e.g. deck state); if None, only state/run_id
                 are published.
         """
         self.nats_client = nats_client
         self.machine_driver = machine_driver
-        self.telemetry_tick = telemetry_tick
-        self.state_payload_fn = state_payload_fn
+        self.telemetry_handler = telemetry_handler
+        self.state_handler = state_handler
+        # Manage command execution state
         self.exec_state = ExecutionState()
 
     # -- public API ----------------------------------------------------------
@@ -253,18 +254,18 @@ class EdgeRunner:
 
     async def _publish_state(self, state: str, run_id: str | None = None) -> None:
         payload: dict[str, Any] = {"state": state, "run_id": run_id}
-        if self.state_payload_fn is not None:
-            payload.update(self.state_payload_fn())
+        if self.state_handler is not None:
+            payload.update(self.state_handler())
         await self.nats_client.publish_state(payload)
 
     async def _run_main_loop(self) -> None:
-        """Never returns; runs ensure_connection + telemetry_tick every second."""
+        """Never returns; runs ensure_connection + telemetry_handler every second."""
         while True:
             try:
                 if not await self._ensure_connection():
                     continue
                 try:
-                    await self.telemetry_tick()
+                    await self.telemetry_handler()
                     await asyncio.sleep(1)
                 except Exception as e:
                     logger.error("Error publishing telemetry: %s", e, exc_info=True)
