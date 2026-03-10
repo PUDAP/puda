@@ -55,11 +55,13 @@ class EdgeNatsClient:
         Initialize NATS client for machine.
         
         Args:
-            servers: List of NATS server URLs (e.g., ["nats://localhost:4222"])
+            servers: NATS server URLs, either as:
+                - Comma-separated string (e.g., "nats://localhost:4222,nats://localhost:4223")
+                - List of URLs (e.g., ["nats://localhost:4222"])
             machine_id: Machine identifier (e.g., "opentron")
         """
-        self.servers = servers
-        self.machine_id = machine_id
+        self.servers: list[str] = servers
+        self.machine_id: str = machine_id
         self.nc: Optional[nats.NATS] = None
         self.js: Optional[JetStreamContext] = None
         self.kv = None

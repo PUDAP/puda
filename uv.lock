@@ -587,6 +587,8 @@ source = { virtual = "machines/first/edge" }
 dependencies = [
     { name = "puda-comms" },
     { name = "puda-drivers" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
     { name = "python-dotenv" },
 ]
 
@@ -594,6 +596,8 @@ dependencies = [
 requires-dist = [
     { name = "puda-comms", editable = "libs/comms" },
     { name = "puda-drivers", editable = "libs/drivers" },
+    { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "pydantic-settings", specifier = ">=2.12.0" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
 ]
 

@@ -6,20 +6,19 @@ execution via NATS messaging, telemetry publishing, and connection management.
 """
 import asyncio
 import logging
+import sys
 from puda_drivers.machines import First
 from puda_comms import EdgeNatsClient, EdgeRunner
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Config(BaseSettings):
-    machine_id: str = Field(description="Machine identifier")
-    nats_servers: list[str]
+    machine_id: str
+    nats_servers: str 
     qubot_port: str
     sartorius_port: str
     camera_index: int
 
-    # Configuration to handle case-sensitivity and env files
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -36,8 +35,12 @@ logger = logging.getLogger(__name__)
 
 
 async def main():
-    logger.info("Loading configuration from environment for First machine")
-    config = Config()
+    logger.info("Loading configuration from environment")
+    try:
+        config = Config()
+    except Exception as e:
+        logger.error("Failed to load configuration: %s", e, exc_info=True)
+        sys.exit(1)
     logger.info(
         "Config loaded: machine_id=%s, qubot_port=%s, sartorius_port=%s, camera_index=%s",
         config.machine_id,
@@ -46,12 +49,7 @@ async def main():
         config.camera_index,
     )
 
-    logger.info(
-        "Initializing First machine with qubot_port: %s, sartorius_port: %s, camera_index: %s",
-        config.qubot_port,
-        config.sartorius_port,
-        config.camera_index,
-    )
+    logger.info("Initializing machine driver")
     driver = First(
         qubot_port=config.qubot_port,
         sartorius_port=config.sartorius_port,
@@ -60,9 +58,10 @@ async def main():
     driver.startup()
     logger.info("First machine initialized successfully")
 
-    logger.info("Initializing NATS client with servers: %s", config.nats_servers)
+    logger.info("Connecting to NATS at %s", config.nats_servers)
+    nats_server_list = [s.strip() for s in config.nats_servers.split(",") if s.strip()]
     edge_nats_client = EdgeNatsClient(
-        servers=config.nats_servers,
+        servers=nats_server_list,
         machine_id=config.machine_id,
     )
 
