@@ -1,6 +1,6 @@
-# MachineClient Message Handling Flow
+# EdgeNatsClient Message Handling Flow
 
-This diagram shows how `MachineClient` processes incoming messages from NATS JetStream.
+This diagram shows how `EdgeNatsClient` processes incoming messages from NATS JetStream.
 
 ## Queue Commands Flow
 
@@ -168,7 +168,7 @@ flowchart TB
         ResponseImmediate[RESPONSE_IMMEDIATE Stream<br/>Interest Retention]
     end
     
-    subgraph Client["MachineClient"]
+    subgraph Client["EdgeNatsClient"]
         QueueSub[subscribe_queue<br/>Durable Consumer]
         ImmediateSub[subscribe_immediate<br/>Durable Consumer]
         

@@ -182,7 +182,7 @@ Client-side service for sending commands to machines via NATS. Handles:
 
 See [Sending Commands](#sending-commands) section for usage examples.
 
-### 3. MachineClient (`machine_client.py`)
+### 3. EdgeNatsClient (`machine_client.py`)
 
 Basic default NATS client for generic machines. Handles commands, telemetry, and events following the `puda.{machine_id}.{category}.{sub_category}` pattern. Provides:
 - Subscribing to command streams (queue and immediate) via JetStream with exactly-once delivery

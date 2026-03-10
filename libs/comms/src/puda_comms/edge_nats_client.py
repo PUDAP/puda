@@ -10,6 +10,10 @@ import logging
 from typing import Dict, Any, Optional, Callable, Awaitable
 from datetime import datetime, timezone
 import nats
+from nats.js.client import JetStreamContext
+from nats.js.api import StreamConfig, ConsumerConfig
+from nats.js.errors import NotFoundError, Error as NATSError
+from nats.aio.msg import Msg
 from .models import (
     CommandResponseStatus,
     CommandResponse,
@@ -20,17 +24,12 @@ from .models import (
     ImmediateCommand,
 )
 from .run_manager import RunManager
-from nats.js.client import JetStreamContext
-from nats.js.api import StreamConfig, ConsumerConfig
-from nats.js.errors import NotFoundError, Error as NATSError
-from nats.aio.msg import Msg
 
 logger = logging.getLogger(__name__)
 
-
-class MachineClient:
+class EdgeNatsClient:
     """
-    NATS client for machines.
+    NATS client used by the machine edge (connects to NATS, publishes telemetry, subscribes to commands).
     
     Subject pattern: puda.{machine_id}.{category}.{sub_category}
     - Telemetry: core NATS (no JetStream)

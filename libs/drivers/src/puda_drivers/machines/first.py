@@ -27,11 +27,6 @@ class First:
     Each slot's origin location is stored for absolute movement calculation.
     """
     
-    # Default configuration values
-    DEFAULT_QUBOT_PORT = "/dev/ttyACM0"
-    DEFAULT_SARTORIUS_PORT = "/dev/ttyUSB0"
-    DEFAULT_CAMERA_INDEX = 0
-    
     # origin position of Z and A axes
     Z_ORIGIN = Position(x=0, y=0, z=0)
     A_ORIGIN = Position(x=60, y=0, a=0)
@@ -78,44 +73,42 @@ class First:
     ):
         """
         Initialize the First machine.
-        
+
+        qubot_port, sartorius_port, and camera_index must all be specified; otherwise ValueError is raised.
+
         Args:
-            qubot_port: Serial port for GCodeController (e.g., '/dev/ttyACM0')
-            sartorius_port: Serial port for SartoriusController (e.g., '/dev/ttyUSB0')
-            camera_index: Camera device index (0 for default) or device path/identifier.
-                         Defaults to 0.
-            axis_limits: Dictionary mapping axis names to (min, max) limits.
-                        Defaults to DEFAULT_AXIS_LIMITS.
+            qubot_port: Serial port for GCodeController (e.g., '/dev/ttyACM0').
+            sartorius_port: Serial port for SartoriusController (e.g., '/dev/ttyUSB0').
+            camera_index: Camera device index or device path/identifier.
+            axis_limits: Dictionary mapping axis names to (min, max) limits. Defaults to DEFAULT_AXIS_LIMITS.
+
+        Raises:
+            ValueError: If qubot_port, sartorius_port, or camera_index is not specified.
         """
+        if qubot_port is None:
+            raise ValueError("qubot_port is required")
+        if sartorius_port is None:
+            raise ValueError("sartorius_port is required")
+        if camera_index is None:
+            raise ValueError("camera_index is required")
+
         # Initialize deck
         self.deck = Deck(rows=4, cols=4)
 
-        # Initialize controllers
-        self.qubot = GCodeController(
-            port_name=qubot_port or self.DEFAULT_QUBOT_PORT,
-        )
-        # Set axis limits
+        self.qubot = GCodeController(port_name=qubot_port)
         limits = axis_limits or self.DEFAULT_AXIS_LIMITS
         for axis, (min_val, max_val) in limits.items():
             self.qubot.set_axis_limits(axis, min_val, max_val)
 
-        # Initialize pipette
-        self.pipette = SartoriusController(
-            port_name=sartorius_port or self.DEFAULT_SARTORIUS_PORT,
-        )
-        
-        # Initialize camera
-        self.camera = CameraController(
-            camera_index=camera_index if camera_index is not None else self.DEFAULT_CAMERA_INDEX,
-        )
-        
-        # Initialize logger
+        self.pipette = SartoriusController(port_name=sartorius_port)
+        self.camera = CameraController(camera_index=camera_index)
+
         self._logger = logging.getLogger(__name__)
         self._logger.info(
-            "First machine initialized with qubot_port='%s', sartorius_port='%s', camera_index=%s",
-            qubot_port or self.DEFAULT_QUBOT_PORT,
-            sartorius_port or self.DEFAULT_SARTORIUS_PORT,
-            camera_index if camera_index is not None else self.DEFAULT_CAMERA_INDEX,
+            "First machine initialized: qubot_port=%s, sartorius_port=%s, camera_index=%s",
+            qubot_port,
+            sartorius_port,
+            camera_index,
         )
         
     def startup(self):
@@ -134,15 +127,12 @@ class First:
         self.pipette.connect()
         self.camera.connect()
         self._logger.info("All controllers connected successfully")
-        
-        # Home the gantry to establish known position
+
         self._logger.info("Homing gantry...")
         self.qubot.home()
-        
-        # Initialize the pipette
         self._logger.info("Initializing pipette...")
         self.pipette.initialize()
-        time.sleep(3) # need to wait for the pipette to initialize
+        time.sleep(3)  # need to wait for the pipette to initialize
         self._logger.info("Machine startup complete - ready for operations")
     
     def home(self):
@@ -184,16 +174,13 @@ class First:
     ### Queue (public commands) ###
     async def get_position(self) -> Dict[str, Union[Dict[str, float], int]]:
         """
-        Get the current position of the machine. Both QuBot and Sartorius are queried.
-        
-        Args:
-            None
+        Get the current position of the machine. Queries only configured controllers.
+
         Returns:
-            Dictionary containing the current position of the machine and it's components.
+            Dictionary containing the current position of the machine and its components (qubot, pipette).
         """
         qubot_position = await self.qubot.get_position()
         sartorius_position = await self.pipette.get_position()
-
         return {
             "qubot": qubot_position.to_dict(),
             "pipette": sartorius_position,

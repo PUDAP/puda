@@ -63,7 +63,7 @@ View the interactive diagram on Excalidraw:
 ## Libraries
 
 - **puda-drivers**: Hardware controllers (GCode, Sartorius, Camera)
-- **puda-comms**: NATS client (MachineClient, CommandService)
+- **puda-comms**: NATS client (EdgeNatsClient, CommandService)
 - **puda-db**: Database utilities
 
 ## Infrastructure

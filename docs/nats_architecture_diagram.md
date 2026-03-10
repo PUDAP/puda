@@ -188,7 +188,7 @@ graph TB
     end
 
     subgraph "Machine Client"
-        MC[MachineClient]
+        MC[EdgeNatsClient]
         MC -->|Connect| NATS
         MC -->|JetStream Context| JS
         MC -->|KV Bucket| KV

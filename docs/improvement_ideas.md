@@ -129,7 +129,7 @@ class TransportInterface(ABC):
 # libs/comms/src/puda_comms/transport/nats_transport.py
 class NATSTransport(TransportInterface):
     """NATS implementation of transport interface."""
-    # Current MachineClient/CommandService logic here
+    # Current EdgeNatsClient/CommandService logic here
 ```
 
 **Benefits**:

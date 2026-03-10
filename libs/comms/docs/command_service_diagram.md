@@ -215,7 +215,7 @@ flowchart TB
         ResponseImmediate[RESPONSE_IMMEDIATE Stream<br/>Interest Retention]
     end
     
-    subgraph Machine["MachineClient"]
+    subgraph Machine["EdgeNatsClient"]
         MachineQueue[process_queue_cmd]
         MachineImmediate[process_immediate_cmd]
     end
