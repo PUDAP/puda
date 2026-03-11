@@ -7,17 +7,18 @@ puda
 ├── protocol
 │   ├── run                  Run a protocol on machines via NATS
 │   └── validate             Validate a protocol JSON file
-├── status [machine-id]      Get machine statuses or a specific machine status
 ├── machine
+│   ├── list                 List all alive machines
+│   ├── status               Show overall lab status
 │   ├── first                Liquid handling robot, motion system, and camera
-│   │   └── help
-│   │       ├── commands     Show available commands
-│   │       └── labware      Show available labware
+│   │   ├── status           Get the status of the First machine
+│   │   ├── reset            Reset the First machine
+│   │   ├── commands         Show available commands
+│   │   └── labware          Show available labware
 │   └── biologic             Biologic electrochemical testing device
-│       └── help
-│           └── commands     Show available commands
-├── reset
-│   └── machine [machineID]  Reset a machine
+│       ├── status           Get the status of the Biologic machine
+│       ├── reset            Reset the Biologic machine
+│       └── commands         Show available commands
 ├── login                    Log in to a PUDA account
 ├── logout                   Log out of a PUDA account
 ├── config
@@ -63,14 +64,14 @@ Prepend your Python directory to PATH, then run puda:
 
 ```powershell
 $env:PATH = "C:\Python313;$env:PATH"
-.\puda.exe machine first help labware
+.\puda.exe machine first labware
 ```
 
 Use the folder where your `python.exe` lives (e.g. `C:\Python313` if `which python` is `/c/Python313/python`).
 
 
 
-Replace `machine first help labware` with any puda command. Ensure `pip install --upgrade puda-drivers` was run with this same Python.
+Replace `machine first labware` with any puda command. Ensure `pip install --upgrade puda-drivers` was run with this same Python.
 
 **If you see "Python was not found" (Microsoft Store message)**  
 Disable the Store aliases: **Settings** → **Apps** → **Advanced app settings** → **App execution aliases** → turn **Off** for `python.exe` and `python3.exe`.

@@ -36,9 +36,7 @@ func Execute() error {
 func init() {
 	// Register top-level commands
 	rootCmd.AddCommand(protocolCmd)
-	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(machineCmd)
-	rootCmd.AddCommand(resetCmd)
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(logoutCmd)
