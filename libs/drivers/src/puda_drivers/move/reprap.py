@@ -40,7 +40,7 @@ class AxisLimits:
             )
 
 
-class GCodeController(SerialController):
+class RepRapController(SerialController):
     """
     Controller for G-code compatible motion systems.
 
@@ -85,7 +85,7 @@ class GCodeController(SerialController):
 
         self._logger = logging.getLogger(__name__)
         self._logger.info(
-            "GCodeController initialized with port='%s', baudrate=%s, timeout=%s",
+            "RepRapController initialized with port='%s', baudrate=%s, timeout=%s",
             port_name,
             baudrate,
             timeout,

@@ -1,114 +1,96 @@
 """
-First machine class containing Deck, RepRapController, and SartoriusController.
+PipQuBotV3 machine class containing Deck, GrblHALController, and SartoriusController.
 
-This class demonstrates the integration of:
-- RepRapController: Handles motion control (hardware-specific)
+This class integrates:
+- GrblHALController: Handles motion control (hardware-specific)
 - Deck: Manages labware layout (configuration-agnostic)
 - SartoriusController: Handles liquid handling operations
 """
 
 import logging
 import time
-from pathlib import Path
 from typing import Optional, Dict, Tuple, Type, Union
-import numpy as np
-from puda_drivers.move import RepRapController, Deck
+from puda_drivers.move import GrblHALController, Deck
 from puda_drivers.core import Position
 from puda_drivers.transfer.liquid.sartorius import SartoriusController
 from puda_drivers.labware import StandardLabware
-from puda_drivers.cv import CameraController
 
 
-class First:
+class PipQuBotV3:
     """
-    First machine class integrating motion control, deck management, liquid handling, and camera.
+    PipQuBotV3 machine class integrating motion control, deck management, and liquid handling.
     
-    The deck has 16 slots arranged in a 4x4 grid (A1-D4).
+    The deck has 8 slots arranged in a 2x4 grid (A1-D2).
     Each slot's origin location is stored for absolute movement calculation.
     """
     
-    # origin position of Z and A axes
+    # origin position of Z axis
     Z_ORIGIN = Position(x=0, y=0, z=0)
-    A_ORIGIN = Position(x=60, y=0, a=0)
     
     # Default axis limits - customize based on your hardware
     DEFAULT_AXIS_LIMITS = {
-        "X": (0, 330),
-        "Y": (-440, 0),
+        "X": (0, 155),
+        "Y": (-430, 0),
         "Z": (-140, 0),
-        "A": (-175, 0),
     }
     
-    # Height from z and a origin to the deck
-    CEILING_HEIGHT = 192.2
+    # Height from z origin to the deck
+    CEILING_HEIGHT = 170
     
     # Pipette Tip length
-    TIP_LENGTH = 59 # mm
-    
-    # Electrode length
-    ELECTRODE_LENGTH = 2 # mm
+    TIP_LENGTH = 96 # mm
     
     # Slot origins (the bottom left corner of the slot relative to the deck origin)
     SLOT_ORIGINS = {
-        "A1": Position(x=-2, y=-424),
-        "A2": Position(x=98, y=-424),
-        "A3": Position(x=198, y=-424),
-        "A4": Position(x=298, y=-424),
-        "B1": Position(x=-2, y=-274),
-        "B2": Position(x=98, y=-274),
-        "B3": Position(x=198, y=-274),
-        "B4": Position(x=298, y=-274),
-        "C1": Position(x=-2, y=-124),
-        "C2": Position(x=98, y=-124),
-        "C3": Position(x=198, y=-124),
-        "C4": Position(x=298, y=-124),
+        "A1": Position(x=-3, y=-463),
+        "A2": Position(x=97, y=-463),
+        "B1": Position(x=-3, y=-313),
+        "B2": Position(x=97, y=-313),
+        "C1": Position(x=-3, y=-163),
+        "C2": Position(x=97, y=-163),
+        "D1": Position(x=-3, y=-13),
+        "D2": Position(x=97, y=-13),
     }
     
     def __init__(
         self,
         qubot_port: Optional[str] = None,
         sartorius_port: Optional[str] = None,
-        camera_index: Optional[Union[int, str]] = None,
         axis_limits: Optional[Dict[str, Tuple[float, float]]] = None,
     ):
         """
         Initialize the First machine.
 
-        qubot_port, sartorius_port, and camera_index must all be specified; otherwise ValueError is raised.
+        qubot_port and sartorius_port must both be specified; otherwise ValueError is raised.
 
         Args:
-            qubot_port: Serial port for RepRapController (e.g., '/dev/ttyACM0').
+            qubot_port: Serial port for GrblHALController (e.g., '/dev/ttyACM0').
             sartorius_port: Serial port for SartoriusController (e.g., '/dev/ttyUSB0').
-            camera_index: Camera device index or device path/identifier.
             axis_limits: Dictionary mapping axis names to (min, max) limits. Defaults to DEFAULT_AXIS_LIMITS.
 
         Raises:
-            ValueError: If qubot_port, sartorius_port, or camera_index is not specified.
+            ValueError: If qubot_port or sartorius_port is not specified.
         """
         if qubot_port is None:
             raise ValueError("qubot_port is required")
         if sartorius_port is None:
             raise ValueError("sartorius_port is required")
-        if camera_index is None:
-            raise ValueError("camera_index is required")
 
         # Initialize deck
         self.deck = Deck(rows=4, cols=4)
 
-        self.qubot = RepRapController(port_name=qubot_port)
+        self.qubot = GrblHALController(port_name=qubot_port)
         limits = axis_limits or self.DEFAULT_AXIS_LIMITS
         for axis, (min_val, max_val) in limits.items():
             self.qubot.set_axis_limits(axis, min_val, max_val)
 
         self.pipette = SartoriusController(port_name=sartorius_port)
-        self.camera = CameraController(camera_index=camera_index)
 
         self._logger = logging.getLogger(__name__)
         self._logger.info(
-            "First machine initialized: qubot_port=%s, sartorius_port=%s, camera_index=%s",
+            "First machine initialized: qubot_port=%s, sartorius_port=%s",
             qubot_port,
             sartorius_port,
-            camera_index,
         )
         
     def startup(self):
@@ -116,7 +98,7 @@ class First:
         Start up the machine by connecting all controllers and initializing subsystems.
         
         This method:
-        - Connects to all controllers (gantry, pipette, camera)
+        - Connects to all controllers (gantry, pipette)
         - Homes the gantry to establish a known position
         - Initializes the pipette to reset it to a known state
         
@@ -125,7 +107,6 @@ class First:
         self._logger.info("Starting up machine and connecting all controllers")
         self.qubot.connect()
         self.pipette.connect()
-        self.camera.connect()
         self._logger.info("All controllers connected successfully")
 
         self._logger.info("Homing gantry...")
@@ -157,7 +138,6 @@ class First:
         self._logger.info("Shutting down machine and disconnecting all controllers")
         self.qubot.disconnect()
         self.pipette.disconnect()
-        self.camera.disconnect()
         self._logger.info("Machine shutdown complete")
     
     def wait(self, seconds: float):
@@ -407,29 +387,6 @@ class First:
         self.pipette.run_blowout(return_position=return_position)
         self._logger.info("Blowout completed")
 
-    # Electrode operations
-    def move_electrode(self, deck_slot: str, well_name: str, height_from_bottom: float = 0.0):
-        """
-        Move the electrode to a deck slot.
-        
-        Args:
-            deck_slot: Deck slot name (e.g., 'A1', 'B2')
-            well_name: Well name within the deck slot (e.g., 'A1')
-            height_from_bottom: Height from the bottom of the well in mm. Defaults to 0.0.
-                               Must be non-negative. Positive values move up from the bottom.
-        
-        Raises:
-            ValueError: If height_from_bottom is negative.
-        """
-        if height_from_bottom < 0:
-            self._logger.error("height_from_bottom must be non-negative, got %f", height_from_bottom)
-            raise ValueError(f"height_from_bottom must be non-negative, got {height_from_bottom}")
-        
-        pos = self._get_absolute_a_position(deck_slot, well_name)
-        pos += Position(a=height_from_bottom)
-        self.qubot.move_absolute(position=pos)
-        self._logger.info("Electrode moved to deck slot '%s', well '%s' at height %s mm from bottom", deck_slot, well_name, height_from_bottom)
-        
     # Helper methods
     def _get_slot_origin(self, deck_slot: str) -> Position:
         """
@@ -487,131 +444,6 @@ class First:
         else:
             self._logger.debug("Absolute Z position for deck slot '%s': %s", deck_slot, pos)
         return pos
-    
-    def _get_absolute_a_position(self, deck_slot: str, well_name: Optional[str] = None) -> Position:
-        """
-        Get the absolute position for a deck slot (and optionally a well within that deck slot) based on the origin
-        
-        Args:
-            deck_slot: Deck slot name (e.g., 'A1', 'B2')
-            well_name: Optional well name within the deck slot (e.g., 'A1' for a well in a tiprack)
-            
-        Returns:
-            Position with absolute coordinates
-            
-        Raises:
-            ValueError: If well_name is specified but no labware is loaded in the deck slot
-        """
-        # get x and y
-        pos = self._get_slot_origin(deck_slot)
-        pos -= self.A_ORIGIN # subtract the origin to get the absolute position
-        
-        # Get labware for a-axis positioning
-        labware = self.deck[deck_slot]
-        if labware is None:
-            self._logger.error("Cannot get electrode position: no labware loaded in deck slot '%s'", deck_slot)
-            raise ValueError(f"No labware loaded in deck slot '{deck_slot}'. Load labware before moving electrode.")
-        
-        # get x and y for well if specified
-        if well_name:
-            well_pos = labware.get_well_position(well_name).get_xy()
-            pos += well_pos.swap_xy()
-        
-        # get a (applies to both with and without well_name)
-        pos += Position(a=labware.get_height() - self.CEILING_HEIGHT)
-        pos += Position(a=self.ELECTRODE_LENGTH)
-        
-        if well_name:
-            self._logger.debug("Absolute A position for deck slot '%s', well '%s': %s", deck_slot, well_name, pos)
-        else:
-            self._logger.debug("Absolute A position for deck slot '%s': %s", deck_slot, pos)
-        
-        return pos
-
-   ### Camera operations ###
-    
-    def start_video_recording(
-        self,
-        filename: Optional[Union[str, Path]] = None,
-        fps: Optional[float] = None
-    ) -> Path:
-        """
-        Start recording a video.
-        
-        Args:
-            filename: Optional filename for the video. If not provided, a timestamped
-                    filename will be generated. If provided without extension, .mp4 will be added.
-            fps: Optional frames per second for the video. Defaults to 30.0 if not specified.
-        
-        Returns:
-            Path to the video file where recording is being saved
-            
-        Raises:
-            IOError: If camera is not connected or recording fails to start
-            ValueError: If already recording
-        """
-        return self.camera.start_video_recording(filename=filename, fps=fps)
-    
-    def stop_video_recording(self) -> Optional[Path]:
-        """
-        Stop recording a video.
-        
-        Returns:
-            Path to the saved video file, or None if no recording was in progress
-            
-        Raises:
-            IOError: If video writer fails to release
-        """
-        return self.camera.stop_video_recording()
-    
-    def record_video(
-        self,
-        duration_seconds: float,
-        filename: Optional[Union[str, Path]] = None,
-        fps: Optional[float] = None
-    ) -> Path:
-        """
-        Record a video for a specified duration.
-        
-        Args:
-            duration_seconds: Duration of the video in seconds
-            filename: Optional filename for the video. If not provided, a timestamped
-                    filename will be generated. If provided without extension, .mp4 will be added.
-            fps: Optional frames per second for the video. Defaults to 30.0 if not specified.
-        
-        Returns:
-            Path to the saved video file
-            
-        Raises:
-            IOError: If camera is not connected or recording fails
-        """
-        return self.camera.record_video(
-            duration_seconds=duration_seconds,
-            filename=filename,
-            fps=fps
-        )
-    
-    def capture_image(
-        self,
-        save: bool = False,
-        filename: Optional[Union[str, Path]] = None
-    ) -> np.ndarray:
-        """
-        Capture a single image from the camera.
-        
-        Args:
-            save: If True, save the image to the captures folder
-            filename: Optional filename for the saved image. If not provided and save=True,
-                     a timestamped filename will be generated. If provided without extension,
-                     .jpg will be added.
-        
-        Returns:
-            Captured image as a numpy array (BGR format)
-            
-        Raises:
-            IOError: If camera is not connected or capture fails
-        """
-        return self.camera.capture_image(save=save, filename=filename)
     
     ### Control (immediate commands) ###
     

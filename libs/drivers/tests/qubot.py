@@ -1,5 +1,5 @@
 import logging
-from puda_drivers.move import GCodeController
+from puda_drivers.move import RepRapController
 from puda_drivers.core import Position
 from puda_drivers.core.logging import setup_logging
 
@@ -9,13 +9,13 @@ from puda_drivers.core.logging import setup_logging
 #     print(f"{port}: {desc} [{hwid}]")
 
 # --- LOGGING CONFIGURATION ---
-# All loggers in imported modules (SerialController, GCodeController) will inherit this setup.
+# All loggers in imported modules (SerialController, RepRapController) will inherit this setup.
 setup_logging(
     enable_file_logging=True,
     log_level=logging.INFO,  # Use logging.DEBUG to see all (DEBUG, INFO, WARNING, ERROR, CRITICAL) logs
 )
 
-# OPTIONAL: If you only want GCodeController's logs at specific level, you can specifically set it here
+# OPTIONAL: If you only want RepRapController's logs at specific level, you can specifically set it here
 # logging.getLogger('puda_drivers.gcodecontroller').setLevel(logging.INFO)
 
 PORT_NAME = "/dev/ttyACM0"
@@ -26,7 +26,7 @@ def main():
 
     try:
         # Instantiate the qubot controller
-        qubot = GCodeController(port_name=PORT_NAME)
+        qubot = RepRapController(port_name=PORT_NAME)
 
         # Example: Set custom axis limits
         qubot.set_axis_limits("X", 0, 330)
