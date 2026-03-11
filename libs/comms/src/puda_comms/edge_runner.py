@@ -69,14 +69,14 @@ async def _execute_handler(
     """
     Run a synchronous handler in a thread pool so the async wrapper can be cancelled.
 
-    If kwargs is None, calls handler(**params). Otherwise calls handler(params=params, **kwargs).
+    Spreads params as keyword arguments. If kwargs is provided, those are merged
+    in (kwargs take precedence on key conflicts).
     """
     params = params if isinstance(params, dict) else {}
+    if kwargs:
+        params = {**params, **kwargs}
     loop = asyncio.get_event_loop()
-    if kwargs is None:
-        return await loop.run_in_executor(None, lambda: handler(**params))
-    kwargs = kwargs if isinstance(kwargs, dict) else {}
-    return await loop.run_in_executor(None, lambda: handler(params=params, **kwargs))
+    return await loop.run_in_executor(None, lambda: handler(**params))
 
 
 class EdgeRunner:

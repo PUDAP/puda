@@ -30,7 +30,6 @@ func runConfigList(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "objective=%s\n", cfg.Objective)
 	fmt.Fprintf(cmd.OutOrStdout(), "user.user_id=%s\n", cfg.User.UserID)
 	fmt.Fprintf(cmd.OutOrStdout(), "user.username=%s\n", cfg.User.Username)
 	fmt.Fprintf(cmd.OutOrStdout(), "endpoints.nats=%s\n", cfg.Endpoints.NATS)
