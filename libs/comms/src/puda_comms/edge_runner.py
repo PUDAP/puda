@@ -162,6 +162,8 @@ class EdgeRunner:
         params = message.command.params or {}
         kwargs = message.command.kwargs
 
+        logger.info("Queue command received: run_id=%s, command_name=%s, params=%s, kwargs=%s", run_id, command_name, params, kwargs)
+
         if not await self.exec_state.acquire_lock(run_id):
             logger.warning(
                 "Cannot execute %s (run_id: %s): another command is running or cancelled",
@@ -179,7 +181,6 @@ class EdgeRunner:
             )
 
         try:
-            logger.info("Executing: %s (run_id: %s)", command_name, run_id)
             await self._publish_state("busy", run_id)
 
             handler, error_response = _validate_handler(self.machine_driver, command_name)
