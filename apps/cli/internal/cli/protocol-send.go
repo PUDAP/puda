@@ -10,10 +10,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// natsProtocolRunCmd is a subcommand of natsProtocolCmd that runs a protocol on machines via NATS
+// protocolRunCmd is a subcommand of protocolCmd that runs a protocol on machines via NATS
 //
-// Usage: puda nats protocol run --file <path>
-var natsProtocolRunCmd = &cobra.Command{
+// Usage: puda protocol run --file <path>
+var protocolRunCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Run a protocol on machines via NATS",
 	Long: `Run a protocol on machines via NATS.
@@ -22,7 +22,7 @@ Loads a protocol JSON file from the given path and runs commands sequentially, s
 Optional: --nats-servers to override NATS server URLs in config file.
 
 Example:
-  puda nats protocol run --file protocol.json`,
+  puda protocol run --file protocol.json`,
 	RunE:         runProtocol,
 	SilenceUsage: true,
 }
@@ -35,9 +35,9 @@ var (
 
 // init registers flags for the run command
 func init() {
-	natsProtocolRunCmd.Flags().StringVarP(&protocolFilePath, "file", "f", "", "Path to JSON file containing protocol (required)")
-	natsProtocolRunCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Optional: Comma-separated NATS server URLs - overrides config file")
-	natsProtocolRunCmd.MarkFlagRequired("file")
+	protocolRunCmd.Flags().StringVarP(&protocolFilePath, "file", "f", "", "Path to JSON file containing protocol (required)")
+	protocolRunCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Optional: Comma-separated NATS server URLs - overrides config file")
+	protocolRunCmd.MarkFlagRequired("file")
 }
 
 // runProtocol executes the run command

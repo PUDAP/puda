@@ -11,12 +11,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// natsStatusCmd is a subcommand of natsCmd that retrieves machine status from NATS Key-Value store
+// statusCmd retrieves machine status from NATS Key-Value store
 //
-// Usage: puda nats status [machine-id]
-var natsStatusCmd = &cobra.Command{
+// Usage: puda status [machine-id]
+var statusCmd = &cobra.Command{
 	Use:   "status [machine-id]",
-	Short: "Get machine status from NATS Key-Value store or list alive machines",
+	Short: "Get all machine statuses or a specific machine status",
 	Long: `Get the current status of a machine from NATS Key-Value store, or list all alive machines.
 
 If machine-id is provided, retrieves the status from the NATS JetStream Key-Value bucket.
@@ -25,14 +25,14 @@ If machine-id is not provided, listens to heartbeat messages and returns a list 
 Optional: --nats-servers to override NATS server URLs in config file.
 
 Examples:
-  puda nats status
-  puda nats status [machine-id]`,
+  puda status
+  puda status [machine-id]`,
 	RunE: getMachineStatus,
 }
 
 // init registers flags for the status command
 func init() {
-	natsStatusCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Optional: Comma-separated NATS server URLs - overrides puda.config file")
+	statusCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Optional: Comma-separated NATS server URLs - overrides puda.config file")
 }
 
 // getMachineStatus executes the status command

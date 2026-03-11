@@ -15,7 +15,7 @@ const streamlitSkillsRepo = "streamlit/agent-skills"
 // skillsCmd is the parent for OpenSkills-related subcommands
 var skillsCmd = &cobra.Command{
 	Use:   "skills",
-	Short: "OpenSkills (Cursor skills from PUDAP/skills)",
+	Short: "Manage puda agent skills",
 	Long:  `Install and update OpenSkills for this project. Requires Node.js.`,
 }
 

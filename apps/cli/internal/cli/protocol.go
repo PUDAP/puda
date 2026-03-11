@@ -2,25 +2,25 @@ package cli
 
 import "github.com/spf13/cobra"
 
-// natsProtocolCmd is the parent command for protocol-related operations
+// protocolCmd is the parent command for protocol-related operations
 //
 // Subcommands:
 //   - run: Run a protocol on machines via NATS
 //   - validate: Validate a protocol JSON file
-var natsProtocolCmd = &cobra.Command{
+var protocolCmd = &cobra.Command{
 	Use:   "protocol",
-	Short: "Protocol operations for NATS",
+	Short: "Protocol operations",
 	Long: `Commands for working with protocols via NATS.
 
 Subcommands:
   run      - Run a puda protocol via NATS
   validate - Validate a protocol JSON file
 
-For help on subcommands, add --help after: "puda nats protocol run --help"`,
+For help on subcommands, add --help after: "puda protocol run --help"`,
 }
 
 // init registers all protocol subcommands
 func init() {
-	natsProtocolCmd.AddCommand(natsProtocolRunCmd)
-	natsProtocolCmd.AddCommand(natsProtocolValidateCmd)
+	protocolCmd.AddCommand(protocolRunCmd)
+	protocolCmd.AddCommand(protocolValidateCmd)
 }

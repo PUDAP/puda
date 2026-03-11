@@ -9,10 +9,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// natsProtocolValidateCmd is a subcommand of natsProtocolCmd that validates a protocol JSON file
+// protocolValidateCmd is a subcommand of protocolCmd that validates a protocol JSON file
 //
-// Usage: puda nats protocol validate --file <path>
-var natsProtocolValidateCmd = &cobra.Command{
+// Usage: puda protocol validate --file <path>
+var protocolValidateCmd = &cobra.Command{
 	Use:   "validate",
 	Short: "Validate a protocol JSON file",
 	Long: `Validate a protocol JSON file to ensure it has the correct structure and required fields.
@@ -38,8 +38,8 @@ Example:
 
 // init registers flags for the validate command
 func init() {
-	natsProtocolValidateCmd.Flags().StringVarP(&protocolFilePath, "file", "f", "", "Path to JSON file (required)")
-	natsProtocolValidateCmd.MarkFlagRequired("file")
+	protocolValidateCmd.Flags().StringVarP(&protocolFilePath, "file", "f", "", "Path to JSON file (required)")
+	protocolValidateCmd.MarkFlagRequired("file")
 }
 
 // validateProtocol executes the validate command

@@ -1,5 +1,37 @@
 # puda-cli
 
+## Commands
+
+```
+puda
+├── protocol
+│   ├── run                  Run a protocol on machines via NATS
+│   └── validate             Validate a protocol JSON file
+├── status [machine-id]      Get machine statuses or a specific machine status
+├── machine
+│   ├── first                Liquid handling robot, motion system, and camera
+│   │   └── help
+│   │       ├── commands     Show available commands
+│   │       └── labware      Show available labware
+│   └── biologic             Biologic electrochemical testing device
+│       └── help
+│           └── commands     Show available commands
+├── reset
+│   └── machine [machineID]  Reset a machine
+├── login                    Log in to a PUDA account
+├── logout                   Log out of a PUDA account
+├── config
+│   ├── list                 List configuration values
+│   └── edit                 Edit configuration in default editor
+├── init [path]              Initialize a new PUDA project
+├── skills
+│   ├── install              Install and sync agent skills
+│   └── update               Update agent skills and sync AGENTS.md
+└── db
+    ├── exec [sql]           Execute SQL queries on the database
+    └── schema               Display the database schema
+```
+
 ## Setup
 
 After extracting, place in the project folder, then follow these steps:
