@@ -7,14 +7,25 @@ execution via NATS messaging, telemetry publishing, and connection management.
 import asyncio
 import logging
 import sys
+import time
 from puda_drivers.machines import First
 from puda_comms import EdgeNatsClient, EdgeRunner
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    force=True,
+)
+logging.getLogger("puda_drivers").setLevel(logging.WARNING)
+logger = logging.getLogger(__name__)
+
+# Environment configuration
 class Config(BaseSettings):
     machine_id: str
-    nats_servers: str 
+    nats_servers: str
     qubot_port: str
     sartorius_port: str
     camera_index: int
@@ -25,28 +36,25 @@ class Config(BaseSettings):
         case_sensitive=False,
     )
 
+    @property
+    def nats_server_list(self) -> list[str]:
+        return [s.strip() for s in self.nats_servers.split(",") if s.strip()]
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logging.getLogger("puda_drivers").setLevel(logging.WARNING)
-logger = logging.getLogger(__name__)
-
-
-async def main():
-    logger.info("Loading configuration from environment")
+def load_config() -> Config:
+    """Load and validate configuration; exit process on failure."""
     try:
-        config = Config()
+        return Config()
     except Exception as e:
         logger.error("Failed to load configuration: %s", e, exc_info=True)
         sys.exit(1)
+
+
+async def main():
+    """Initialize the First machine driver and NATS client, then run the edge runner."""
+    config = load_config()
     logger.info(
-        "Config loaded: machine_id=%s, qubot_port=%s, sartorius_port=%s, camera_index=%s",
-        config.machine_id,
-        config.qubot_port,
-        config.sartorius_port,
-        config.camera_index,
+        "Config: machine_id=%s, qubot_port=%s, sartorius_port=%s, camera_index=%s",
+        config.machine_id, config.qubot_port, config.sartorius_port, config.camera_index,
     )
 
     logger.info("Initializing machine driver")
@@ -59,9 +67,8 @@ async def main():
     logger.info("First machine initialized successfully")
 
     logger.info("Connecting to NATS at %s", config.nats_servers)
-    nats_server_list = [s.strip() for s in config.nats_servers.split(",") if s.strip()]
     edge_nats_client = EdgeNatsClient(
-        servers=nats_server_list,
+        servers=config.nats_server_list,
         machine_id=config.machine_id,
     )
 
@@ -85,9 +92,8 @@ async def main():
     await runner.run()
 
 
+# Run main in a loop; retry on fatal errors, ignore KeyboardInterrupt.
 if __name__ == "__main__":
-    import time
-
     while True:
         try:
             asyncio.run(main())
@@ -95,5 +101,5 @@ if __name__ == "__main__":
             logger.warning("Received KeyboardInterrupt, but continuing to run...")
             time.sleep(1)
         except Exception as e:
-            logger.error("Fatal error in main: %s", e, exc_info=True)
+            logger.error("Fatal error: %s", e, exc_info=True)
             time.sleep(5)
