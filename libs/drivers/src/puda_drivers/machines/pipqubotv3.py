@@ -29,7 +29,7 @@ class PipQuBotV3:
     
     # Default axis limits - customize based on your hardware
     DEFAULT_AXIS_LIMITS = {
-        "X": (0, 155),
+        "X": (0, 160),
         "Y": (-430, 0),
         "Z": (-140, 0),
     }
@@ -42,14 +42,14 @@ class PipQuBotV3:
     
     # Slot origins (the bottom left corner of the slot relative to the deck origin)
     SLOT_ORIGINS = {
-        "A1": Position(x=-3, y=-463),
-        "A2": Position(x=97, y=-463),
-        "B1": Position(x=-3, y=-313),
-        "B2": Position(x=97, y=-313),
-        "C1": Position(x=-3, y=-163),
-        "C2": Position(x=97, y=-163),
-        "D1": Position(x=-3, y=-13),
-        "D2": Position(x=97, y=-13),
+        "A1": Position(x=1.5, y=-461.5),
+        "A2": Position(x=101.5, y=-461.5),
+        "B1": Position(x=1.5, y=-311.5),
+        "B2": Position(x=101.5, y=-311.5),
+        "C1": Position(x=1.5, y=-161.5),
+        "C2": Position(x=101.5, y=-161.5),
+        "D1": Position(x=1.5, y=-11.5),
+        "D2": Position(x=101.5, y=-11.5),
     }
     
     def __init__(

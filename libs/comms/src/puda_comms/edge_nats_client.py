@@ -13,6 +13,7 @@ import nats
 from nats.js.client import JetStreamContext
 from nats.js.api import StreamConfig, ConsumerConfig
 from nats.js.errors import NotFoundError, Error as NATSError
+from nats.js.kv import KeyValue
 from nats.aio.msg import Msg
 from .models import (
     CommandResponseStatus,
@@ -64,7 +65,8 @@ class EdgeNatsClient:
         self.machine_id: str = machine_id
         self.nc: Optional[nats.NATS] = None
         self.js: Optional[JetStreamContext] = None
-        self.kv = None
+        self.kv_state: Optional[KeyValue] = None
+        self.kv_commands: Optional[KeyValue] = None
         
         # Generate subject and stream names
         self._init_subjects()
@@ -110,7 +112,9 @@ class EdgeNatsClient:
         self.evt_media = f"{namespace}.{machine_id_safe}.evt.media"
         
         # KV bucket name for status
-        self.kv_bucket_name = f"MACHINE_STATE_{machine_id_safe}"
+        self.kv_bucket_state = f"MACHINE_STATE_{machine_id_safe}"
+        # KV bucket name for commands
+        self.kv_bucket_commands = f"MACHINE_COMMANDS_{machine_id_safe}"
     
     # ==================== HELPER METHODS ====================
     
@@ -212,19 +216,15 @@ class EdgeNatsClient:
             retention='interest'
         )
     
-    async def _get_or_create_kv_bucket(self):
-        """Get or create KV bucket, handling errors gracefully."""
+    async def _get_or_create_kv_bucket(self, bucket: str) -> KeyValue:
+        """Get or create KV bucket. Raises on failure."""
         if not self.js:
-            return None
+            raise RuntimeError("JetStream not available")
         
         try:
-            return await self.js.create_key_value(bucket=self.kv_bucket_name)
+            return await self.js.create_key_value(bucket=bucket)
         except Exception:
-            try:
-                return await self.js.key_value(self.kv_bucket_name)
-            except Exception as e:
-                logger.warning("Could not create or access KV bucket: %s", e)
-                return None
+            return await self.js.key_value(bucket)
     
     async def _cleanup_subscriptions(self):
         """Unsubscribe from all subscriptions."""
@@ -257,7 +257,8 @@ class EdgeNatsClient:
         """Reset connection-related state."""
         self._is_connected = False
         self.js = None
-        self.kv = None
+        self.kv_state = None
+        self.kv_commands = None
         # Subscriptions will be recreated on reconnection
         self._cmd_queue_sub = None
         self._cmd_queue_task = None
@@ -280,7 +281,8 @@ class EdgeNatsClient:
             )
             self.js = self.nc.jetstream()
             await self._ensure_all_streams()
-            self.kv = await self._get_or_create_kv_bucket()
+            self.kv_state = await self._get_or_create_kv_bucket(self.kv_bucket_state)
+            self.kv_commands = await self._get_or_create_kv_bucket(self.kv_bucket_commands)
             self._is_connected = True
             logger.info("Connected to NATS servers: %s", self.servers)
             return True
@@ -306,7 +308,8 @@ class EdgeNatsClient:
         if self.nc:
             self.js = self.nc.jetstream()
             await self._ensure_all_streams()
-            self.kv = await self._get_or_create_kv_bucket()
+            self.kv_state = await self._get_or_create_kv_bucket(self.kv_bucket_state)
+            self.kv_commands = await self._get_or_create_kv_bucket(self.kv_bucket_commands)
             await self._resubscribe_handlers()
     
     async def _resubscribe_handlers(self):
@@ -350,20 +353,35 @@ class EdgeNatsClient:
         Args:
             data: Dictionary with state data
         """
-        if not self.kv:
+        if not self.kv_state:
             logger.warning("KV store not available, skipping state update")
             return
         
         try:
             message = {'timestamp': self._format_timestamp(), **data}
-            await self.kv.put(self.machine_id, json.dumps(message).encode())
+            await self.kv_state.put(self.machine_id, json.dumps(message).encode())
             logger.info("Updated state in KV store: %s", message)
         except Exception as e:
             logger.error("Error updating status in KV store: %s", e)
             
+    async def publish_commands(self, data: Dict[str, Any]):
+        """
+        Publish commands to KV store.
+        
+        Args:
+            data: Dictionary with commands data
+        """
+        if not self.kv_commands:
+            logger.warning("KV store not available, skipping command update")
+            return
+        
+        try:
+            await self.kv_commands.put(self.machine_id, json.dumps(data).encode())
+            logger.info("Published commands to KV store: %s", data)
+        except Exception as e:
+            logger.error("Error publishing command to KV store: %s", e)
+            
     # ==================== COMMANDS (JetStream, exactly-once with run_id) ====================
-    
-    
     @asynccontextmanager
     async def _keep_message_alive(self, msg: Msg, interval: int = KEEP_ALIVE_INTERVAL):
         """

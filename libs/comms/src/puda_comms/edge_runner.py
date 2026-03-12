@@ -8,6 +8,7 @@ main.py stays minimal.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from typing import Any, Callable, Awaitable
 
@@ -126,6 +127,8 @@ class EdgeRunner:
         """Subscribe to commands and run the main loop."""
         await self._setup_subscriptions()
         await self._run_main_loop()
+        # publish commands to KV store (only need to do this once on startup)
+        await self._publish_commands()
 
     # -- subscription / connection -------------------------------------------
 
@@ -258,6 +261,26 @@ class EdgeRunner:
         if self.state_handler is not None:
             payload.update(self.state_handler())
         await self.nats_client.publish_state(payload)
+        
+    async def _publish_commands(self) -> None:
+        cls = type(self.machine_driver)
+        methods = [
+            (name, func)
+            for name, func in inspect.getmembers(cls, predicate=inspect.isfunction)
+            if not name.startswith("_")
+        ]
+        lines: list[str] = []
+        for i, (name, func) in enumerate(methods):
+            lines.append(f"{name}{inspect.signature(func)}")
+            doc = inspect.getdoc(func)
+            if doc:
+                for line in doc.split("\n"):
+                    lines.append(f"    {line}")
+            if i < len(methods) - 1:
+                lines.append("")
+
+        payload: dict[str, Any] = {"commands": "\n".join(lines)}
+        await self.nats_client.publish_commands(payload)
 
     async def _run_main_loop(self) -> None:
         """Never returns; runs ensure_connection + telemetry_handler every second."""

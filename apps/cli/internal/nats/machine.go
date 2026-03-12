@@ -1,4 +1,4 @@
-package cli
+package nats
 
 import (
 	"encoding/json"
@@ -9,8 +9,35 @@ import (
 	natsio "github.com/nats-io/nats.go"
 )
 
-// getSingleMachineStatus retrieves the status of a specific machine from KV store
-func getSingleMachineStatus(nc *natsio.Conn, machineID string) error {
+// GetMachineCommands retrieves the commands of a specific machine from KV store
+func GetMachineCommands(nc *natsio.Conn, machineID string) error {
+	js, err := nc.JetStream()
+	if err != nil {
+		return fmt.Errorf("failed to get JetStream context: %w", err)
+	}
+	kvBucketName := fmt.Sprintf("MACHINE_COMMANDS_%s", strings.ReplaceAll(machineID, ".", "-"))
+	kv, err := js.KeyValue(kvBucketName)
+	if err != nil {
+		return fmt.Errorf("failed to get KV bucket: %w", err)
+	}
+
+	entry, err := kv.Get(machineID)
+	if err != nil {
+		return fmt.Errorf("failed to get machine commands: %w", err)
+	}
+
+	var commands map[string]string
+	if err := json.Unmarshal(entry.Value(), &commands); err != nil {
+		return fmt.Errorf("failed to parse commands JSON: %w", err)
+	}
+
+	fmt.Println(commands["commands"])
+
+	return nil
+}
+
+// GetSingleMachineStatus retrieves the status of a specific machine from KV store
+func GetSingleMachineStatus(nc *natsio.Conn, machineID string) error {
 	js, err := nc.JetStream()
 	if err != nil {
 		return fmt.Errorf("failed to get JetStream context: %w", err)
@@ -57,8 +84,8 @@ func getSingleMachineStatus(nc *natsio.Conn, machineID string) error {
 	return nil
 }
 
-// listAliveMachines listens to heartbeat messages and returns a list of alive machines
-func listAliveMachines(nc *natsio.Conn) error {
+// ListAliveMachines listens to heartbeat messages and returns a list of alive machines
+func ListAliveMachines(nc *natsio.Conn) error {
 	machineHeartbeats := make(map[string]time.Time)
 
 	subject := "puda.*.tlm.heartbeat"

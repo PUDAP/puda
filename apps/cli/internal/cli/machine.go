@@ -2,9 +2,9 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"time"
 
+	pudanats "github.com/PUDAP/puda/apps/cli/internal/nats"
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
 	natsio "github.com/nats-io/nats.go"
 	"github.com/spf13/cobra"
@@ -60,7 +60,7 @@ var machineStatusCmd = &cobra.Command{
 			return err
 		}
 		defer nc.Close()
-		return listAliveMachines(nc)
+		return pudanats.ListAliveMachines(nc)
 	},
 }
 
@@ -86,7 +86,7 @@ func registerMachine(def machineDefinition) {
 				return err
 			}
 			defer nc.Close()
-			return getSingleMachineStatus(nc, id)
+			return pudanats.GetSingleMachineStatus(nc, id)
 		},
 	}
 
@@ -101,12 +101,14 @@ func registerMachine(def machineDefinition) {
 	commandsCmd := &cobra.Command{
 		Use:   "commands",
 		Short: "Show available commands",
-		Long:  fmt.Sprintf("Show Python help documentation for %sMachine class.", className),
-		Run: func(cmd *cobra.Command, args []string) {
-			if err := puda.ShowPublicMethods("puda_drivers.machines", className); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
+		Long:  fmt.Sprintf("Show available commands for the %s machine.", id),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			nc, err := connectMachineNATS()
+			if err != nil {
+				return err
 			}
+			defer nc.Close()
+			return pudanats.GetMachineCommands(nc, id)
 		},
 	}
 

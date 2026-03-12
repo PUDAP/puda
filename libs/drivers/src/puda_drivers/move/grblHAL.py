@@ -153,12 +153,12 @@ class GrblHALController(SerialController):
 
     def _wait_for_move(self) -> None:
         """
-        Wait for the current move to complete (M400 command).
+        Wait for the current move to complete (G4 P0 command).
         
-        This sends the M400 command which waits for all moves in the queue to complete
+        This sends the G4 P0 command which waits for all moves in the queue to complete
         before continuing. This ensures that position updates are accurate.
         """
-        self.execute("M400")
+        self.execute("G4 P0")
 
     def _validate_axis(self, axis: str) -> str:
         """
@@ -473,12 +473,12 @@ class GrblHALController(SerialController):
 
     async def get_position(self) -> Position:
         """
-        Get the current machine position (M114 command) asynchronously.
+        Get the current machine position (? status report) asynchronously.
 
         This method can be called even when the machine is moving from other commands,
         as it runs the blocking serial communication in a separate thread.
         
-        If the M114 command takes more than 1 second to respond, falls back to
+        If the ? command takes more than 1 second to respond, falls back to
         returning the internally tracked position instead.
 
         Returns:
@@ -487,38 +487,29 @@ class GrblHALController(SerialController):
         Note:
             Returns an empty Position if the query fails or no positions are found.
         """
-        self._logger.info("Querying current machine position (M114).")
-        # Run the blocking execute call in a thread pool to allow concurrent operations
-        # with a 1 second timeout - if it takes longer, fall back to internal position
+        self._logger.info("Querying current machine position (?).")
         try:
             res: str = await asyncio.wait_for(
-                asyncio.to_thread(self.execute, "M114"),
+                asyncio.to_thread(self.execute, "?"),
                 timeout=1.0
             )
             
-            # Extract position values using regex
-            pattern = re.compile(r"([XYZ]):(-?\d+\.\d+)")
-            matches = pattern.findall(res)
+            # Parse grblHAL status report: <Status|MPos:X,Y,Z|...>
+            mpos_match = re.search(r"MPos:(-?[\d.]+),(-?[\d.]+),(-?[\d.]+)", res)
+            if not mpos_match:
+                self._logger.error("Failed to parse MPos from status report: %s", res)
+                return Position()
 
-            position_data: Dict[str, float] = {}
-
-            for axis, value_str in matches:
-                try:
-                    position_data[axis.lower()] = float(value_str)
-                except ValueError:
-                    self._logger.error(
-                        "Failed to convert position value '%s' for axis %s to float.",
-                        value_str,
-                        axis,
-                    )
-                    continue
-
-            position = Position.from_dict(position_data)
+            position = Position(
+                x=float(mpos_match.group(1)),
+                y=float(mpos_match.group(2)),
+                z=float(mpos_match.group(3)),
+            )
             self._logger.info("Query position complete. Retrieved positions: %s", position)
             return position
         except asyncio.TimeoutError:
             self._logger.info(
-                "M114 command timed out after 1 second. Falling back to internal position."
+                "? command timed out after 1 second. Falling back to internal position."
             )
             return self.get_internal_position()
 
@@ -539,7 +530,7 @@ class GrblHALController(SerialController):
             Since this method calls move_absolute (which is blocking), it remains
             synchronous. The async get_position() is called using asyncio.run().
         """
-        self._logger.info("Starting position synchronization check (M114).")
+        self._logger.info("Starting position synchronization check (?).")
 
         # Query the actual machine position (async method called from sync context)
         queried_position = asyncio.run(self.get_position())
