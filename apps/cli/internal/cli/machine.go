@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	pudanats "github.com/PUDAP/puda/apps/cli/internal/nats"
@@ -10,29 +11,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type machineDefinition struct {
-	ID        string // CLI subcommand name, e.g. "biologic"
-	Short     string // one-line description shown in help
-	ClassName string // Python class name for machine
-}
-
-var machines = []machineDefinition{
-	{ID: "first", Short: "Liquid handling robot, motion system, and camera", ClassName: "First"},
-	{ID: "biologic", Short: "Electrochemical testing device", ClassName: "Biologic"},
-}
+const heartbeatTimeout = 2 * time.Second
 
 var machineNatsServers string
 
 var machineCmd = &cobra.Command{
 	Use:   "machine",
 	Short: "Machine operations",
-	Long: `Commands for machine operations.
-
-Subcommands:
-  list              - List known machines
-  <machine_id>      - Target a specific machine in list
-
-For help: "puda machine --help"`,
+	Long:  `Commands for machine operations.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		cmd.Help()
 	},
@@ -40,80 +26,76 @@ For help: "puda machine --help"`,
 
 var machineListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List known machines",
-	Long:  `List all known machine definitions.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		for _, m := range machines {
-			fmt.Printf("  %-12s %s\n", m.ID, m.Short)
+	Short: "Discover machines via heartbeat",
+	Long:  `Listen for heartbeat messages on puda.*.tlm.heartbeat and list machines that respond.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		nc, err := connectMachineNATS()
+		if err != nil {
+			return err
 		}
+		defer nc.Close()
+
+		machines, err := pudanats.DiscoverMachines(nc, heartbeatTimeout)
+		if err != nil {
+			return err
+		}
+		if len(machines) == 0 {
+			fmt.Println("No machines found.")
+			return nil
+		}
+		sort.Strings(machines)
+		for _, id := range machines {
+			fmt.Printf("  %s\n", id)
+		}
+		return nil
 	},
 }
 
-func registerMachine(def machineDefinition) {
-	id := def.ID
-	className := def.ClassName
+var machineStateCmd = &cobra.Command{
+	Use:   "state <machine_id>",
+	Short: "Get the state of a machine",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		nc, err := connectMachineNATS()
+		if err != nil {
+			return err
+		}
+		defer nc.Close()
+		return pudanats.GetSingleMachineState(nc, args[0])
+	},
+}
 
-	parentCmd := &cobra.Command{
-		Use:   id,
-		Short: def.Short,
-		Long:  fmt.Sprintf("Target the %s machine (%s).", className, def.Short),
-		Run: func(cmd *cobra.Command, args []string) {
-			cmd.Help()
-		},
-	}
+var machineResetCmd = &cobra.Command{
+	Use:   "reset <machine_id>",
+	Short: "Reset a machine",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return resetMachine(args[0])
+	},
+}
 
-	stateCmd := &cobra.Command{
-		Use:   "state",
-		Short: fmt.Sprintf("Get the state of the %s machine", id),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			nc, err := connectMachineNATS()
-			if err != nil {
-				return err
-			}
-			defer nc.Close()
-			return pudanats.GetSingleMachineState(nc, id)
-		},
-	}
-
-	resetCmd := &cobra.Command{
-		Use:   "reset",
-		Short: fmt.Sprintf("Reset the %s machine", id),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return resetMachine(id)
-		},
-	}
-
-	commandsCmd := &cobra.Command{
-		Use:   "commands",
-		Short: "Show available commands",
-		Long:  fmt.Sprintf("Show available commands for the %s machine.", id),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			nc, err := connectMachineNATS()
-			if err != nil {
-				return err
-			}
-			defer nc.Close()
-			return pudanats.GetMachineCommands(nc, id)
-		},
-	}
-
-	parentCmd.AddCommand(stateCmd)
-	parentCmd.AddCommand(resetCmd)
-	parentCmd.AddCommand(commandsCmd)
-	machineCmd.AddCommand(parentCmd)
+var machineCommandsCmd = &cobra.Command{
+	Use:   "commands <machine_id>",
+	Short: "Show available commands for a machine",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		nc, err := connectMachineNATS()
+		if err != nil {
+			return err
+		}
+		defer nc.Close()
+		return pudanats.GetMachineCommands(nc, args[0])
+	},
 }
 
 func init() {
 	machineCmd.PersistentFlags().StringVar(&machineNatsServers, "nats-servers", "", "Comma-separated NATS server URLs (overrides puda.config)")
 	machineCmd.AddCommand(machineListCmd)
-
-	for _, def := range machines {
-		registerMachine(def)
-	}
+	machineCmd.AddCommand(machineStateCmd)
+	machineCmd.AddCommand(machineResetCmd)
+	machineCmd.AddCommand(machineCommandsCmd)
 }
 
-// connectMachineNATS resolves NATS servers from flag or config and returns a connection.
-// Used by all machine subcommands that need NATS.
 func connectMachineNATS() (*natsio.Conn, error) {
 	servers := machineNatsServers
 	if servers == "" {

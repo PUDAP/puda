@@ -8,17 +8,10 @@ puda
 │   ├── run                  Run a protocol on machines via NATS
 │   └── validate             Validate a protocol JSON file
 ├── machine
-│   ├── list                 List all alive machines
-│   ├── status               Show overall lab status
-│   ├── first                Liquid handling robot, motion system, and camera
-│   │   ├── status           Get the status of the First machine
-│   │   ├── reset            Reset the First machine
-│   │   ├── commands         Show available commands
-│   │   └── labware          Show available labware
-│   └── biologic             Biologic electrochemical testing device
-│       ├── status           Get the status of the Biologic machine
-│       ├── reset            Reset the Biologic machine
-│       └── commands         Show available commands
+│   ├── list                 Discover machines via heartbeat
+│   ├── state <machine_id>   Get the state of a machine
+│   ├── reset <machine_id>   Reset a machine
+│   └── commands <machine_id> Show available commands
 ├── login                    Log in to a PUDA account
 ├── logout                   Log out of a PUDA account
 ├── config
@@ -64,14 +57,14 @@ Prepend your Python directory to PATH, then run puda:
 
 ```powershell
 $env:PATH = "C:\Python313;$env:PATH"
-.\puda.exe machine first labware
+.\puda.exe machine list
 ```
 
 Use the folder where your `python.exe` lives (e.g. `C:\Python313` if `which python` is `/c/Python313/python`).
 
 
 
-Replace `machine first labware` with any puda command.
+Replace `machine list` with any puda command.
 
 **If you see "Python was not found" (Microsoft Store message)**  
 Disable the Store aliases: **Settings** → **Apps** → **Advanced app settings** → **App execution aliases** → turn **Off** for `python.exe` and `python3.exe`.

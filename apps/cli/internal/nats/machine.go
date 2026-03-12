@@ -4,9 +4,35 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	natsio "github.com/nats-io/nats.go"
 )
+
+// DiscoverMachines subscribes to puda.*.tlm.heartbeat for the given duration
+// and returns the unique machine IDs that were seen.
+func DiscoverMachines(nc *natsio.Conn, timeout time.Duration) ([]string, error) {
+	seen := make(map[string]struct{})
+
+	sub, err := nc.Subscribe("puda.*.tlm.heartbeat", func(msg *natsio.Msg) {
+		parts := strings.Split(msg.Subject, ".")
+		if len(parts) >= 2 {
+			seen[parts[1]] = struct{}{}
+		}
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to subscribe to heartbeat: %w", err)
+	}
+	defer sub.Unsubscribe()
+
+	time.Sleep(timeout)
+
+	machines := make([]string, 0, len(seen))
+	for id := range seen {
+		machines = append(machines, id)
+	}
+	return machines, nil
+}
 
 // GetMachineCommands retrieves the commands of a specific machine from KV store
 func GetMachineCommands(nc *natsio.Conn, machineID string) error {
