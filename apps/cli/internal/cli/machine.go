@@ -30,7 +30,6 @@ var machineCmd = &cobra.Command{
 
 Subcommands:
   list              - List known machines
-  status            - Show overall lab status
   <machine_id>      - Target a specific machine in list
 
 For help: "puda machine --help"`,
@@ -50,20 +49,6 @@ var machineListCmd = &cobra.Command{
 	},
 }
 
-var machineStatusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Show overall lab status",
-	Long:  `Show the status of all machines in the lab by listening to heartbeats.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		nc, err := connectMachineNATS()
-		if err != nil {
-			return err
-		}
-		defer nc.Close()
-		return pudanats.ListAliveMachines(nc)
-	},
-}
-
 func registerMachine(def machineDefinition) {
 	id := def.ID
 	className := def.ClassName
@@ -77,16 +62,16 @@ func registerMachine(def machineDefinition) {
 		},
 	}
 
-	statusCmd := &cobra.Command{
-		Use:   "status",
-		Short: fmt.Sprintf("Get the status of the %s machine", id),
+	stateCmd := &cobra.Command{
+		Use:   "state",
+		Short: fmt.Sprintf("Get the state of the %s machine", id),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nc, err := connectMachineNATS()
 			if err != nil {
 				return err
 			}
 			defer nc.Close()
-			return pudanats.GetSingleMachineStatus(nc, id)
+			return pudanats.GetSingleMachineState(nc, id)
 		},
 	}
 
@@ -112,7 +97,7 @@ func registerMachine(def machineDefinition) {
 		},
 	}
 
-	parentCmd.AddCommand(statusCmd)
+	parentCmd.AddCommand(stateCmd)
 	parentCmd.AddCommand(resetCmd)
 	parentCmd.AddCommand(commandsCmd)
 	machineCmd.AddCommand(parentCmd)
@@ -121,7 +106,6 @@ func registerMachine(def machineDefinition) {
 func init() {
 	machineCmd.PersistentFlags().StringVar(&machineNatsServers, "nats-servers", "", "Comma-separated NATS server URLs (overrides puda.config)")
 	machineCmd.AddCommand(machineListCmd)
-	machineCmd.AddCommand(machineStatusCmd)
 
 	for _, def := range machines {
 		registerMachine(def)

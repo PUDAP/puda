@@ -377,7 +377,7 @@ class EdgeNatsClient:
         
         try:
             await self.kv_commands.put(self.machine_id, json.dumps(data).encode())
-            logger.info("Published commands to KV store: %s", data)
+            logger.info("Published commands to KV store")
         except Exception as e:
             logger.error("Error publishing command to KV store: %s", e)
             

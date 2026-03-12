@@ -126,9 +126,9 @@ class EdgeRunner:
     async def run(self) -> None:
         """Subscribe to commands and run the main loop."""
         await self._setup_subscriptions()
-        await self._run_main_loop()
         # publish commands to KV store (only need to do this once on startup)
         await self._publish_commands()
+        await self._run_main_loop()
 
     # -- subscription / connection -------------------------------------------
 

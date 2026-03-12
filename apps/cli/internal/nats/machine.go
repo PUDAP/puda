@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	natsio "github.com/nats-io/nats.go"
 )
@@ -23,7 +22,7 @@ func GetMachineCommands(nc *natsio.Conn, machineID string) error {
 
 	entry, err := kv.Get(machineID)
 	if err != nil {
-		return fmt.Errorf("failed to get machine commands: %w", err)
+		return fmt.Errorf("failed to get %s commands: %w", machineID, err)
 	}
 
 	var commands map[string]string
@@ -36,8 +35,8 @@ func GetMachineCommands(nc *natsio.Conn, machineID string) error {
 	return nil
 }
 
-// GetSingleMachineStatus retrieves the status of a specific machine from KV store
-func GetSingleMachineStatus(nc *natsio.Conn, machineID string) error {
+// GetSingleMachineState retrieves the state of a specific machine from KV store
+func GetSingleMachineState(nc *natsio.Conn, machineID string) error {
 	js, err := nc.JetStream()
 	if err != nil {
 		return fmt.Errorf("failed to get JetStream context: %w", err)
@@ -65,8 +64,8 @@ func GetSingleMachineStatus(nc *natsio.Conn, machineID string) error {
 		return fmt.Errorf("failed to get machine state: %w", err)
 	}
 
-	var status map[string]interface{}
-	if err := json.Unmarshal(entry.Value(), &status); err != nil {
+	var state map[string]interface{}
+	if err := json.Unmarshal(entry.Value(), &state); err != nil {
 		errorResponse := map[string]string{
 			"error": fmt.Sprintf("Failed to parse state JSON for %s: %v", machineID, err),
 		}
@@ -75,46 +74,12 @@ func GetSingleMachineStatus(nc *natsio.Conn, machineID string) error {
 		return fmt.Errorf("failed to parse state JSON: %w", err)
 	}
 
-	jsonBytes, err := json.MarshalIndent(status, "", "  ")
+	jsonBytes, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to marshal status: %w", err)
+		return fmt.Errorf("failed to marshal state: %w", err)
 	}
 	fmt.Println(string(jsonBytes))
 
 	return nil
 }
 
-// ListAliveMachines listens to heartbeat messages and returns a list of alive machines
-func ListAliveMachines(nc *natsio.Conn) error {
-	machineHeartbeats := make(map[string]time.Time)
-
-	subject := "puda.*.tlm.heartbeat"
-	sub, err := nc.Subscribe(subject, func(msg *natsio.Msg) {
-		parts := strings.Split(msg.Subject, ".")
-		if len(parts) >= 2 {
-			machineID := parts[1]
-			machineHeartbeats[machineID] = time.Now()
-		}
-	})
-	if err != nil {
-		return fmt.Errorf("failed to subscribe to heartbeat messages: %w", err)
-	}
-	defer sub.Unsubscribe()
-
-	// Listen for 3 seconds to catch at least one heartbeat cycle
-	time.Sleep(3 * time.Second)
-
-	if len(machineHeartbeats) == 0 {
-		fmt.Println("No alive machines found")
-		return nil
-	}
-
-	fmt.Printf("%-20s %-30s\n", "MACHINE ID", "LAST HEARTBEAT")
-	fmt.Println(strings.Repeat("-", 52))
-
-	for machineID, timestamp := range machineHeartbeats {
-		fmt.Printf("%-20s %-30s\n", machineID, timestamp.Format(time.RFC3339))
-	}
-
-	return nil
-}
