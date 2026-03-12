@@ -13,7 +13,7 @@ import (
 type machineDefinition struct {
 	ID        string // CLI subcommand name, e.g. "biologic"
 	Short     string // one-line description shown in help
-	ClassName string // Python class name in puda_drivers.machines
+	ClassName string // Python class name for machine
 }
 
 var machines = []machineDefinition{

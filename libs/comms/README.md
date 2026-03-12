@@ -215,7 +215,7 @@ The recommended way to use `CommandService` is with an async context manager, wh
 
 Queue commands are regular commands that are executed in sequence. Use `send_queue_command()` for machine-specific operations.
 
-**Note:** Available commands depend on the machine you are controlling. Different machines support different command sets. See [`puda_drivers`](../drivers/README.md) for information about available commands for each machine type (e.g., `first` machine supports commands like `load_deck`, `attach_tip`, `aspirate_from`, `dispense_to`, `drop_tip`, etc.).
+**Note:** Available commands depend on the machine you are controlling. Different machines support different command sets (e.g., `first` machine supports commands like `load_deck`, `attach_tip`, `aspirate_from`, `dispense_to`, `drop_tip`, etc.).
 
 Both `send_queue_command()`, `send_queue_commands()`, and `send_immediate_command()` accept an optional `timeout` parameter (default: 120 seconds):
 

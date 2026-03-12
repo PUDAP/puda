@@ -62,7 +62,6 @@ View the interactive diagram on Excalidraw:
 
 ## Libraries
 
-- **puda-drivers**: Hardware controllers (GCode, Sartorius, Camera)
 - **puda-comms**: NATS client (EdgeNatsClient, CommandService)
 - **puda-db**: Database utilities
 
@@ -75,6 +74,5 @@ View the interactive diagram on Excalidraw:
 ## Related Documentation
 
 - [NATS Architecture](./nats_architecture_diagram.md) - Detailed NATS messaging patterns
-- [Simulation Implementation](./simulation_implementation.md) - How simulation works
 - [Backend README](../apps/backend/README.md) - Backend service details
 - [Logger Service README](../services/logger/README.md) - Logger service details

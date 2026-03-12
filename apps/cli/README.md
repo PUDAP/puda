@@ -71,7 +71,7 @@ Use the folder where your `python.exe` lives (e.g. `C:\Python313` if `which pyth
 
 
 
-Replace `machine first labware` with any puda command. Ensure `pip install --upgrade puda-drivers` was run with this same Python.
+Replace `machine first labware` with any puda command.
 
 **If you see "Python was not found" (Microsoft Store message)**  
 Disable the Store aliases: **Settings** → **Apps** → **Advanced app settings** → **App execution aliases** → turn **Off** for `python.exe` and `python3.exe`.
