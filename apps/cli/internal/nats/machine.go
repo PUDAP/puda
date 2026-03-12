@@ -82,4 +82,3 @@ func GetSingleMachineState(nc *natsio.Conn, machineID string) error {
 
 	return nil
 }
-
