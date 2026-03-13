@@ -148,8 +148,8 @@ func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, requests []puda.
 	return nil
 }
 
-// SendProtocol executes a puda protocol via NATS
-func SendProtocol(protocolFile *puda.ProtocolFile, natsServers string) error {
+// RunProtocol executes a puda protocol via NATS
+func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string) error {
 	// Initialize database connection (optional - if it fails, database operations will be skipped gracefully)
 	store, err := db.Connect()
 	if err != nil {

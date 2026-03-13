@@ -37,3 +37,4 @@ logs/
 dist/
 puda.db
 puda.config
+puda

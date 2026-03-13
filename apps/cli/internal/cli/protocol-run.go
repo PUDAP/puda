@@ -23,8 +23,7 @@ Optional: --nats-servers to override NATS server URLs in config file.
 
 Example:
   puda protocol run --file protocol.json`,
-	RunE:         runProtocol,
-	SilenceUsage: true,
+	RunE: runProtocol,
 }
 
 // Protocol run flags
@@ -71,7 +70,7 @@ func runProtocol(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to insert protocol into database: %w", err)
 	}
 
-	if err := nats.SendProtocol(&protocolFile, natsServers); err != nil {
+	if err := nats.RunProtocol(&protocolFile, natsServers); err != nil {
 		return fmt.Errorf("failed to run protocol: %w", err)
 	}
 	return nil
