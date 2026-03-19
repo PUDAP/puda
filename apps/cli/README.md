@@ -28,20 +28,27 @@ puda
 
 ## Setup
 
-After extracting, place in the project folder, then follow these steps:
+After extracting the CLI, place the `puda` binary in your PATH (Linux: `~/.local/bin`, macOS: `/usr/local/bin` or `~/.local/bin`, Windows: `%USERPROFILE%\bin` or another folder already on your PATH).
 
-1. **Login**: Run `puda login` and enter your username.
+Then run the following:
 
-2. **Initialize project**: 
+1. **Log in**
+   ```bash
+   puda login
+   ```
+   Enter your username when prompted.
+
+2. **Initialize your project**
+   From the parent directory:
    ```bash
    puda init <project_folder>
    ```
-   Or if you're already the project folder:
+   If you are already inside the project folder:
    ```bash
    puda init .
    ```
 
-3. **Install Skills**:
+3. **Install skills**
    ```bash
    puda skills install
    ```

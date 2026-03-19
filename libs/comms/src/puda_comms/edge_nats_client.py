@@ -976,7 +976,7 @@ class EdgeNatsClient:
                        self.STREAM_COMMAND_IMMEDIATE)
             raise
         
-        logger.info("Subscribed to immediate commands: %s (durable: cmd_immed_%s, stream: %s)",
+        logger.info("Subscribed to immediate commands: %s (durable: cmd_immed_%s, stream: %s, push consumer)",
                    self.cmd_immediate, self.machine_id, self.STREAM_COMMAND_IMMEDIATE)
     
     
