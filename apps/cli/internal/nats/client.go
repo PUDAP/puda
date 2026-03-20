@@ -12,7 +12,7 @@ import (
 )
 
 // SendImmediateCommand sends an immediate command to a machine
-func SendImmediateCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.CommandRequest, runID, userID, username string, timeoutSeconds int, store *db.Store) (*puda.NATSMessage, error) {
+func SendImmediateCommand(js nats.JetStreamContext, dispatcher *ResponseDispatcher, request puda.CommandRequest, runID, userID, username string, timeoutSeconds int, store *db.Store) (*puda.NATSMessage, error) {
 	subject := fmt.Sprintf("puda.%s.cmd.immediate", request.MachineID)
 	payload := BuildCommandPayload(request, request.MachineID, runID, userID, username)
 
@@ -21,37 +21,8 @@ func SendImmediateCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.
 		return nil, fmt.Errorf("failed to marshal command payload: %w", err)
 	}
 
-	// Subscribe to response stream before publishing
-	responseSubject := fmt.Sprintf("puda.%s.cmd.response.immediate", request.MachineID)
-	responseCh := make(chan *puda.NATSMessage, 1)
-
-	// Create ephemeral consumer for response stream
-	sub, err := js.Subscribe(responseSubject, func(msg *nats.Msg) {
-		var response puda.NATSMessage
-		if err := json.Unmarshal(msg.Data, &response); err != nil {
-			log.Printf("Failed to unmarshal response: %v", err)
-			msg.Ack()
-			return
-		}
-
-		// Check if this response matches our request (run_id and step_number)
-		if response.Header.RunID != nil && *response.Header.RunID == runID {
-			if response.Command != nil && response.Command.StepNumber == request.StepNumber {
-				select {
-				case responseCh <- &response:
-				default:
-				}
-				msg.Ack()
-				return
-			}
-		}
-		// Not our response, acknowledge to remove from queue
-		msg.Ack()
-	}, nats.Durable(fmt.Sprintf("batch-immediate-%s-%d", runID, request.StepNumber)))
-	if err != nil {
-		return nil, fmt.Errorf("failed to subscribe to response: %w", err)
-	}
-	defer sub.Unsubscribe()
+	responseCh := dispatcher.Register(runID, request.StepNumber)
+	defer dispatcher.Unregister(runID, request.StepNumber)
 
 	// Publish command
 	_, err = js.Publish(subject, payloadJSON)
@@ -63,11 +34,9 @@ func SendImmediateCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.
 	timeout := time.Duration(timeoutSeconds) * time.Second
 	select {
 	case response := <-responseCh:
-		// Insert into database if response exists and store is available
 		if store != nil && response.Response != nil {
 			if err := store.InsertCommandLog(response, "immediate"); err != nil {
 				log.Printf("Failed to insert command log: %v", err)
-				// Don't fail the command if logging fails
 			}
 		}
 		return response, nil
@@ -77,7 +46,7 @@ func SendImmediateCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.
 }
 
 // SendQueueCommand sends a queued command to a machine
-func SendQueueCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.CommandRequest, runID, userID, username string, store *db.Store) (*puda.NATSMessage, error) {
+func SendQueueCommand(js nats.JetStreamContext, dispatcher *ResponseDispatcher, request puda.CommandRequest, runID, userID, username string, store *db.Store) (*puda.NATSMessage, error) {
 	subject := fmt.Sprintf("puda.%s.cmd.queue", request.MachineID)
 	payload := BuildCommandPayload(request, request.MachineID, runID, userID, username)
 
@@ -86,37 +55,8 @@ func SendQueueCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.Comm
 		return nil, fmt.Errorf("failed to marshal command payload: %w", err)
 	}
 
-	// Subscribe to response stream before publishing
-	responseSubject := fmt.Sprintf("puda.%s.cmd.response.queue", request.MachineID)
-	responseCh := make(chan *puda.NATSMessage, 1)
-
-	// Create ephemeral consumer for response stream
-	sub, err := js.Subscribe(responseSubject, func(msg *nats.Msg) {
-		var response puda.NATSMessage
-		if err := json.Unmarshal(msg.Data, &response); err != nil {
-			log.Printf("Failed to unmarshal response: %v", err)
-			msg.Ack()
-			return
-		}
-
-		// Check if this response matches our request (run_id and step_number)
-		if response.Header.RunID != nil && *response.Header.RunID == runID {
-			if response.Command != nil && response.Command.StepNumber == request.StepNumber {
-				select {
-				case responseCh <- &response:
-				default:
-				}
-				msg.Ack()
-				return
-			}
-		}
-		// Not our response, acknowledge to remove from queue
-		msg.Ack()
-	}, nats.Durable(fmt.Sprintf("batch-queue-%s-%d", runID, request.StepNumber)))
-	if err != nil {
-		return nil, fmt.Errorf("failed to subscribe to response: %w", err)
-	}
-	defer sub.Unsubscribe()
+	responseCh := dispatcher.Register(runID, request.StepNumber)
+	defer dispatcher.Unregister(runID, request.StepNumber)
 
 	// Publish command with ack wait long enough for busy streams (default is 5s), retry up to 3 times
 	const publishAckWait = 10 * time.Second
@@ -136,18 +76,16 @@ func SendQueueCommand(nc *nats.Conn, js nats.JetStreamContext, request puda.Comm
 
 	// Wait for response (no timeout)
 	response := <-responseCh
-	// Insert into database if response exists and store is available
 	if store != nil && response.Response != nil {
 		if err := store.InsertCommandLog(response, "queue"); err != nil {
 			log.Printf("Failed to insert command log: %v", err)
-			// Don't fail the command if logging fails
 		}
 	}
 	return response, nil
 }
 
 // SendStartCommand sends a START command to a machine
-func SendStartCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID, userID, username string, timeoutSeconds int, store *db.Store) (*puda.NATSMessage, error) {
+func SendStartCommand(js nats.JetStreamContext, dispatcher *ResponseDispatcher, machineID, runID, userID, username string, timeoutSeconds int, store *db.Store) (*puda.NATSMessage, error) {
 	request := puda.CommandRequest{
 		Name:       puda.ImmediateCommandStart,
 		MachineID:  machineID,
@@ -155,11 +93,11 @@ func SendStartCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID,
 		StepNumber: 0,
 		Version:    "1.0",
 	}
-	return SendImmediateCommand(nc, js, request, runID, userID, username, timeoutSeconds, store)
+	return SendImmediateCommand(js, dispatcher, request, runID, userID, username, timeoutSeconds, store)
 }
 
 // SendCompleteCommand sends a COMPLETE command to a machine
-func SendCompleteCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID, userID, username string, timeoutSeconds int, stepNumber int, store *db.Store) (*puda.NATSMessage, error) {
+func SendCompleteCommand(js nats.JetStreamContext, dispatcher *ResponseDispatcher, machineID, runID, userID, username string, timeoutSeconds int, stepNumber int, store *db.Store) (*puda.NATSMessage, error) {
 	request := puda.CommandRequest{
 		Name:       puda.ImmediateCommandComplete,
 		MachineID:  machineID,
@@ -167,11 +105,11 @@ func SendCompleteCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, run
 		StepNumber: stepNumber,
 		Version:    "1.0",
 	}
-	return SendImmediateCommand(nc, js, request, runID, userID, username, timeoutSeconds, store)
+	return SendImmediateCommand(js, dispatcher, request, runID, userID, username, timeoutSeconds, store)
 }
 
 // SendResetCommand sends a RESET immediate command to a machine
-func SendResetCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID, userID, username string, timeoutSeconds int, store *db.Store) (*puda.NATSMessage, error) {
+func SendResetCommand(js nats.JetStreamContext, dispatcher *ResponseDispatcher, machineID, runID, userID, username string, timeoutSeconds int, store *db.Store) (*puda.NATSMessage, error) {
 	request := puda.CommandRequest{
 		Name:       puda.ImmediateCommandReset,
 		MachineID:  machineID,
@@ -179,5 +117,5 @@ func SendResetCommand(nc *nats.Conn, js nats.JetStreamContext, machineID, runID,
 		StepNumber: 0,
 		Version:    "1.0",
 	}
-	return SendImmediateCommand(nc, js, request, runID, userID, username, timeoutSeconds, store)
+	return SendImmediateCommand(js, dispatcher, request, runID, userID, username, timeoutSeconds, store)
 }

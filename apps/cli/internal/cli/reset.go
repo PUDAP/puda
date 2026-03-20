@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/PUDAP/puda/apps/cli/internal/db"
-	"github.com/PUDAP/puda/apps/cli/internal/nats"
+	pudanats "github.com/PUDAP/puda/apps/cli/internal/nats"
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
 )
 
@@ -41,7 +41,13 @@ func resetMachine(machineID string) error {
 		return fmt.Errorf("failed to get JetStream context: %w", err)
 	}
 
-	response, err := nats.SendResetCommand(nc, js, machineID, "", userID, username, resetTimeoutSeconds, store)
+	dispatcher := pudanats.NewResponseDispatcher(js, userID)
+	if err := dispatcher.Start(); err != nil {
+		return fmt.Errorf("failed to start response dispatcher: %w", err)
+	}
+	defer dispatcher.Close()
+
+	response, err := pudanats.SendResetCommand(js, dispatcher, machineID, "", userID, username, resetTimeoutSeconds, store)
 	if err != nil {
 		return err
 	}
