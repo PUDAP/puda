@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
 	"github.com/nats-io/nats.go"
@@ -13,6 +14,7 @@ import (
 const (
 	streamResponseImmediate = "RESPONSE_IMMEDIATE"
 	streamResponseQueue     = "RESPONSE_QUEUE"
+	responseConsumerTTL     = 5 * time.Minute
 )
 
 type responseKey struct {
@@ -40,11 +42,9 @@ func NewResponseDispatcher(js nats.JetStreamContext, userID string) *ResponseDis
 	}
 }
 
-// Start creates the two durable push subscriptions (one per response stream).
-// Both use the same durable name scoped to the user: user-<userID>.
+// Start creates two ephemeral push subscriptions (one per response stream).
+// The server will delete them automatically after a period of inactivity.
 func (d *ResponseDispatcher) Start() error {
-	durable := fmt.Sprintf("user-%s", d.userID)
-
 	handler := func(msg *nats.Msg) {
 		var response puda.NATSMessage
 		if err := json.Unmarshal(msg.Data, &response); err != nil {
@@ -81,9 +81,9 @@ func (d *ResponseDispatcher) Start() error {
 	d.immediateSub, err = d.js.Subscribe(
 		"puda.*.cmd.response.immediate",
 		handler,
-		nats.Durable(durable),
 		nats.DeliverNew(),
 		nats.BindStream(streamResponseImmediate),
+		nats.InactiveThreshold(responseConsumerTTL),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to immediate responses: %w", err)
@@ -92,9 +92,9 @@ func (d *ResponseDispatcher) Start() error {
 	d.queueSub, err = d.js.Subscribe(
 		"puda.*.cmd.response.queue",
 		handler,
-		nats.Durable(durable),
 		nats.DeliverNew(),
 		nats.BindStream(streamResponseQueue),
+		nats.InactiveThreshold(responseConsumerTTL),
 	)
 	if err != nil {
 		d.immediateSub.Unsubscribe()
