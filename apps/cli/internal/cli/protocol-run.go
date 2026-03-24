@@ -30,12 +30,14 @@ Example:
 var (
 	protocolFilePath string
 	natsServers      string
+	startStep        int
 )
 
 // init registers flags for the run command
 func init() {
 	protocolRunCmd.Flags().StringVarP(&protocolFilePath, "file", "f", "", "Path to JSON file containing protocol (required)")
 	protocolRunCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Optional: Comma-separated NATS server URLs - overrides config file")
+	protocolRunCmd.Flags().IntVar(&startStep, "start-step", 1, "Optional: step number to start running commands from")
 	protocolRunCmd.MarkFlagRequired("file")
 }
 
@@ -70,7 +72,7 @@ func runProtocol(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to insert protocol into database: %w", err)
 	}
 
-	if err := nats.RunProtocol(&protocolFile, natsServers); err != nil {
+	if err := nats.RunProtocol(&protocolFile, natsServers, startStep); err != nil {
 		return fmt.Errorf("failed to run protocol: %w", err)
 	}
 	return nil

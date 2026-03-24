@@ -32,10 +32,14 @@ func completeAllMachines(js nats.JetStreamContext, dispatcher *ResponseDispatche
 // SendQueueCommands sends a batch of queued commands sequentially
 func SendQueueCommands(js nats.JetStreamContext, dispatcher *ResponseDispatcher, requests []puda.CommandRequest, runID, userID, username string, store *db.Store) error {
 	const defaultTimeout = 30 // for immediate commands which should complete pretty much instantly
-	completeStepNumber := len(requests) + 1
 
 	if len(requests) == 0 {
 		return fmt.Errorf("no commands to send")
+	}
+
+	completeStepNumber := len(requests) + 1
+	if lastStepNumber := requests[len(requests)-1].StepNumber; lastStepNumber > 0 {
+		completeStepNumber = lastStepNumber + 1
 	}
 
 	// Collect unique machine IDs
@@ -149,7 +153,7 @@ func SendQueueCommands(js nats.JetStreamContext, dispatcher *ResponseDispatcher,
 }
 
 // RunProtocol executes a puda protocol via NATS
-func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string) error {
+func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string, startStep int) error {
 	// Initialize database connection (optional - if it fails, database operations will be skipped gracefully)
 	store, err := db.Connect()
 	if err != nil {
@@ -244,8 +248,19 @@ func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string) error {
 	}
 	defer dispatcher.Close()
 
+	// Extract commands from protocol file
 	commands := protocolFile.Commands
-	log.Printf("Loaded %d commands from protocol\n", len(commands))
+	if len(commands) == 0 {
+		return fmt.Errorf("protocol contains no commands")
+	}
+	if startStep < 1 || startStep > len(commands) {
+		return fmt.Errorf("start step must be between 1 and %d", len(commands))
+	}
+	if startStep > 1 {
+		log.Printf("Starting protocol from step %d", startStep)
+		commands = commands[startStep-1:]
+	}
+	log.Printf("Loaded %d commands from protocol, executing %d command(s) starting at step %d\n", len(protocolFile.Commands), len(commands), startStep)
 
 	// Send batch commands
 	if err := SendQueueCommands(js, dispatcher, commands, runID, finalUserID, finalUsername, store); err != nil {
