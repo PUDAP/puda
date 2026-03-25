@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -14,6 +15,7 @@ import (
 const heartbeatTimeout = 2 * time.Second
 
 var machineNatsServers string
+var machineListJSON bool
 
 var machineCmd = &cobra.Command{
 	Use:   "machine",
@@ -35,15 +37,30 @@ var machineListCmd = &cobra.Command{
 		}
 		defer nc.Close()
 
-		machines, err := pudanats.DiscoverMachines(nc, heartbeatTimeout)
+		machines, err := pudanats.ListMachines(nc, heartbeatTimeout)
 		if err != nil {
 			return err
+		}
+		sort.Strings(machines)
+		if machineListJSON {
+			encoded, err := json.MarshalIndent(struct {
+				Machines []string `json:"machines"`
+				Count    int      `json:"count"`
+			}{
+				Machines: machines,
+				Count:    len(machines),
+			}, "", "  ")
+			if err != nil {
+				return fmt.Errorf("failed to encode machine list: %w", err)
+			}
+			fmt.Println(string(encoded))
+			return nil
 		}
 		if len(machines) == 0 {
 			fmt.Println("No machines found.")
 			return nil
 		}
-		sort.Strings(machines)
+		fmt.Printf("%d machines found:\n", len(machines))
 		for _, id := range machines {
 			fmt.Printf("  %s\n", id)
 		}
@@ -90,6 +107,7 @@ var machineCommandsCmd = &cobra.Command{
 
 func init() {
 	machineCmd.PersistentFlags().StringVar(&machineNatsServers, "nats-servers", "", "Comma-separated NATS server URLs (overrides puda.config)")
+	machineListCmd.Flags().BoolVar(&machineListJSON, "json", false, "Output machine list as JSON")
 	machineCmd.AddCommand(machineListCmd)
 	machineCmd.AddCommand(machineStateCmd)
 	machineCmd.AddCommand(machineResetCmd)

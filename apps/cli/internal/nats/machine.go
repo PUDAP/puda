@@ -9,9 +9,9 @@ import (
 	natsio "github.com/nats-io/nats.go"
 )
 
-// DiscoverMachines subscribes to puda.*.tlm.heartbeat for the given duration
+// ListMachines subscribes to puda.*.tlm.heartbeat for the given duration
 // and returns the unique machine IDs that were seen.
-func DiscoverMachines(nc *natsio.Conn, timeout time.Duration) ([]string, error) {
+func ListMachines(nc *natsio.Conn, timeout time.Duration) ([]string, error) {
 	seen := make(map[string]struct{})
 
 	sub, err := nc.Subscribe("puda.*.tlm.heartbeat", func(msg *natsio.Msg) {
