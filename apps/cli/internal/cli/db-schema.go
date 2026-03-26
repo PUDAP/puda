@@ -27,4 +27,3 @@ func runDbSchema(cmd *cobra.Command, args []string) error {
 	fmt.Print(schema)
 	return nil
 }
-

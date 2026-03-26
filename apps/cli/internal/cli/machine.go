@@ -1,9 +1,13 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/signal"
 	"sort"
+	"syscall"
 	"time"
 
 	pudanats "github.com/PUDAP/puda/apps/cli/internal/nats"
@@ -16,6 +20,10 @@ const heartbeatTimeout = 2 * time.Second
 
 var machineNatsServers string
 var machineListJSON bool
+var watchTargets []string
+var watchTimeout int
+var watchSubjects []string
+var watchIncludeHeartbeat bool
 
 var machineCmd = &cobra.Command{
 	Use:   "machine",
@@ -105,13 +113,80 @@ var machineCommandsCmd = &cobra.Command{
 	},
 }
 
+var machineWatchCmd = &cobra.Command{
+	Use:   "watch --targets <machine_id1,machine_id2> [--subjects <subject1,subject2>]",
+	Short: "Stream telemetry and events from one or more machines as NDJSON",
+	Long: `Subscribe to puda.<machine_id>.tlm.* and puda.<machine_id>.evt.* for each
+target and stream every message to stdout as newline-delimited JSON.
+
+If --subjects is omitted all subjects are included. Use --timeout to auto-stop
+after N seconds, or Ctrl-C to stop.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(watchTargets) == 0 {
+			return fmt.Errorf("at least one target is required (use --targets)")
+		}
+
+		nc, err := connectMachineNATS()
+		if err != nil {
+			return err
+		}
+		defer nc.Close()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-sigCh
+			cancel()
+		}()
+
+		if watchTimeout > 0 {
+			var timeoutCancel context.CancelFunc
+			ctx, timeoutCancel = context.WithTimeout(ctx, time.Duration(watchTimeout)*time.Second)
+			defer timeoutCancel()
+		}
+
+		opts := pudanats.WatchOpts{
+			IncludeHeartbeat: watchIncludeHeartbeat,
+		}
+		if len(watchSubjects) > 0 {
+			opts.Subjects = make(map[string]struct{}, len(watchSubjects))
+			for _, t := range watchSubjects {
+				opts.Subjects[t] = struct{}{}
+			}
+		}
+
+		events, err := pudanats.SubscribeMachineSubjects(ctx, nc, watchTargets, opts)
+		if err != nil {
+			return err
+		}
+
+		enc := json.NewEncoder(os.Stdout)
+		for evt := range events {
+			if err := enc.Encode(evt); err != nil {
+				return fmt.Errorf("failed to write event: %w", err)
+			}
+		}
+		return nil
+	},
+}
+
 func init() {
 	machineCmd.PersistentFlags().StringVar(&machineNatsServers, "nats-servers", "", "Comma-separated NATS server URLs (overrides puda.config)")
 	machineListCmd.Flags().BoolVar(&machineListJSON, "json", false, "Output machine list as JSON")
+	machineWatchCmd.Flags().StringSliceVar(&watchTargets, "targets", nil, "Comma-separated list of machine IDs to watch")
+	machineWatchCmd.MarkFlagRequired("targets")
+	machineWatchCmd.Flags().IntVar(&watchTimeout, "timeout", 0, "Auto-stop after N seconds (0 = run until interrupted)")
+	machineWatchCmd.Flags().StringSliceVar(&watchSubjects, "subjects", nil, "Comma-separated list of subjects to include (e.g. pos,health,alert)")
+	machineWatchCmd.Flags().BoolVar(&watchIncludeHeartbeat, "include-heartbeat", false, "Include heartbeat messages (excluded by default)")
 	machineCmd.AddCommand(machineListCmd)
 	machineCmd.AddCommand(machineStateCmd)
 	machineCmd.AddCommand(machineResetCmd)
 	machineCmd.AddCommand(machineCommandsCmd)
+	machineCmd.AddCommand(machineWatchCmd)
 }
 
 func connectMachineNATS() (*natsio.Conn, error) {

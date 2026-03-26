@@ -39,7 +39,7 @@ Then run the following:
    Enter your username when prompted.
 
 2. **Initialize your project**
-   From the parent directory:
+   Navigate to your workspace:
    ```bash
    puda init <project_folder>
    ```
@@ -64,14 +64,11 @@ Prepend your Python directory to PATH, then run puda:
 
 ```powershell
 $env:PATH = "C:\Python313;$env:PATH"
-.\puda.exe machine list
+.\puda.exe
 ```
 
 Use the folder where your `python.exe` lives (e.g. `C:\Python313` if `which python` is `/c/Python313/python`).
 
-
-
-Replace `machine list` with any puda command.
 
 **If you see "Python was not found" (Microsoft Store message)**  
 Disable the Store aliases: **Settings** → **Apps** → **Advanced app settings** → **App execution aliases** → turn **Off** for `python.exe` and `python3.exe`.
