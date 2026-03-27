@@ -24,7 +24,7 @@ type Store struct {
 
 // Connect initializes the database connection using the path from the PUDA project configuration.
 // The database file will be automatically created if it doesn't exist.
-// Requires a project-level puda.config file (run 'puda init' to create it).
+// Requires a project-level config.json file (run 'puda init' to create it).
 func Connect() (*Store, error) {
 	cfg, err := puda.LoadProjectConfig()
 	if err != nil {

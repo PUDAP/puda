@@ -1,5 +1,7 @@
 package puda
 
+import "encoding/json"
+
 // CommandRequest represents a command request
 type CommandRequest struct {
 	Name       string                 `json:"name"`
@@ -80,27 +82,53 @@ type ProtocolFile struct {
 	Commands    []CommandRequest `json:"commands"`
 }
 
+type ConfigUser struct {
+	Username string `json:"username"`
+	UserID   string `json:"user_id"`
+}
+
+// UnmarshalJSON keeps config loading compatible with the legacy "userid" key.
+func (u *ConfigUser) UnmarshalJSON(data []byte) error {
+	type configUserAlias struct {
+		Username     string `json:"username"`
+		UserID       string `json:"user_id"`
+		LegacyUserID string `json:"userid"`
+	}
+
+	var alias configUserAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	u.Username = alias.Username
+	u.UserID = alias.UserID
+	if u.UserID == "" {
+		u.UserID = alias.LegacyUserID
+	}
+
+	return nil
+}
+
+type ConfigEndpoints struct {
+	NATS string `json:"nats"`
+}
+
+type ConfigDatabase struct {
+	Path string `json:"path"`
+}
+
 // GlobalConfig represents the structure of the global PUDA CLI configuration file.
 // This is stored in the user's config directory and only contains user identity.
 type GlobalConfig struct {
-	User struct {
-		Username string `json:"username"`
-		UserID   string `json:"userid"`
-	} `json:"user"`
+	User ConfigUser `json:"user"`
 }
 
-// ProjectConfig represents the structure of the project-level PUDA CLI configuration file.
+// ProjectConfig represents the structure of the project-level PUDA CLI config.json file.
 // This is stored in each project directory and contains project-specific settings.
 type ProjectConfig struct {
-	User struct {
-		Username string `json:"username"`
-		UserID   string `json:"userid"`
-	} `json:"user"`
-	Endpoints struct {
-		NATS string `json:"nats"`
-	} `json:"endpoints"`
-	Database struct {
-		Path string `json:"path"`
-	} `json:"database"`
-	ProjectRoot string `json:"project_root"`
+	User        ConfigUser      `json:"user"`
+	Endpoints   ConfigEndpoints `json:"endpoints"`
+	Database    ConfigDatabase  `json:"database"`
+	ProjectID   string          `json:"project_id"`
+	ProjectRoot string          `json:"project_root"`
 }

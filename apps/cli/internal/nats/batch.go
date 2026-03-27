@@ -167,7 +167,7 @@ func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string, startStep 
 	cfg, err := puda.LoadProjectConfig()
 	if err != nil && natsServers == "" {
 		// Only error if config is missing AND no flag provided
-		return fmt.Errorf("NATS endpoint is required (set in puda.config or use --nats-servers flag): %w", err)
+		return fmt.Errorf("NATS endpoint is required (set in project config.json or use --nats-servers flag): %w", err)
 	}
 
 	finalNatsServers := natsServers
@@ -200,7 +200,7 @@ func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string, startStep 
 	}
 
 	// Set up logging to both console and file
-	logsDir := filepath.Join(cfg.ProjectRoot, protocolFile.ProjectID, "logs")
+	logsDir := filepath.Join(cfg.ProjectRoot, "logs")
 	if err := os.MkdirAll(logsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create logs directory: %w", err)
 	}

@@ -8,7 +8,13 @@ import (
 
 	"github.com/PUDAP/puda/apps/cli/internal/db"
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+)
+
+var (
+	projectName        string
+	projectDescription string
 )
 
 // initCmd initializes a new PUDA project
@@ -17,137 +23,202 @@ var initCmd = &cobra.Command{
 	Short: "Initialize a new PUDA project",
 	Long: `Initialize a new PUDA project.
 
-This command sets up a new PUDA project in the specified directory (or current directory if not specified).
-It will:
-  - Initialize the database schema
-  - Install OpenSkills in the project (puda skills install)
-  - Set up project structure (more features coming soon)
-
-The database path must be set in your config before running this command.
-Use 'puda config edit' to set the database.path if needed.
+This command has the same behavior as "puda project create".
+It initializes the workspace config and database, creates a new project UUID,
+and scaffolds the project root with config.json, puda.db, and project.md.
 
 Examples:
-  puda init              # Initialize in current directory
-  puda init .            # Initialize in current directory
-  puda init ./my-project # Initialize in ./my-project directory
+  puda init --name "Test Project"
+  puda init ./my-project --name "Test Project" --description "Initial project"
 `,
-	RunE:         runInit,
-	Args:         cobra.MaximumNArgs(1),
-	SilenceUsage: true,
+	RunE: runProjectCreate,
+	Args: cobra.MaximumNArgs(1),
 }
 
-// runInit executes the project initialization
-func runInit(cmd *cobra.Command, args []string) error {
-	// Determine target directory
-	var targetDir string
-	if len(args) > 0 && args[0] != "" {
-		targetDir = args[0]
-		// Handle "." as current directory
-		if targetDir == "." {
-			var err error
-			targetDir, err = os.Getwd()
-			if err != nil {
-				return fmt.Errorf("failed to get current directory: %w", err)
-			}
-		}
-	} else {
-		var err error
-		targetDir, err = os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get current directory: %w", err)
-		}
-	}
+func init() {
+	initCmd.Flags().StringVar(&projectName, "name", "", "Project name (required)")
+	initCmd.Flags().StringVar(&projectDescription, "description", "", "Project description")
+	initCmd.MarkFlagRequired("name")
+}
 
-	// Validate and resolve the target directory
-	targetDir, err := filepath.Abs(targetDir)
+func runProjectCreate(cmd *cobra.Command, args []string) error {
+	targetDir, err := resolveProjectTargetDir(args)
 	if err != nil {
-		return fmt.Errorf("failed to resolve target directory: %w", err)
+		return err
 	}
 
-	// Check if target directory exists
-	if info, err := os.Stat(targetDir); err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("target directory does not exist: %s", targetDir)
-		}
-		return fmt.Errorf("failed to access target directory: %w", err)
-	} else if !info.IsDir() {
-		return fmt.Errorf("target path is not a directory: %s", targetDir)
-	}
-
-	// Check if already in a project (check in target directory)
-	projectConfigPath := filepath.Join(targetDir, "puda.config")
-	isExistingProject := false
-	if _, err := os.Stat(projectConfigPath); err == nil {
-		isExistingProject = true
-	}
-
-	// Check if user is logged in (global config exists)
-	globalConfigPath, err := puda.GlobalConfigPath()
+	cfg, err := loadOrCreateProjectConfig(puda.ProjectConfigPathForDir(targetDir), targetDir)
 	if err != nil {
-		return fmt.Errorf("failed to determine global config path: %w", err)
+		return err
 	}
 
-	if _, err := os.Stat(globalConfigPath); os.IsNotExist(err) {
-		return fmt.Errorf("user not logged in. Please run 'puda login' first")
-	}
-
-	// Load global config to get username and user_id
-	globalConfig, err := puda.LoadGlobalConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load global config: %w", err)
-	}
-
-	// Ensure username and user_id are present in global config
-	if globalConfig.User.Username == "" {
-		return fmt.Errorf("username is missing in global config. Please run 'puda login' first")
-	}
-	if globalConfig.User.UserID == "" {
-		return fmt.Errorf("user ID is missing in global config. Please run 'puda login' first")
-	}
-
-	// Create or update project config file using username and user_id from global config
-	// Set project-specific defaults (relative to project directory)
-	var projectConfig puda.ProjectConfig
-	projectConfig.User.Username = globalConfig.User.Username
-	projectConfig.User.UserID = globalConfig.User.UserID
-	projectConfig.Endpoints.NATS = "nats://100.109.131.12:4222,nats://100.109.131.12:4223,nats://100.109.131.12:4224"
-	projectConfig.Database.Path = "puda.db"
-	projectConfig.ProjectRoot = targetDir
-	configData, err := json.MarshalIndent(projectConfig, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-
-	if err := os.WriteFile(projectConfigPath, configData, 0644); err != nil {
+	projectID := uuid.NewString()
+	cfg.ProjectID = projectID
+	if err := writeProjectConfig(targetDir, cfg); err != nil {
 		return fmt.Errorf("failed to write project config file: %w", err)
 	}
 
-	// Change to target directory for database initialization
 	originalDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
-	defer os.Chdir(originalDir) // Restore original directory
+	defer os.Chdir(originalDir)
 
 	if err := os.Chdir(targetDir); err != nil {
 		return fmt.Errorf("failed to change to target directory: %w", err)
 	}
 
-	// Initialize database
 	store, err := db.Connect()
 	if err != nil {
 		return fmt.Errorf("failed to initialize database: %w", err)
 	}
 	defer store.Disconnect()
 
-	// TODO: Add more initialization steps here
-	// - Create project directory structure
-	// - Set up templates, etc.
+	projectMarkdownPath := filepath.Join(targetDir, "project.md")
+	projectMarkdown := fmt.Sprintf(`# Project
 
-	if isExistingProject {
-		fmt.Fprintf(cmd.OutOrStdout(), "Reinitialized puda project in %s\n", targetDir)
-	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "Initialized new puda project in %s\n", targetDir)
+
+project_id: %s
+
+name: %s
+
+description: %s
+
+
+## Protocols
+
+
+## History
+
+
+## Logs
+
+
+`, projectID, projectName, projectDescription)
+
+	if err := os.WriteFile(projectMarkdownPath, []byte(projectMarkdown), 0o644); err != nil {
+		return fmt.Errorf("failed to write project markdown: %w", err)
 	}
+
+	if err := store.InsertProject(projectID, projectName, projectDescription); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "Project created: %s\n", projectID)
+	return nil
+}
+
+func resolveProjectTargetDir(args []string) (string, error) {
+	var targetDir string
+	if len(args) > 0 && args[0] != "" {
+		targetDir = args[0]
+		if targetDir == "." {
+			var err error
+			targetDir, err = os.Getwd()
+			if err != nil {
+				return "", fmt.Errorf("failed to get current directory: %w", err)
+			}
+		}
+	} else {
+		var err error
+		targetDir, err = os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("failed to get current directory: %w", err)
+		}
+	}
+
+	targetDir, err := filepath.Abs(targetDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve target directory: %w", err)
+	}
+
+	if info, err := os.Stat(targetDir); err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("target directory does not exist: %s", targetDir)
+		}
+		return "", fmt.Errorf("failed to access target directory: %w", err)
+	} else if !info.IsDir() {
+		return "", fmt.Errorf("target path is not a directory: %s", targetDir)
+	}
+
+	return targetDir, nil
+}
+
+func loadOrCreateProjectConfig(projectConfigPath, targetDir string) (*puda.ProjectConfig, error) {
+	// check if the project config file exists
+	configPaths := []string{projectConfigPath, filepath.Join(targetDir, puda.LegacyProjectConfigFileName)}
+	for _, configPath := range configPaths {
+		if _, err := os.Stat(configPath); err == nil {
+			data, err := os.ReadFile(configPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read project config file: %w", err)
+			}
+
+			var cfg puda.ProjectConfig
+			if err := json.Unmarshal(data, &cfg); err != nil {
+				return nil, fmt.Errorf("failed to parse project config file: %w", err)
+			}
+
+			if cfg.ProjectRoot == "" {
+				cfg.ProjectRoot = targetDir
+			}
+			if cfg.Database.Path == "" {
+				cfg.Database.Path = "puda.db"
+			}
+			if cfg.Endpoints.NATS == "" {
+				cfg.Endpoints.NATS = "nats://100.109.131.12:4222,nats://100.109.131.12:4223,nats://100.109.131.12:4224"
+			}
+
+			return &cfg, nil
+		} else if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("failed to access project config file: %w", err)
+		}
+	}
+
+	// create a new project config
+	globalConfigPath, err := puda.GlobalConfigPath()
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine global config path: %w", err)
+	}
+
+	if _, err := os.Stat(globalConfigPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("user not logged in. Please run 'puda login' first")
+	}
+
+	globalConfig, err := puda.LoadGlobalConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load global config: %w", err)
+	}
+
+	if globalConfig.User.Username == "" {
+		return nil, fmt.Errorf("username is missing in global config. Please run 'puda login' first")
+	}
+	if globalConfig.User.UserID == "" {
+		return nil, fmt.Errorf("user ID is missing in global config. Please run 'puda login' first")
+	}
+
+	var cfg puda.ProjectConfig
+	cfg.User.Username = globalConfig.User.Username
+	cfg.User.UserID = globalConfig.User.UserID
+	cfg.Endpoints.NATS = "nats://100.109.131.12:4222,nats://100.109.131.12:4223,nats://100.109.131.12:4224"
+	cfg.Database.Path = "puda.db"
+	cfg.ProjectRoot = targetDir
+
+	return &cfg, nil
+}
+
+func writeProjectConfig(targetDir string, cfg *puda.ProjectConfig) error {
+	cfg.ProjectRoot = targetDir
+
+	configData, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	projectConfigPath := puda.ProjectConfigPathForDir(targetDir)
+	if err := os.WriteFile(projectConfigPath, configData, 0o644); err != nil {
+		return err
+	}
+
 	return nil
 }
