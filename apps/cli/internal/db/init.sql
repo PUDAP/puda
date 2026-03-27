@@ -1,10 +1,20 @@
 -- Initialization script for SQLite database
 -- This file is automatically executed when the database is first created
 
--- 0. THE PROTOCOL TABLE
+-- 0. THE PROJECT TABLE
+-- Represents a project that can group protocols.
+CREATE TABLE IF NOT EXISTS project (
+    project_id TEXT PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 1. THE PROTOCOL TABLE (a project can have multiple protocols)
 -- Represents a protocol definition with commands and metadata.
 CREATE TABLE IF NOT EXISTS protocol (
     protocol_id TEXT PRIMARY KEY,
+    project_id TEXT REFERENCES project(project_id) ON DELETE SET NULL,
     user_id TEXT,
     username TEXT,
     description TEXT,
@@ -12,14 +22,14 @@ CREATE TABLE IF NOT EXISTS protocol (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 1. THE RUN TABLE (when protocols are executed, they create runs)
+-- 2. THE RUN TABLE (when protocols are executed, they create runs)
 CREATE TABLE IF NOT EXISTS run (
     run_id TEXT PRIMARY KEY,
     protocol_id TEXT REFERENCES protocol(protocol_id) ON DELETE SET NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2. THE SAMPLE TABLE (when runs are executed, they create samples)
+-- 3. THE SAMPLE TABLE (when runs are executed, they create samples)
 CREATE TABLE IF NOT EXISTS sample (
     sample_id TEXT PRIMARY KEY,
     run_id TEXT REFERENCES run(run_id) ON DELETE CASCADE,
@@ -27,7 +37,7 @@ CREATE TABLE IF NOT EXISTS sample (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 3. THE MEASUREMENT TABLE
+-- 4. THE MEASUREMENT TABLE
 -- A sample can have multiple measurements.
 -- Each measurement records a property (what is being measured) and the method used to measure it.
 CREATE TABLE IF NOT EXISTS measurement (
@@ -37,7 +47,7 @@ CREATE TABLE IF NOT EXISTS measurement (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. THE COMMAND_LOG TABLE
+-- 5. THE COMMAND_LOG TABLE
 -- Logs all command responses received from machines via NATS
 CREATE TABLE IF NOT EXISTS command_log (
     command_log_id INTEGER PRIMARY KEY AUTOINCREMENT,

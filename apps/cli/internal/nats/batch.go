@@ -200,7 +200,7 @@ func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string, startStep 
 	}
 
 	// Set up logging to both console and file
-	logsDir := filepath.Join(cfg.ProjectRoot, protocolFile.ExperimentID, "logs")
+	logsDir := filepath.Join(cfg.ProjectRoot, protocolFile.ProjectID, "logs")
 	if err := os.MkdirAll(logsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create logs directory: %w", err)
 	}

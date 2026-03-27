@@ -7,10 +7,13 @@ puda
 ├── protocol
 │   ├── run                  Run a protocol on machines via NATS
 │   └── validate             Validate a protocol JSON file
+├── project
+│   └── create               Create a new project
 ├── machine
 │   ├── list                 Discover machines via heartbeat
 │   ├── state <machine_id>   Get the state of a machine
 │   ├── reset <machine_id>   Reset a machine
+│   ├── watch                Watch machine(s) tlm and evts
 │   └── commands <machine_id> Show available commands
 ├── login                    Log in to a PUDA account
 ├── logout                   Log out of a PUDA account

@@ -71,13 +71,13 @@ type MachineHeartbeat struct {
 
 // ProtocolFile represents the structure of a protocol JSON file
 type ProtocolFile struct {
-	ExperimentID string           `json:"experiment_id"`
-	ProtocolID   string           `json:"protocol_id"`
-	UserID       string           `json:"user_id"`
-	Username     string           `json:"username"`
-	Description  string           `json:"description"`
-	Timestamp    string           `json:"timestamp"`
-	Commands     []CommandRequest `json:"commands"`
+	ProjectID   string           `json:"project_id"`
+	ProtocolID  string           `json:"protocol_id"`
+	UserID      string           `json:"user_id"`
+	Username    string           `json:"username"`
+	Description string           `json:"description"`
+	Timestamp   string           `json:"timestamp"`
+	Commands    []CommandRequest `json:"commands"`
 }
 
 // GlobalConfig represents the structure of the global PUDA CLI configuration file.

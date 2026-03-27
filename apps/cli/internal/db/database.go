@@ -94,6 +94,21 @@ func marshalJSON(v interface{}) (string, error) {
 	return string(bytes), nil
 }
 
+// InsertProject inserts a new project into the project table.
+func (s *Store) InsertProject(projectID, name, description string) error {
+	query := `
+		INSERT INTO project (project_id, name, description, created_at)
+		VALUES (?, ?, ?, ?)
+	`
+
+	_, err := s.db.Exec(query, projectID, name, description, time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to insert project: %w", err)
+	}
+
+	return nil
+}
+
 // InsertProtocol inserts a new protocol into the protocol table.
 func (s *Store) InsertProtocol(protocolFile puda.ProtocolFile) error {
 	commandsJSON, err := marshalJSON(protocolFile.Commands)
