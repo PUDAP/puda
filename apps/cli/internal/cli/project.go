@@ -14,4 +14,5 @@ For help on subcommands, add --help after: "puda project create --help"`,
 // init registers all project subcommands.
 func init() {
 	projectCmd.AddCommand(projectCreateCmd)
+	projectCmd.AddCommand(projectExtractCmd)
 }

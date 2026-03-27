@@ -8,7 +8,8 @@ puda
 │   ├── run                  Run a protocol on machines via NATS
 │   └── validate             Validate a protocol JSON file
 ├── project
-│   └── create               Create a new project
+│   ├── create               Create a new project
+│   └── extract              Extract project-linked data
 ├── machine
 │   ├── list                 Discover machines via heartbeat
 │   ├── state <machine_id>   Get the state of a machine

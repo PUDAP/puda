@@ -235,6 +235,29 @@ func (s *Store) Query(query string) (*sql.Rows, error) {
 	return s.db.Query(query)
 }
 
+// QueryProjectExtract returns project data joined across protocols, runs, samples, and measurements.
+func (s *Store) QueryProjectExtract(projectID string) (*sql.Rows, error) {
+	query := `
+		SELECT
+			p.name AS project_name,
+			pr.protocol_id,
+			r.run_id,
+			s.sample_id,
+			s.data_payload AS sample_data,
+			m.measurement_id,
+			m.data_payload AS measurement_data
+		FROM project p
+		JOIN protocol pr ON p.project_id = pr.project_id
+		JOIN run r ON pr.protocol_id = r.protocol_id
+		LEFT JOIN sample s ON r.run_id = s.run_id
+		LEFT JOIN measurement m ON s.sample_id = m.sample_id
+		WHERE p.project_id = ?
+		ORDER BY pr.protocol_id, r.run_id, s.sample_id, m.measurement_id
+	`
+
+	return s.db.Query(query, projectID)
+}
+
 // ExecSQL executes a SQL command that doesn't return rows (e.g., INSERT, UPDATE, DELETE).
 func (s *Store) ExecSQL(query string) (sql.Result, error) {
 	return s.db.Exec(query)
