@@ -4,9 +4,18 @@ OT-2 Edge Service
 Bridges the Opentrons OT-2 HTTP API to the PUDA NATS bus.
 Follows the same pattern as the qubot 'first' machine edge service.
 
-Commands are received on  puda.{machine_id}.commands.queue
-Responses are published on puda.{machine_id}.commands.response
-Telemetry is published on  puda.{machine_id}.telemetry.*
+The OT2 machine driver is passed directly to EdgeRunner, which dispatches
+incoming NATS commands to OT2 methods by name:
+
+    upload_and_run    – upload and run a protocol on the robot
+    get_status        – retrieve current run status
+    pause             – pause the active run
+    resume            – resume a paused run
+    stop              – stop (cancel) the active run
+    upload_labware    – upload a custom labware definition
+    is_connected      – check whether the robot HTTP API is reachable
+    get_labware_types – list known labware load-names
+    get_pipette_types – list known pipette instrument names
 """
 import asyncio
 import logging
@@ -54,114 +63,11 @@ def load_config() -> Config:
 
 
 # ---------------------------------------------------------------------------
-# OT-2 command adapter
-#
-# EdgeRunner dispatches by calling driver.execute_command(name, params).
-# Each cmd_* method maps one NATS command name to an OT2 driver call.
-# ---------------------------------------------------------------------------
-
-class OT2EdgeDriver:
-    """Adapter that maps NATS command names to OT2 driver calls."""
-
-    def __init__(self, robot: OT2) -> None:
-        self._robot = robot
-
-    def execute_command(self, name: str, params: dict) -> dict:
-        handler = getattr(self, f"cmd_{name}", None)
-        if handler is None:
-            raise ValueError(f"Unknown command: {name!r}")
-        return handler(params)
-
-    # ------------------------------------------------------------------
-    # Protocol execution
-    # ------------------------------------------------------------------
-
-    def cmd_run_protocol(self, params: dict) -> dict:
-        """Upload and run a protocol.
-
-        Params:
-            code (str):            Python protocol source code.
-            filename (str):        Filename shown in run history (default: protocol.py).
-            wait (bool):           Block until complete (default: True).
-            max_wait (int):        Timeout in seconds (default: 300).
-        """
-        return self._robot.upload_and_run(
-            code=params["code"],
-            filename=params.get("filename", "protocol.py"),
-            wait=params.get("wait", True),
-            max_wait=params.get("max_wait", 300),
-        )
-
-    # ------------------------------------------------------------------
-    # Run control
-    # ------------------------------------------------------------------
-
-    def cmd_get_status(self, params: dict) -> dict:
-        """Get run status.
-
-        Params:
-            run_id (str, optional): Specific run ID; omit for latest run.
-        """
-        return self._robot.get_status(run_id=params.get("run_id"))
-
-    def cmd_pause(self, params: dict) -> dict:
-        """Pause the current run.
-
-        Params:
-            run_id (str): Run ID to pause.
-        """
-        run_id = params["run_id"]
-        return {"paused": self._robot.pause(run_id), "run_id": run_id}
-
-    def cmd_resume(self, params: dict) -> dict:
-        """Resume a paused run.
-
-        Params:
-            run_id (str): Run ID to resume.
-        """
-        run_id = params["run_id"]
-        return {"resumed": self._robot.resume(run_id), "run_id": run_id}
-
-    def cmd_stop(self, params: dict) -> dict:
-        """Stop (cancel) a run.
-
-        Params:
-            run_id (str): Run ID to stop.
-        """
-        run_id = params["run_id"]
-        return {"stopped": self._robot.stop(run_id), "run_id": run_id}
-
-    # ------------------------------------------------------------------
-    # Labware
-    # ------------------------------------------------------------------
-
-    def cmd_upload_labware(self, params: dict) -> dict:
-        """Upload a custom labware definition to the robot.
-
-        Params:
-            labware (dict): Full Opentrons labware JSON definition.
-        """
-        return self._robot.upload_labware(params["labware"])
-
-    # ------------------------------------------------------------------
-    # Health / telemetry helpers
-    # ------------------------------------------------------------------
-
-    def cmd_is_connected(self, params: dict) -> dict:
-        return {"connected": self._robot.is_connected()}
-
-    def get_health(self) -> dict:
-        return {
-            "connected": self._robot.is_connected(),
-            "robot_ip": self._robot.client.robot_ip,
-        }
-
-
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 async def main():
+    """Initialize the OT-2 driver and NATS client, then run the edge runner."""
     config = load_config()
     logger.info("Config loaded: machine_id=%s robot_ip=%s", config.machine_id, config.robot_ip)
     logger.info("Full config: %s", config.model_dump())
@@ -173,8 +79,6 @@ async def main():
     else:
         logger.info("OT-2 connected at %s:%s", config.robot_ip, config.robot_port)
 
-    driver = OT2EdgeDriver(robot)
-
     logger.info("Connecting to NATS at %s", config.nats_servers)
     edge_nats_client = EdgeNatsClient(
         servers=config.nats_server_list,
@@ -183,11 +87,15 @@ async def main():
 
     async def telemetry_handler():
         await edge_nats_client.publish_heartbeat()
-        await edge_nats_client.publish_health(driver.get_health())
+        connected = await asyncio.to_thread(robot.is_connected)
+        await edge_nats_client.publish_health({
+            "connected": connected,
+            "robot_ip": config.robot_ip,
+        })
 
     runner = EdgeRunner(
         nats_client=edge_nats_client,
-        machine_driver=driver,
+        machine_driver=robot,
         telemetry_handler=telemetry_handler,
         state_handler=lambda: {"robot_ip": config.robot_ip},
     )
