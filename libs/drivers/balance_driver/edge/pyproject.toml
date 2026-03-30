@@ -1,0 +1,17 @@
+[project]
+name = "balance-edge"
+version = "0.1.0"
+description = "Edge service — Mass Balance ↔ NATS"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "puda-comms",
+    "puda-drivers",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "python-dotenv>=1.2.1",
+]
+
+[tool.uv.sources]
+puda-comms   = { workspace = true }
+puda-drivers = { workspace = true }

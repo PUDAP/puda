@@ -1,0 +1,57 @@
+[project]
+name = "puda-drivers"
+version = "0.1.0"
+description = "Hardware drivers for the Opentrons OT-2 robot and mass balance instruments."
+readme = "README.md"
+authors = [
+    { name = "PUDA", email = "info@puda.io" }
+]
+requires-python = ">=3.10"
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Topic :: System :: Hardware",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+
+dependencies = [
+    "requests>=2.31.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+balance = [
+    "pyserial>=3.5",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-mock>=3.14",
+]
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/opentrons_driver", "src/balance_driver"]
+artifacts = [
+    "src/balance_driver/controllers/*.csv",
+]
+
+[project.scripts]
+balance = "balance_driver.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/PUDAP/qubot"
+Issues = "https://github.com/PUDAP/qubot/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

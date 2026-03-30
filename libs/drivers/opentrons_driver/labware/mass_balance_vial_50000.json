@@ -1,0 +1,35 @@
+{
+  "ordering": [["A1"]],
+  "brand": {"brand": "AMDM", "brandId": ["amdm_balance_vial_50ml"]},
+  "metadata": {
+    "displayName": "AMDM Mass Balance with 50mL vial",
+    "displayCategory": "wellPlate",
+    "displayVolumeUnits": "µL",
+    "tags": []
+  },
+  "dimensions": {"xDimension": 127.4, "yDimension": 85, "zDimension": 150},
+  "wells": {
+    "A1": {
+      "depth": 56,
+      "totalLiquidVolume": 50000,
+      "shape": "circular",
+      "diameter": 17.5,
+      "x": 74,
+      "y": 42.5,
+      "z": 65
+    }
+  },
+  "groups": [{"metadata": {"wellBottomShape": "flat"}, "wells": ["A1"]}],
+  "parameters": {
+    "format": "irregular",
+    "quirks": [],
+    "isTiprack": false,
+    "isMagneticModuleCompatible": false,
+    "loadName": "mass_balance_vial_50000"
+  },
+  "namespace": "custom_beta",
+  "version": 1,
+  "schemaVersion": 2,
+  "apiLevel": "2.23",
+  "cornerOffsetFromSlot": {"x": 0, "y": 0, "z": 0}
+}
