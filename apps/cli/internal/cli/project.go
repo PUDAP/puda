@@ -8,10 +8,10 @@ var projectCmd = &cobra.Command{
 	Short: "Project operations",
 	Long: `Commands for working with projects.
 
-For help on subcommands, add --help after: "puda project extract --help"`,
+For help on subcommands, add --help after: "puda project hash --help"`,
 }
 
 // init registers all project subcommands.
 func init() {
-	projectCmd.AddCommand(projectExtractCmd)
+	projectCmd.AddCommand(projectHashCmd)
 }

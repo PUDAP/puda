@@ -23,8 +23,7 @@ var initCmd = &cobra.Command{
 	Short: "Initialize a new PUDA project",
 	Long: `Initialize a new PUDA project.
 
-This command has the same behavior as "puda project create".
-It initializes the workspace config and database, creates a new project UUID,
+It initializes the project config and database, creates a new project UUID,
 and scaffolds the project root with config.json, puda.db, and project.md.
 
 Examples:
@@ -41,6 +40,8 @@ func init() {
 	initCmd.MarkFlagRequired("name")
 }
 
+// runProjectCreate initializes a project in the target directory, persists its
+// config, creates the local database, and scaffolds the initial `project.md`.
 func runProjectCreate(cmd *cobra.Command, args []string) error {
 	targetDir, err := resolveProjectTargetDir(args)
 	if err != nil {
@@ -108,6 +109,9 @@ description: %s
 	return nil
 }
 
+// resolveProjectTargetDir returns the absolute directory to initialize,
+// defaulting to the current working directory and creating the target path when
+// needed.
 func resolveProjectTargetDir(args []string) (string, error) {
 	var targetDir string
 	if len(args) > 0 && args[0] != "" {
@@ -134,7 +138,10 @@ func resolveProjectTargetDir(args []string) (string, error) {
 
 	if info, err := os.Stat(targetDir); err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("target directory does not exist: %s", targetDir)
+			if err := os.MkdirAll(targetDir, 0o755); err != nil {
+				return "", fmt.Errorf("failed to create target directory: %w", err)
+			}
+			return targetDir, nil
 		}
 		return "", fmt.Errorf("failed to access target directory: %w", err)
 	} else if !info.IsDir() {
@@ -144,6 +151,8 @@ func resolveProjectTargetDir(args []string) (string, error) {
 	return targetDir, nil
 }
 
+// loadOrCreateProjectConfig loads an existing project config from the current or
+// legacy path, or seeds a new one from the logged-in user's global config.
 func loadOrCreateProjectConfig(projectConfigPath, targetDir string) (*puda.ProjectConfig, error) {
 	// check if the project config file exists
 	configPaths := []string{projectConfigPath, filepath.Join(targetDir, puda.LegacyProjectConfigFileName)}
@@ -207,6 +216,8 @@ func loadOrCreateProjectConfig(projectConfigPath, targetDir string) (*puda.Proje
 	return &cfg, nil
 }
 
+// writeProjectConfig writes the project config to the canonical config path for
+// the target directory after updating the stored project root.
 func writeProjectConfig(targetDir string, cfg *puda.ProjectConfig) error {
 	cfg.ProjectRoot = targetDir
 

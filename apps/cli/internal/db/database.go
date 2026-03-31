@@ -3,10 +3,13 @@ package db
 import (
 	"database/sql"
 	_ "embed"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
@@ -22,18 +25,23 @@ type Store struct {
 	db *sql.DB
 }
 
-// Connect initializes the database connection using the path from the PUDA project configuration.
-// The database file will be automatically created if it doesn't exist.
-// Requires a project-level config.json file (run 'puda init' to create it).
-func Connect() (*Store, error) {
-	cfg, err := puda.LoadProjectConfig()
-	if err != nil {
-		return nil, err
+// Connect initializes the database connection using an explicit SQLite path when
+// provided, or falls back to the PUDA project configuration.
+// Relative paths are resolved from the current working directory.
+func Connect(dbPathOverride ...string) (*Store, error) {
+	dbPath := ""
+	if len(dbPathOverride) > 0 {
+		dbPath = dbPathOverride[0]
+	} else {
+		cfg, err := puda.LoadProjectConfig()
+		if err != nil {
+			return nil, err
+		}
+		dbPath = cfg.Database.Path
 	}
 
-	dbPath := cfg.Database.Path
 	if dbPath == "" {
-		return nil, fmt.Errorf("database path is not set in config, please run 'puda config edit' to set database.path")
+		return nil, fmt.Errorf("database path is required")
 	}
 
 	// Ensure the directory exists (SQLite creates the file but not parent directories)
@@ -235,27 +243,155 @@ func (s *Store) Query(query string) (*sql.Rows, error) {
 	return s.db.Query(query)
 }
 
-// QueryProjectExtract returns project data joined across protocols, runs, samples, and measurements.
-func (s *Store) QueryProjectExtract(projectID string) (*sql.Rows, error) {
+// ExtractProject returns project data joined across protocols, runs, samples, and measurements.
+func (s *Store) ExtractProject(projectID string) (*sql.Rows, error) {
 	query := `
-		SELECT
+	SELECT
 			p.name AS project_name,
 			pr.protocol_id,
 			r.run_id,
-			s.sample_id,
+			s.sample_id AS sample_id,
 			s.data_payload AS sample_data,
-			m.measurement_id,
+			m.measurement_id AS measurement_id,
 			m.data_payload AS measurement_data
 		FROM project p
-		JOIN protocol pr ON p.project_id = pr.project_id
-		JOIN run r ON pr.protocol_id = r.protocol_id
+		-- Changed these two to LEFT JOIN
+		LEFT JOIN protocol pr ON p.project_id = pr.project_id
+		LEFT JOIN run r ON pr.protocol_id = r.protocol_id
+		-- Already LEFT JOINs
 		LEFT JOIN sample s ON r.run_id = s.run_id
 		LEFT JOIN measurement m ON s.sample_id = m.sample_id
 		WHERE p.project_id = ?
-		ORDER BY pr.protocol_id, r.run_id, s.sample_id, m.measurement_id
+		ORDER BY 
+			pr.protocol_id ASC, 
+			r.run_id ASC, 
+			s.sample_id ASC, 
+			m.measurement_id ASC;;
 	`
 
 	return s.db.Query(query, projectID)
+}
+
+// ExportProject exports project data to a CSV file and returns the file path.
+func (s *Store) ExportProject(projectID string) (string, error) {
+	experimentName, err := s.getProjectName(projectID)
+	if err != nil {
+		return "", err
+	}
+
+	rows, err := s.ExtractProject(projectID)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		return "", fmt.Errorf("failed to get export columns: %w", err)
+	}
+
+	timestamp := time.Now().Format("20060102-150405")
+	filename := fmt.Sprintf("%s-%s.csv", sanitizeFilenameComponent(experimentName), timestamp)
+	outputPath, err := filepath.Abs(filename)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve export path: %w", err)
+	}
+
+	file, err := os.Create(outputPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create export file: %w", err)
+	}
+	defer file.Close()
+
+	csvWriter := csv.NewWriter(io.MultiWriter(file))
+	if err := csvWriter.Write(columns); err != nil {
+		return "", fmt.Errorf("failed to write CSV header: %w", err)
+	}
+
+	values := make([]interface{}, len(columns))
+	valuePtrs := make([]interface{}, len(columns))
+	for i := range values {
+		valuePtrs[i] = &values[i]
+	}
+
+	for rows.Next() {
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return "", fmt.Errorf("failed to scan export row: %w", err)
+		}
+
+		record := make([]string, len(columns))
+		for i, value := range values {
+			switch v := value.(type) {
+			case nil:
+				record[i] = ""
+			case []byte:
+				record[i] = string(v)
+			case time.Time:
+				record[i] = v.Format(time.RFC3339Nano)
+			default:
+				record[i] = fmt.Sprint(v)
+			}
+		}
+
+		if err := csvWriter.Write(record); err != nil {
+			return "", fmt.Errorf("failed to write CSV row: %w", err)
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("failed while reading export rows: %w", err)
+	}
+
+	csvWriter.Flush()
+	if err := csvWriter.Error(); err != nil {
+		return "", fmt.Errorf("failed to flush CSV writer: %w", err)
+	}
+
+	return outputPath, nil
+}
+
+func (s *Store) getProjectName(projectID string) (string, error) {
+	const query = `SELECT name FROM project WHERE project_id = ?`
+
+	var projectName string
+	if err := s.db.QueryRow(query, projectID).Scan(&projectName); err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("project %q not found", projectID)
+		}
+		return "", fmt.Errorf("failed to fetch project name: %w", err)
+	}
+
+	return projectName, nil
+}
+
+func sanitizeFilenameComponent(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "project"
+	}
+
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range value {
+		isSafe := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_'
+		if isSafe {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+
+	sanitized := strings.Trim(b.String(), "_")
+	if sanitized == "" {
+		return "unknown"
+	}
+
+	return sanitized
 }
 
 // ExecSQL executes a SQL command that doesn't return rows (e.g., INSERT, UPDATE, DELETE).
