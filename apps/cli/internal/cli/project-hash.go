@@ -3,6 +3,8 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"time"
 
 	"github.com/PUDAP/puda/apps/cli/internal/db"
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
@@ -10,8 +12,8 @@ import (
 )
 
 var (
-	projectHashID     string
-	projectHashDBPath string
+	projectID     string
+	projectDBPath string
 )
 
 // projectHashCmd hashes the extracted relational project data for a project ID.
@@ -31,27 +33,33 @@ Example:
 }
 
 func runProjectHash(cmd *cobra.Command, args []string) error {
-	store, err := db.Connect(projectHashDBPath)
+	store, err := db.Connect(projectDBPath)
 	if err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
 	defer store.Disconnect()
 
-	outputPath, err := store.ExportProject(projectHashID)
-	if err != nil {
-		return fmt.Errorf("failed to extract project data: %w", err)
+	var dbPath string
+	if projectDBPath != "" {
+		dbPath = projectDBPath
+	} else {
+		cfg, err := puda.LoadProjectConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load project config: %w", err)
+		}
+		dbPath = cfg.Database.Path
 	}
 
-	hash, err := puda.GetProjectHash(outputPath)
+	hash, err := puda.GetProjectHash(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to hash project data: %w", err)
 	}
 
 	response := map[string]string{
-		"status":      "success",
-		"project_id":  projectHashID,
-		"output_path": outputPath,
-		"hash":        hash,
+		"project_id": projectID,
+		"file_path":  filepath.Base(dbPath),
+		"hash":       hash,
+		"timestamp":  time.Now().Format(time.RFC3339),
 	}
 
 	jsonOutput, err := json.MarshalIndent(response, "", "  ")
@@ -64,7 +72,7 @@ func runProjectHash(cmd *cobra.Command, args []string) error {
 }
 
 func init() {
-	projectHashCmd.Flags().StringVar(&projectHashID, "id", "", "Project ID (required)")
-	projectHashCmd.Flags().StringVar(&projectHashDBPath, "db", "", "Database path (relative or absolute)")
+	projectHashCmd.Flags().StringVar(&projectID, "id", "", "Project ID (required)")
+	projectHashCmd.Flags().StringVar(&projectDBPath, "db", "", "Optional database path (relative or absolute)")
 	projectHashCmd.MarkFlagRequired("id")
 }
