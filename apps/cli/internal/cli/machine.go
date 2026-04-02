@@ -10,8 +10,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/PUDAP/puda/apps/cli/internal/db"
 	pudanats "github.com/PUDAP/puda/apps/cli/internal/nats"
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
+	"github.com/google/uuid"
 	natsio "github.com/nats-io/nats.go"
 	"github.com/spf13/cobra"
 )
@@ -96,6 +98,15 @@ var machineResetCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return resetMachine(args[0])
+	},
+}
+
+var machineHomeCmd = &cobra.Command{
+	Use:   "home <machine_id>",
+	Short: "Send a home command to a machine",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return homeMachine(args[0])
 	},
 }
 
@@ -185,8 +196,62 @@ func init() {
 	machineCmd.AddCommand(machineListCmd)
 	machineCmd.AddCommand(machineStateCmd)
 	machineCmd.AddCommand(machineResetCmd)
+	machineCmd.AddCommand(machineHomeCmd)
 	machineCmd.AddCommand(machineCommandsCmd)
 	machineCmd.AddCommand(machineWatchCmd)
+}
+
+func homeMachine(machineID string) error {
+	globalConfig, err := puda.LoadGlobalConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
+	}
+	userID := globalConfig.User.UserID
+	username := globalConfig.User.Username
+	if userID == "" || username == "" {
+		return fmt.Errorf("user not logged in. Please run 'puda login' first")
+	}
+
+	nc, err := connectMachineNATS()
+	if err != nil {
+		return err
+	}
+	defer nc.Close()
+
+	store, err := db.Connect()
+	if err != nil {
+		store = nil
+	} else {
+		defer store.Disconnect()
+	}
+
+	js, err := nc.JetStream()
+	if err != nil {
+		return fmt.Errorf("failed to get JetStream context: %w", err)
+	}
+
+	dispatcher := pudanats.NewResponseDispatcher(js, userID)
+	if err := dispatcher.Start(); err != nil {
+		return fmt.Errorf("failed to start response dispatcher: %w", err)
+	}
+	defer dispatcher.Close()
+
+	requests := []puda.CommandRequest{
+		{
+			Name:       "home",
+			Params:     make(map[string]interface{}),
+			StepNumber: 1,
+			Version:    "1.0",
+			MachineID:  machineID,
+		},
+	}
+
+	if err := pudanats.SendQueueCommands(js, dispatcher, requests, uuid.New().String(), userID, username, store); err != nil {
+		return fmt.Errorf("home command failed: %w", err)
+	}
+
+	fmt.Fprintf(os.Stdout, "Home command sent successfully to %s\n", machineID)
+	return nil
 }
 
 func connectMachineNATS() (*natsio.Conn, error) {
