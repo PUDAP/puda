@@ -684,8 +684,13 @@ class EdgeNatsClient:
                 case ImmediateCommand.RESET:
                     await self.run_manager.clear_run()
                     logger.info("Resetting machine")
-                    await self.publish_state({'state': 'idle', 'run_id': None})
-                    response = CommandResponse(status=CommandResponseStatus.SUCCESS)
+                    response = await handler(message)
+                    if response.status == CommandResponseStatus.SUCCESS:
+                        await self.publish_state({'state': 'idle', 'run_id': None})
+                        logger.info("Machine reset")
+                    else:
+                        await self.publish_state({'state': 'error', 'run_id': None})
+                        logger.error("Machine reset failed: %s", response.message)
                 
                 case ImmediateCommand.CANCEL:
                     if not run_id:
