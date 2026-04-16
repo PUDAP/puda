@@ -36,7 +36,7 @@ var (
 // init registers flags for the run command
 func init() {
 	protocolRunCmd.Flags().StringVarP(&protocolFilePath, "file", "f", "", "Path to JSON file containing protocol (required)")
-	protocolRunCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Optional: Comma-separated NATS server URLs - overrides config file")
+	protocolRunCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Optional: Comma-separated NATS server URLs - overrides active profile")
 	protocolRunCmd.Flags().IntVar(&startStep, "start-step", 1, "Optional: step number to start running commands from")
 	protocolRunCmd.MarkFlagRequired("file")
 }

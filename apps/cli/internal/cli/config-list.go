@@ -32,7 +32,6 @@ func runConfigList(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintf(cmd.OutOrStdout(), "user.user_id=%s\n", cfg.User.UserID)
 	fmt.Fprintf(cmd.OutOrStdout(), "user.username=%s\n", cfg.User.Username)
-	fmt.Fprintf(cmd.OutOrStdout(), "endpoints.nats=%s\n", cfg.Endpoints.NATS)
 	fmt.Fprintf(cmd.OutOrStdout(), "database.path=%s\n", cfg.Database.Path)
 	fmt.Fprintf(cmd.OutOrStdout(), "project_root=%s\n", cfg.ProjectRoot)
 

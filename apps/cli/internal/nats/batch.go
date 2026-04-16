@@ -163,20 +163,14 @@ func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string, startStep 
 		defer store.Disconnect()
 	}
 
-	// Load project config for NATS endpoint and logs directory
-	cfg, err := puda.LoadProjectConfig()
-	if err != nil && natsServers == "" {
-		// Only error if config is missing AND no flag provided
-		return fmt.Errorf("NATS endpoint is required (set in project config.json or use --nats-servers flag): %w", err)
-	}
-
+	// if natsServers is not provided, use the active profile from the global config
 	finalNatsServers := natsServers
-	if finalNatsServers == "" && cfg != nil {
-		finalNatsServers = cfg.Endpoints.NATS
-	}
-
 	if finalNatsServers == "" {
-		return fmt.Errorf("NATS endpoint is required (set in PUDA config or use --nats-servers flag)")
+		globalCfg, err := puda.LoadGlobalConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
+		}
+		finalNatsServers = globalCfg.ActiveProfileNATSServers()
 	}
 
 	// user_id and username must be provided in the protocol file
@@ -200,7 +194,11 @@ func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string, startStep 
 	}
 
 	// Set up logging to both console and file
-	logsDir := filepath.Join(cfg.ProjectRoot, "logs")
+	projectRoot := "."
+	if projCfg, err := puda.LoadProjectConfig(); err == nil && projCfg.ProjectRoot != "" {
+		projectRoot = projCfg.ProjectRoot
+	}
+	logsDir := filepath.Join(projectRoot, "logs")
 	if err := os.MkdirAll(logsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create logs directory: %w", err)
 	}
@@ -221,7 +219,7 @@ func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string, startStep 
 	log.Printf("Description: %s", protocolFile.Description)
 
 	log.Printf("Run ID: %s", runID)
-	log.Printf("Ran by: %s (%s)", cfg.User.Username, cfg.User.UserID)
+	log.Printf("Ran by: %s (%s)", finalUsername, finalUserID)
 	log.Printf("Logging output to: %s", logFilePath)
 
 	// Parse NATS servers

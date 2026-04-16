@@ -64,6 +64,10 @@ func loadGlobalConfigFromPath(configPath string) (*GlobalConfig, error) {
 		return nil, fmt.Errorf("user ID is missing in PUDA config file %s", configPath)
 	}
 
+	if fileCfg.ActiveProfile == "" {
+		fileCfg.ActiveProfile = "bears"
+	}
+
 	return &fileCfg, nil
 }
 
@@ -101,6 +105,25 @@ func LoadGlobalConfig() (*GlobalConfig, error) {
 	}
 
 	return loadGlobalConfigFromPath(configPath)
+}
+
+// SaveGlobalConfig writes the global config back to disk.
+func SaveGlobalConfig(cfg *GlobalConfig) error {
+	configPath, err := GlobalConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to determine PUDA config path: %w", err)
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		return fmt.Errorf("failed to write config file %s: %w", configPath, err)
+	}
+
+	return nil
 }
 
 // ProjectConfigPathForDir returns the canonical project config path for a directory.

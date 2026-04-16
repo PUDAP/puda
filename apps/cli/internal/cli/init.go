@@ -174,9 +174,6 @@ func loadOrCreateProjectConfig(projectConfigPath, targetDir string) (*puda.Proje
 			if cfg.Database.Path == "" {
 				cfg.Database.Path = "puda.db"
 			}
-			if cfg.Endpoints.NATS == "" {
-				cfg.Endpoints.NATS = "nats://100.109.131.12:4222,nats://100.109.131.12:4223,nats://100.109.131.12:4224"
-			}
 
 			return &cfg, nil
 		} else if !os.IsNotExist(err) {
@@ -209,7 +206,6 @@ func loadOrCreateProjectConfig(projectConfigPath, targetDir string) (*puda.Proje
 	var cfg puda.ProjectConfig
 	cfg.User.Username = globalConfig.User.Username
 	cfg.User.UserID = globalConfig.User.UserID
-	cfg.Endpoints.NATS = "nats://100.109.131.12:4222,nats://100.109.131.12:4223,nats://100.109.131.12:4224"
 	cfg.Database.Path = "puda.db"
 	cfg.ProjectRoot = targetDir
 

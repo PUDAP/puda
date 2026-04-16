@@ -186,7 +186,7 @@ after N seconds, or Ctrl-C to stop.`,
 }
 
 func init() {
-	machineCmd.PersistentFlags().StringVar(&machineNatsServers, "nats-servers", "", "Comma-separated NATS server URLs (overrides project config.json)")
+	machineCmd.PersistentFlags().StringVar(&machineNatsServers, "nats-servers", "", "Comma-separated NATS server URLs (overrides active profile)")
 	machineListCmd.Flags().BoolVar(&machineListJSON, "json", false, "Output machine list as JSON")
 	machineWatchCmd.Flags().StringSliceVar(&watchTargets, "targets", nil, "Comma-separated list of machine IDs to watch")
 	machineWatchCmd.MarkFlagRequired("targets")
@@ -265,14 +265,11 @@ func homeMachines(machineIDs []string) error {
 func connectMachineNATS() (*natsio.Conn, error) {
 	servers := machineNatsServers
 	if servers == "" {
-		cfg, err := puda.LoadProjectConfig()
+		cfg, err := puda.LoadGlobalConfig()
 		if err != nil {
-			return nil, fmt.Errorf("NATS endpoint required (set in project config.json or use --nats-servers): %w", err)
+			return nil, fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
 		}
-		servers = cfg.Endpoints.NATS
-	}
-	if servers == "" {
-		return nil, fmt.Errorf("NATS endpoint required (set in project config.json or use --nats-servers)")
+		servers = cfg.ActiveProfileNATSServers()
 	}
 	nc, err := natsio.Connect(servers, natsio.MaxReconnects(3), natsio.ReconnectWait(2*time.Second))
 	if err != nil {
