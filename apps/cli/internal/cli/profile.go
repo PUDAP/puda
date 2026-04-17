@@ -30,9 +30,16 @@ var profileSwitchCmd = &cobra.Command{
 	RunE: runProfileSwitch,
 }
 
+var profileCurrentCmd = &cobra.Command{
+	Use:   "current",
+	Short: "Show the current active profile",
+	RunE:  runProfileCurrent,
+}
+
 func init() {
 	profileCmd.AddCommand(profileListCmd)
 	profileCmd.AddCommand(profileSwitchCmd)
+	profileCmd.AddCommand(profileCurrentCmd)
 }
 
 func runProfileList(cmd *cobra.Command, args []string) error {
@@ -70,6 +77,27 @@ func runProfileSwitch(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(), "Switched to profile %q (%s)\n", name, profile.NATSServers)
+	return nil
+}
+
+func runProfileCurrent(cmd *cobra.Command, args []string) error {
+	cfg, err := puda.LoadGlobalConfig()
+	if err != nil {
+		return err
+	}
+
+	name := cfg.ActiveProfile
+	if name == "" {
+		name = "bears"
+	}
+
+	profile, ok := puda.BuiltinProfiles[name]
+	if !ok {
+		return fmt.Errorf("active profile %q not found", name)
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "Profile:     %s\n", name)
+	fmt.Fprintf(cmd.OutOrStdout(), "Description: %s\n", profile.Description)
 	return nil
 }
 
