@@ -29,7 +29,7 @@ func completeAllMachines(js nats.JetStreamContext, dispatcher *ResponseDispatche
 	}
 }
 
-// SendQueueCommands sends a batch of queued commands sequentially
+// SendQueueCommands sends queued protocol commands sequentially
 func SendQueueCommands(js nats.JetStreamContext, dispatcher *ResponseDispatcher, requests []puda.CommandRequest, runID, userID, username string, store *db.Store) error {
 	const defaultTimeout = 30 // for immediate commands which should complete pretty much instantly
 
@@ -260,12 +260,12 @@ func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string, startStep 
 	}
 	log.Printf("Loaded %d commands from protocol, executing %d command(s) starting at step %d\n", len(protocolFile.Commands), len(commands), startStep)
 
-	// Send batch commands
+	// Send protocol commands
 	if err := SendQueueCommands(js, dispatcher, commands, runID, finalUserID, finalUsername, store); err != nil {
-		log.Printf("Batch commands failed: %v", err)
+		log.Printf("Protocol commands failed: %v", err)
 		return err
 	}
 
-	log.Printf("Batch commands completed successfully!")
+	log.Printf("Protocol commands completed successfully!")
 	return nil
 }

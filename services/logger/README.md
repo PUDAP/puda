@@ -1,6 +1,6 @@
 # Logger Service
 
-A service that listens to NATS response streams and logs all command responses to PostgreSQL database.
+A service that listens to NATS response streams and logs all command responses to a PostgreSQL database for backup
 
 ## Overview
 
