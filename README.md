@@ -34,8 +34,7 @@ puda/
 ├── libs/               # Shared libraries used across services and applications
 │   └── comms/          # NATS-based communication library for machine-to-machine messaging
 ├── apps/               # Standalone applications and tools
-│   ├── cli/            # Golang Command-line interface for agents to interact with PUDA
-│   └── backend/        # LangGraph-based backend for orchestration (not in use because there are better agents out there)
+│   └── cli/            # Golang Command-line interface for agents to interact with PUDA
 └── docs/               # Documentation
 ```
 

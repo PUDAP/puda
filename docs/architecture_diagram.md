@@ -45,11 +45,6 @@ View the interactive diagram on Excalidraw:
 - **Database**: Persistent storage for logs and state
 - **Object Storage**: Integration with MinIO or ReductStore for media files
 
-### Backend (LangGraph)
-- **Orchestrates**: Coordinates distributed MCP servers
-- **MCP protocol**: Communicates with MCP servers via NATS
-- Manages agent workflows and task execution
-
 ## Data Flow
 
 1. **Frontend → PUDA CLI**: Frontend uses CLI for machine control
@@ -58,7 +53,6 @@ View the interactive diagram on Excalidraw:
 4. **Machines → NATS**: Machines publish responses, telemetry, and events
 5. **NATS → Logger Service**: Logger subscribes to response topics
 6. **Logger Service → PostgreSQL**: Responses are persisted to database
-7. **Backend → NATS**: Backend orchestrates MCP servers via NATS
 
 ## Libraries
 
@@ -74,5 +68,4 @@ View the interactive diagram on Excalidraw:
 ## Related Documentation
 
 - [NATS Architecture](./nats_architecture_diagram.md) - Detailed NATS messaging patterns
-- [Backend README](../apps/backend/README.md) - Backend service details
 - [Logger Service README](../services/logger/README.md) - Logger service details

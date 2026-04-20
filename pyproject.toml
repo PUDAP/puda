@@ -12,6 +12,5 @@ members = [
     "libs/*",
     "services/*",
     "machines/*/*",
-    "apps/backend",
 ]
 
