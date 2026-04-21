@@ -13,6 +13,7 @@ import logging
 from typing import Any, Callable, Awaitable
 
 from .edge_nats_client import EdgeNatsClient
+from .edge_updater import EdgeUpdater
 from .execution_state import ExecutionState
 from .models import (
     CommandResponse,
@@ -111,6 +112,11 @@ class EdgeRunner:
         self.state_handler = state_handler
         # Manage command execution state
         self.exec_state = ExecutionState()
+        # Self-update service; release driver resources before process exit
+        self.updater = EdgeUpdater(
+            nats_client=nats_client,
+            shutdown_callback=self._driver_shutdown,
+        )
 
     # -- public API ----------------------------------------------------------
 
@@ -135,8 +141,35 @@ class EdgeRunner:
     async def _setup_subscriptions(self) -> None:
         await self.nats_client.subscribe_queue(self._handle_execute)
         await self.nats_client.subscribe_immediate(self._handle_immediate)
+        await self.updater.subscribe()
+    
+    async def _driver_shutdown(self) -> None:
+        """
+        Best-effort cleanup on the machine driver before the edge exits for an
+        update. Looks for (in order) an async or sync `shutdown`, `close`, or
+        `disconnect` method on the driver so serial ports, sockets, cameras,
+        etc. are released for the next process.
+        """
+        for attr in ("shutdown", "close", "disconnect"):
+            method = getattr(self.machine_driver, attr, None)
+            if not callable(method):
+                continue
+            try:
+                logger.info("Invoking driver.%s() before restart", attr)
+                result = method()
+                if inspect.isawaitable(result):
+                    await result
+                return
+            except Exception as e:
+                logger.error("Driver %s() raised during shutdown: %s", attr, e, exc_info=True)
+                return
+        logger.info("Driver has no shutdown/close/disconnect method; skipping")
 
     async def _ensure_connection(self) -> bool:
+        if self.updater.is_restarting:
+            # Update in progress; don't fight the teardown by reconnecting.
+            await asyncio.sleep(0.5)
+            return False
         if self.nats_client.nc is None or self.nats_client.js is None:
             logger.warning("Connection lost, attempting to reconnect...")
             if await self.nats_client.connect():
