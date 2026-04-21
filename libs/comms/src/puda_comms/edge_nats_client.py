@@ -2,6 +2,9 @@
 Basic default NATS Client for Generic Machines
 Handles commands, telemetry, and events following the puda.{machine_id}.{category}.{sub_category} pattern
 Specific methods to a single machine should be implemented in the machine-edge client
+
+The `puda.{machine_id}.update` subject (and its `.response`) are exposed here as
+part of the wire protocol, but handling lives in `EdgeUpdater` (edge_updater.py).
 """
 import asyncio
 from contextlib import asynccontextmanager
@@ -110,6 +113,10 @@ class EdgeNatsClient:
         self.evt_log = f"{namespace}.{machine_id_safe}.evt.log"
         self.evt_alert = f"{namespace}.{machine_id_safe}.evt.alert"
         self.evt_media = f"{namespace}.{machine_id_safe}.evt.media"
+        
+        # Update subjects (Core NATS, handled by EdgeUpdater)
+        self.update = f"{namespace}.{machine_id_safe}.update"
+        self.update_response = f"{namespace}.{machine_id_safe}.update.response"
         
         # KV bucket name for status
         self.kv_bucket_state = f"MACHINE_STATE_{machine_id_safe}"

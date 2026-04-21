@@ -102,7 +102,7 @@ wheels = [
 
 [[package]]
 name = "puda-comms"
-version = "0.0.12"
+version = "0.0.13"
 source = { editable = "libs/comms" }
 dependencies = [
     { name = "nats-py" },
