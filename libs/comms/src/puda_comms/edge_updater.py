@@ -61,7 +61,6 @@ class EdgeUpdater:
         self,
         nats_client: EdgeNatsClient,
         shutdown_callback: Optional[ShutdownCallback] = None,
-        working_dir: Optional[str] = None,
         restart_mode: RestartMode = "exec",
     ) -> None:
         """
@@ -70,8 +69,6 @@ class EdgeUpdater:
                 `publish_log`, `publish_alert`, and `disconnect`).
             shutdown_callback: Optional async callable invoked before the
                 process exits so the driver can release resources.
-            working_dir: Default working directory for git updates. Falls back
-                to `os.getcwd()` when unset and not overridden in params.
             restart_mode: How to apply the update after pulling new code.
                 ``"exec"`` (default) replaces the current process image with
                 a fresh Python interpreter running ``sys.argv`` via
@@ -82,7 +79,6 @@ class EdgeUpdater:
         """
         self.nats_client = nats_client
         self._shutdown_callback = shutdown_callback
-        self._working_dir = working_dir
         self._restart_mode: RestartMode = restart_mode
         self._handler: Optional[UpdateHandler] = None
         self._sub = None
@@ -203,10 +199,14 @@ class EdgeUpdater:
         
         Expected `command.params`:
             source_type: "git" | "docker"
-            ref: git URL (git) or image:tag (docker)
-            branch: optional branch name (git only, defaults to "main")
-            working_dir: optional path for git repo (defaults to constructor
-                `working_dir` or `os.getcwd()`)
+            ref: optional for git -- when provided, the edge re-points
+                "origin" to this URL before fetching. Required for docker
+                (image:tag to pull).
+            checkout: optional git ref to reset to -- a branch, tag, or commit
+                SHA (git only, defaults to "main").
+        
+        The git working directory is always ``os.getcwd()`` (the edge process
+        cwd at update time).
         """
         if message.command is None:
             return CommandResponse(
@@ -219,17 +219,16 @@ class EdgeUpdater:
         source_type = str(params.get('source_type', '')).lower()
         ref = params.get('ref')
         
-        if not ref:
-            return CommandResponse(
-                status=CommandResponseStatus.ERROR,
-                code=CommandResponseCode.EXECUTION_ERROR,
-                message='Update params missing required "ref"',
-            )
-        
         try:
             if source_type == 'git':
                 return await self._handle_git(ref, params)
             if source_type == 'docker':
+                if not ref:
+                    return CommandResponse(
+                        status=CommandResponseStatus.ERROR,
+                        code=CommandResponseCode.EXECUTION_ERROR,
+                        message='Docker update params missing required "ref" (image:tag)',
+                    )
                 return await self._handle_docker(ref)
             return CommandResponse(
                 status=CommandResponseStatus.ERROR,
@@ -250,12 +249,25 @@ class EdgeUpdater:
                 message=str(e),
             )
     
-    async def _handle_git(self, ref: str, params: dict) -> CommandResponse:
-        branch = params.get('branch') or 'main'
-        working_dir = params.get('working_dir') or self._working_dir or os.getcwd()
-        logger.info("Running git update: ref=%s, branch=%s, cwd=%s", ref, branch, working_dir)
+    async def _handle_git(self, ref: Optional[str], params: dict) -> CommandResponse:
+        checkout = params.get('checkout') or 'main'
+        working_dir = os.getcwd()
+        logger.info("Running git update: ref=%s, checkout=%s, cwd=%s", ref, checkout, working_dir)
         
-        code, out, err = await self._run_subprocess('git', 'fetch', '--all', cwd=working_dir)
+        if ref:
+            code, out, err = await self._run_subprocess(
+                'git', 'remote', 'set-url', 'origin', ref, cwd=working_dir,
+            )
+            if code != 0:
+                return CommandResponse(
+                    status=CommandResponseStatus.ERROR,
+                    code=CommandResponseCode.EXECUTION_ERROR,
+                    message=f'git remote set-url failed: {err.strip() or out.strip()}',
+                )
+        
+        code, out, err = await self._run_subprocess(
+            'git', 'fetch', '--all', '--tags', cwd=working_dir,
+        )
         if code != 0:
             return CommandResponse(
                 status=CommandResponseStatus.ERROR,
@@ -263,8 +275,16 @@ class EdgeUpdater:
                 message=f'git fetch failed: {err.strip() or out.strip()}',
             )
         
+        target = await self._resolve_git_target(checkout, working_dir)
+        if target is None:
+            return CommandResponse(
+                status=CommandResponseStatus.ERROR,
+                code=CommandResponseCode.EXECUTION_ERROR,
+                message=f'git ref {checkout!r} not found in repo at {working_dir}',
+            )
+        
         code, out, err = await self._run_subprocess(
-            'git', 'reset', '--hard', f'origin/{branch}', cwd=working_dir
+            'git', 'reset', '--hard', target, cwd=working_dir,
         )
         if code != 0:
             return CommandResponse(
@@ -279,11 +299,36 @@ class EdgeUpdater:
             sync_msg = f' (uv sync warning: {sync_err.strip() or sync_out.strip()})'
             logger.warning("uv sync failed: %s", sync_err.strip() or sync_out.strip())
         
+        data: dict = {
+            'source_type': 'git',
+            'checkout': checkout,
+            'resolved': target,
+            'working_dir': working_dir,
+        }
+        if ref:
+            data['ref'] = ref
         return CommandResponse(
             status=CommandResponseStatus.SUCCESS,
-            message=f'Git updated to origin/{branch}{sync_msg}',
-            data={'source_type': 'git', 'ref': ref, 'branch': branch, 'working_dir': working_dir},
+            message=f'Git updated to {target}{sync_msg}',
+            data=data,
         )
+    
+    async def _resolve_git_target(self, checkout: str, working_dir: str) -> Optional[str]:
+        """
+        Resolve ``checkout`` to a concrete git target usable with ``git reset --hard``.
+        
+        Tries ``origin/<checkout>`` first (covers remote branches), then falls
+        back to the bare ref (covers tags and commit SHAs). Returns None when
+        neither resolves.
+        """
+        for candidate in (f'origin/{checkout}', checkout):
+            code, _, _ = await self._run_subprocess(
+                'git', 'rev-parse', '--verify', '--quiet', f'{candidate}^{{commit}}',
+                cwd=working_dir,
+            )
+            if code == 0:
+                return candidate
+        return None
     
     async def _handle_docker(self, ref: str) -> CommandResponse:
         logger.info("Running docker pull: image=%s", ref)

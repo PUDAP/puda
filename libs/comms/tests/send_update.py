@@ -8,21 +8,18 @@ publishing so the response from the edge is captured.
 
 Usage
 -----
-Defaults (uses the machine running from ``tests/machine-template`` with
-MACHINE_ID=update-test; git mode records the canonical repo
-``https://github.com/PUDAP/machine-template`` and the edge runs ``git fetch``
-+ ``git reset --hard origin/<branch>`` in its working directory):
+Default (edge fetches from its existing origin and resets to main):
 
-    python libs/comms/tests/send_update.py
+    python libs/comms/tests/send_update.py --machine-id update-test
 
-Git update, explicit params:
+Git update, explicit params (``--ref`` is optional; when set the edge
+re-points ``origin`` to it before fetching):
 
     python libs/comms/tests/send_update.py \\
         --machine-id update-test \\
         --source-type git \\
         --ref https://github.com/PUDAP/machine-template.git \\
-        --branch main \\
-        --working-dir /path/on/edge/to/repo
+        --checkout main
 
 Docker update:
 
@@ -57,9 +54,6 @@ from puda_comms.models import (
     NATSMessage,
 )
 
-# Canonical template repo; default --ref for git (edge still pulls via origin/<branch> in cwd).
-DEFAULT_GIT_REPO_URL = "https://github.com/PUDAP/machine-template.git"
-
 DEFAULT_NATS_SERVERS = (
     "nats://100.109.131.12:4222,"
     "nats://100.109.131.12:4223,"
@@ -81,16 +75,13 @@ def build_message(
     machine_id: str,
     source_type: str,
     ref: str,
-    branch: str | None,
-    working_dir: str | None,
+    checkout: str | None,
     user_id: str,
     username: str,
 ) -> NATSMessage:
     params: dict[str, str] = {"source_type": source_type, "ref": ref}
-    if branch:
-        params["branch"] = branch
-    if working_dir:
-        params["working_dir"] = working_dir
+    if checkout:
+        params["checkout"] = checkout
     
     return NATSMessage(
         header=MessageHeader(
@@ -147,8 +138,7 @@ async def send_update(
     machine_id: str,
     source_type: str,
     ref: str,
-    branch: str | None,
-    working_dir: str | None,
+    checkout: str | None,
     timeout: float,
     servers: list[str],
     alive_timeout: float = 5.0,
@@ -160,8 +150,7 @@ async def send_update(
         machine_id=machine_id,
         source_type=source_type,
         ref=ref,
-        branch=branch,
-        working_dir=working_dir,
+        checkout=checkout,
         user_id=str(uuid.uuid4()),
         username="update-test-script",
     )
@@ -250,18 +239,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--ref", default=None,
         help=(
-            "For git: canonical repo URL (default: "
-            + DEFAULT_GIT_REPO_URL
-            + "). For docker: image:tag (default: origin if omitted)."
+            "For git: optional repo URL; when set, the edge re-points "
+            "'origin' to it before fetching. For docker: required image:tag."
         ),
     )
     parser.add_argument(
-        "--branch", default="main",
-        help="Git branch to reset to (git only, default: main)",
-    )
-    parser.add_argument(
-        "--working-dir", default=None,
-        help="Git working directory on the edge host (optional; defaults to the edge process cwd)",
+        "--checkout", default="main",
+        help="Git branch, tag, or commit SHA to reset to (git only, default: main)",
     )
     parser.add_argument(
         "--timeout", type=float, default=60.0,
@@ -284,25 +268,21 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    if args.ref is None:
-        args.ref = (
-            DEFAULT_GIT_REPO_URL
-            if args.source_type == "git"
-            else "origin"
-        )
+    if args.source_type == "docker" and not args.ref:
+        logger.error("--ref is required for docker updates")
+        return 2
     servers = (
         [s.strip() for s in args.servers.split(",") if s.strip()]
         if args.servers
         else get_nats_servers()
     )
-    if args.source_type == "docker" and args.branch == "main":
-        args.branch = None  # branch is meaningless for docker; don't send it
+    if args.source_type == "docker" and args.checkout == "main":
+        args.checkout = None  # meaningless for docker; don't send it
     return asyncio.run(send_update(
         machine_id=args.machine_id,
         source_type=args.source_type,
         ref=args.ref,
-        branch=args.branch,
-        working_dir=args.working_dir,
+        checkout=args.checkout,
         timeout=args.timeout,
         servers=servers,
         alive_timeout=args.alive_timeout,
