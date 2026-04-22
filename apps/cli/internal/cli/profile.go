@@ -96,8 +96,10 @@ func runProfileCurrent(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("active profile %q not found", name)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Profile:     %s\n", name)
-	fmt.Fprintf(cmd.OutOrStdout(), "Description: %s\n", profile.Description)
+	const labelW = 15 // widest label: "NATS servers:"
+	fmt.Fprintf(cmd.OutOrStdout(), "%-*s %s\n", labelW, "Profile:", name)
+	fmt.Fprintf(cmd.OutOrStdout(), "%-*s %s\n", labelW, "Description:", profile.Description)
+	fmt.Fprintf(cmd.OutOrStdout(), "%-*s %s\n", labelW, "NATS servers:", profile.NATSServers)
 	return nil
 }
 
