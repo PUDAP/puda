@@ -113,14 +113,14 @@ type ConfigDatabase struct {
 	Path string `json:"path"`
 }
 
-// Profile represents a named connection profile with NATS endpoints.
-type Profile struct {
+// Env represents a named connection environment with NATS endpoints.
+type Env struct {
 	NATSServers string `json:"nats_servers"`
 	Description string `json:"description"`
 }
 
-// BuiltinProfiles contains the hardcoded connection profiles.
-var BuiltinProfiles = map[string]Profile{
+// BuiltinEnvs contains the hardcoded connection environments.
+var BuiltinEnvs = map[string]Env{
 	"bears": {NATSServers: "nats://100.109.131.12:4222,nats://100.109.131.12:4223,nats://100.109.131.12:4224", Description: "create tower (dev work)"},
 	"imre":  {NATSServers: "nats://100.109.131.12:4222,nats://100.109.131.12:4223,nats://100.109.131.12:4224", Description: "CuspAI setup"},
 	"ntu":   {NATSServers: "nats://100.109.131.12:4223,nats://100.109.131.12:4223,nats://100.109.131.12:4224", Description: "PUDA NTU setup"},
@@ -129,17 +129,17 @@ var BuiltinProfiles = map[string]Profile{
 // GlobalConfig represents the structure of the global PUDA CLI configuration file.
 // This is stored in the user's config directory and only contains user identity.
 type GlobalConfig struct {
-	User          ConfigUser `json:"user"`
-	ActiveProfile string     `json:"active_profile,omitempty"`
+	User      ConfigUser `json:"user"`
+	ActiveEnv string     `json:"active_env,omitempty"`
 }
 
-// ActiveProfileNATSServers returns the NATS server URLs for the active profile.
-// Falls back to "bears" if the profile is not set or not found.
-func (g *GlobalConfig) ActiveProfileNATSServers() string {
-	if p, ok := BuiltinProfiles[g.ActiveProfile]; ok {
-		return p.NATSServers
+// ActiveEnvNATSServers returns the NATS server URLs for the active env.
+// Falls back to "bears" if the env is not set or not found.
+func (g *GlobalConfig) ActiveEnvNATSServers() string {
+	if e, ok := BuiltinEnvs[g.ActiveEnv]; ok {
+		return e.NATSServers
 	}
-	return BuiltinProfiles["bears"].NATSServers
+	return BuiltinEnvs["bears"].NATSServers
 }
 
 // ProjectConfig represents the structure of the project-level PUDA CLI config.json file.

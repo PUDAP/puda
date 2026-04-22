@@ -17,7 +17,11 @@ puda
 ├── init [path]              Initialize a new PUDA project (requires --name)
 ├── login                    Log in to a PUDA account
 ├── logout                   Log out of a PUDA account
-├── machine                  Optional: --nats-servers (overrides active profile)
+├── env                      NATS connection environments (bears, imre, ntu)
+│   ├── current              Show the active env
+│   ├── list                 List envs; * marks active
+│   └── switch <env>         Set the active env
+├── machine                  Optional: --nats-servers (overrides active env)
 │   ├── commands <machine_id>  List commands the machine exposes
 │   ├── home <machine_id> [machine_id...]  Homes one or more machines
 │   ├── list                 List online machines from NATS heartbeat traffic
@@ -25,10 +29,6 @@ puda
 │   ├── state <machine_id>   Get the state of a machine
 │   ├── update <machine_id>  Tell a PUDA edge to pull (git/docker) and restart
 │   └── watch                Stream tlm/evt as NDJSON (requires --targets)
-├── profile                  NATS connection profiles (bears, imre, ntu)
-│   ├── current              Show the active profile
-│   ├── list                 List profiles; * marks active
-│   └── switch <profile>     Set the active profile
 ├── project
 │   └── hash                 SHA-256 hash of project-linked DB rows (--id)
 ├── protocol

@@ -64,8 +64,8 @@ func loadGlobalConfigFromPath(configPath string) (*GlobalConfig, error) {
 		return nil, fmt.Errorf("user ID is missing in PUDA config file %s", configPath)
 	}
 
-	if fileCfg.ActiveProfile == "" {
-		fileCfg.ActiveProfile = "bears"
+	if fileCfg.ActiveEnv == "" {
+		fileCfg.ActiveEnv = "bears"
 	}
 
 	return &fileCfg, nil

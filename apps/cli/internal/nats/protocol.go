@@ -163,14 +163,14 @@ func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string, startStep 
 		defer store.Disconnect()
 	}
 
-	// if natsServers is not provided, use the active profile from the global config
+	// if natsServers is not provided, use the active env from the global config
 	finalNatsServers := natsServers
 	if finalNatsServers == "" {
 		globalCfg, err := puda.LoadGlobalConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
 		}
-		finalNatsServers = globalCfg.ActiveProfileNATSServers()
+		finalNatsServers = globalCfg.ActiveEnvNATSServers()
 	}
 
 	// user_id and username must be provided in the protocol file

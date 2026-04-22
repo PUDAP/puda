@@ -4,22 +4,32 @@ Physical Unified Device Architecture - A runtime environment for Physical AI
 
 ## Overview
 
-PUDA is a **hardware-agnostic**, **LLM-agnostic** modular platform. The same infrastructure fits any system or machine you can drive with commands while reading responses back to close the loop—state, positions, measurements, or other telemetry. NATS is used for message routing; layered drivers and orchestration implement the control path; and the CLI exposes stable programmatic interfaces for agents and other clients, instead of brittle one-off scripts.
+PUDA is a **hardware-agnostic**, **LLM-agnostic** modular platform — a **runtime for Physical AI** that lets software and AI agents plan, execute, and record operations on any physical machine, from lab instruments and robotic arms to pumps, sensors, and industrial equipment. 
 
-This is a **monorepo** that manages multiple related packages and services in a single repository, enabling:
-- Shared code and dependencies across packages
-- Coordinated versioning and releases
-- Easier refactoring across package boundaries
-- Single lockfile for dependency management
+It is **headless by design**: there is no bundled UI. The intended way to drive PUDA is with **AI agents** (e.g. Cursor, Claude Code, Hermes Agent, OpenClaw or your own) using our [agent skills at `pudap/skills`](https://github.com/pudap/skills) — ready-made playbooks for setting up projects, writing protocols, running experiments, and generating reports. When a human-facing view is useful, you can even just **build your own dashboard** on streamlit using your agent.
+
+Under the hood:
+
+- **NATS** handles all message routing between components, giving every machine and service a uniform, loosely-coupled communication layer.
+- **Layered drivers and orchestration** implement the control path, cleanly separating how a device *works* from how experiments are *composed and executed*.
+- **CLI** exposes the same capabilities programmatically, so agents and other clients can drive the platform through versioned commands instead of brittle, one-off scripts.
+- **Env** — Each environment's machines, drivers, data, and credentials are isolated from every other, so the same skills and workflows always load the right context for wherever you are.
+- **Verification** — machine runs and data collected is extracted, SHA-256 hashed and stored, giving every run verifiable provenance from command to result.
 
 ## Design Goals
 
 PUDA is designed with two core principles:
 
 1. **Modularity** - Distinct separation of concerns between the Driver, Communication, and Orchestration layers to ensure independent scalability, maintainability and interchangeability.
-2. **AI-Native** - Prioritize programmatic access and low level commands to support autonomous agents
+2. **AI-Native** - Every capability is exposed as a stable, programmatic interface with low-level atomic commands on machines, so autonomous agents — not just humans — are first-class operators of the platform.
 
 ## Folder Structure
+
+This is a **monorepo** that manages multiple related packages and services in a single repository, enabling:
+- Shared code and dependencies across packages
+- Coordinated versioning and releases
+- Easier refactoring across package boundaries
+- Single lockfile for dependency management
 
 ```
 puda/

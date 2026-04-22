@@ -175,7 +175,7 @@ after N seconds, or Ctrl-C to stop.`,
 }
 
 func init() {
-	machineCmd.PersistentFlags().StringVar(&machineNatsServers, "nats-servers", "", "Comma-separated NATS server URLs (overrides active profile)")
+	machineCmd.PersistentFlags().StringVar(&machineNatsServers, "nats-servers", "", "Comma-separated NATS server URLs (overrides active env)")
 	machineListCmd.Flags().BoolVar(&machineListJSON, "json", false, "Output machine list as JSON")
 	machineWatchCmd.Flags().StringSliceVar(&watchTargets, "targets", nil, "Comma-separated list of machine IDs to watch")
 	machineWatchCmd.MarkFlagRequired("targets")
@@ -196,7 +196,7 @@ func connectMachineNATS() (*natsio.Conn, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
 		}
-		servers = cfg.ActiveProfileNATSServers()
+		servers = cfg.ActiveEnvNATSServers()
 	}
 	nc, err := natsio.Connect(servers, natsio.MaxReconnects(3), natsio.ReconnectWait(2*time.Second))
 	if err != nil {
