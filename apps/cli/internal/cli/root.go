@@ -124,6 +124,15 @@ func init() {
 	rootCmd.Version = Version
 	rootCmd.SetVersionTemplate(versionString())
 
+	rootCmd.AddCommand(&cobra.Command{
+		Use:   "version",
+		Short: "Print the version information",
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Print(versionString())
+		},
+	})
+
 	// Register top-level commands
 	rootCmd.AddCommand(protocolCmd)
 	rootCmd.AddCommand(projectCmd)
