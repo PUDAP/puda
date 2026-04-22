@@ -25,6 +25,8 @@ builds:
       - darwin
     ldflags:
       - -X github.com/PUDAP/puda/apps/cli/internal/cli.Version={{ .Version }}
+      - -X github.com/PUDAP/puda/apps/cli/internal/cli.Commit={{ .ShortCommit }}
+      - -X github.com/PUDAP/puda/apps/cli/internal/cli.BuildDate={{ .Date }}
 
 archives:
   - formats: [tar.gz]
