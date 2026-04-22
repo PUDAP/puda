@@ -1,10 +1,10 @@
 # PUDA
 
-Physical Unified Device Architecture - A platform for laboratory automation and device control.
+Physical Unified Device Architecture - A runtime environment for Physical AI
 
 ## Overview
 
-PUDA is a modular platform that provides communication infrastructure and machine services for laboratory automation and orchestration. The platform uses NATS for distributed communication and supports various laboratory hardware.
+PUDA is a **hardware-agnostic**, **LLM-agnostic** modular platform. The same infrastructure fits any system or machine you can drive with commands while reading responses back to close the loop—state, positions, measurements, or other telemetry. NATS is used for message routing; layered drivers and orchestration implement the control path; and the CLI exposes stable programmatic interfaces for agents and other clients, instead of brittle one-off scripts.
 
 This is a **monorepo** that manages multiple related packages and services in a single repository, enabling:
 - Shared code and dependencies across packages
