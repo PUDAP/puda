@@ -2,32 +2,43 @@
 
 ## Commands
 
+Top-level order matches `puda --help` (alphabetical). Nested order matches each `puda <cmd> --help`. Global flags: `-h` / `--help`, `-v` / `--version`.
+
 ```
 puda
+├── completion               Generate the autocompletion script for the specified shell
+├── config
+│   ├── edit                 Edit PUDA CLI configuration
+│   └── list                 List PUDA CLI configuration values
+├── db
+│   ├── exec [sql]           Execute SQL commands on the database
+│   └── schema               Display the database schema
+├── help                     Help about any command
+├── init [path]              Initialize a new PUDA project (requires --name)
+├── login                    Log in to a PUDA account
+├── logout                   Log out of a PUDA account
+├── machine                  Optional: --nats-servers (overrides active profile)
+│   ├── commands <machine_id>  List commands the machine exposes
+│   ├── home <machine_id> [machine_id...]  Homes one or more machines
+│   ├── list                 List online machines from NATS heartbeat traffic
+│   ├── reset <machine_id>   Reset a machine
+│   ├── state <machine_id>   Get the state of a machine
+│   ├── update <machine_id>  Tell a PUDA edge to pull (git/docker) and restart
+│   └── watch                Stream tlm/evt as NDJSON (requires --targets)
+├── profile                  NATS connection profiles (bears, imre, ntu)
+│   ├── current              Show the active profile
+│   ├── list                 List profiles; * marks active
+│   └── switch <profile>     Set the active profile
+├── project
+│   └── hash                 SHA-256 hash of project-linked DB rows (--id)
 ├── protocol
 │   ├── run                  Run a protocol on machines via NATS
 │   └── validate             Validate a protocol JSON file
-├── project
-│   ├── create               Create a new project
-│   └── extract              Extract project-linked data
-├── machine
-│   ├── list                 Discover machines via heartbeat
-│   ├── state <machine_id>   Get the state of a machine
-│   ├── reset <machine_id>   Reset a machine
-│   ├── watch                Watch machine(s) tlm and evts
-│   └── commands <machine_id> Show available commands
-├── login                    Log in to a PUDA account
-├── logout                   Log out of a PUDA account
-├── config
-│   ├── list                 List configuration values
-│   └── edit                 Edit configuration in default editor
-├── init [path]              Initialize a new PUDA project
-├── skills
-│   ├── install              Install and sync agent skills
-│   └── update               Update agent skills and sync AGENTS.md
-└── db
-    ├── exec [sql]           Execute SQL queries on the database
-    └── schema               Display the database schema
+├── skills                   Requires Node.js / npx
+│   ├── install [repo...]    Add default + optional skill repos, then sync
+│   └── update               Refresh installed skills (npx skills update)
+├── update                   Upgrade or pin the puda CLI from GitHub releases
+└── version                  Print the version information
 ```
 
 ## Setup
@@ -42,17 +53,7 @@ Then run the following:
    ```
    Enter your username when prompted.
 
-2. **Initialize your project**
-   Navigate to your workspace:
-   ```bash
-   puda init <project_folder>
-   ```
-   If you are already inside the project folder:
-   ```bash
-   puda init .
-   ```
-
-3. **Install skills**
+2. **Install skills**
    ```bash
    puda skills install
    ```
