@@ -1,6 +1,6 @@
 [project]
-name = "puda-comms"
-version = "0.0.14"
+name = "puda-python"
+version = "0.0.15"
 description = "Communication library for the PUDA platform."
 readme = "README.md"
 authors = [
@@ -17,6 +17,9 @@ line-length = 100
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
+
+[tool.uv.build-backend]
+module-name = "puda"
 
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]

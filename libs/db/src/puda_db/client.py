@@ -5,7 +5,7 @@ import logging
 from typing import Optional
 import psycopg
 from psycopg.rows import dict_row
-from puda_comms.models import NATSMessage
+from puda.models import NATSMessage
 
 
 logger = logging.getLogger(__name__)

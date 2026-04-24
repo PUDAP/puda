@@ -5,8 +5,8 @@ requires-python = ">=3.12"
 [manifest]
 members = [
     "logger",
-    "puda-comms",
     "puda-db",
+    "puda-python",
     "puda-root",
 ]
 
@@ -24,15 +24,15 @@ name = "logger"
 version = "0.1.0"
 source = { virtual = "services/logger" }
 dependencies = [
-    { name = "puda-comms" },
     { name = "puda-db" },
+    { name = "puda-python" },
     { name = "python-dotenv" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "puda-comms", editable = "libs/comms" },
     { name = "puda-db", editable = "libs/db" },
+    { name = "puda-python", editable = "libs/puda-python" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
 ]
 
@@ -101,9 +101,20 @@ wheels = [
 ]
 
 [[package]]
-name = "puda-comms"
-version = "0.0.14"
-source = { editable = "libs/comms" }
+name = "puda-db"
+version = "0.1.0"
+source = { editable = "libs/db" }
+dependencies = [
+    { name = "psycopg", extra = ["binary"] },
+]
+
+[package.metadata]
+requires-dist = [{ name = "psycopg", extras = ["binary"], specifier = ">=3.2.2" }]
+
+[[package]]
+name = "puda-python"
+version = "0.0.15"
+source = { editable = "libs/puda-python" }
 dependencies = [
     { name = "nats-py" },
     { name = "pydantic" },
@@ -122,17 +133,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [{ name = "ruff", specifier = ">=0.14.13" }]
-
-[[package]]
-name = "puda-db"
-version = "0.1.0"
-source = { editable = "libs/db" }
-dependencies = [
-    { name = "psycopg", extra = ["binary"] },
-]
-
-[package.metadata]
-requires-dist = [{ name = "psycopg", extras = ["binary"], specifier = ">=3.2.2" }]
 
 [[package]]
 name = "puda-root"

@@ -9,8 +9,8 @@ import os
 from typing import Optional
 from dotenv import load_dotenv
 from nats.aio.msg import Msg
-from puda_comms import StreamSubscriber
-from puda_comms.models import NATSMessage
+from puda import StreamSubscriber
+from puda.models import NATSMessage
 from puda_db import DatabaseClient
 
 # Load environment variables from .env file

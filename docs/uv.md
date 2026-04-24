@@ -26,7 +26,7 @@ Create or update the root `pyproject.toml`:
 ```toml
 [tool.uv.workspace]
 members = [
-    "libs/comms",
+    "libs/puda-python",
     "machines/first/edge",
     "machines/first/mcp",
 ]
@@ -40,7 +40,7 @@ Each member package needs its own `pyproject.toml` with standard project metadat
 
 ```toml
 [project]
-name = "puda-comms"
+name = "puda-python"
 version = "0.0.10"
 description = "Communication library for the PUDA platform."
 requires-python = ">=3.14"
@@ -62,11 +62,11 @@ When one workspace package depends on another, use the `tool.uv.sources` section
 [project]
 name = "first-edge"
 dependencies = [
-    "puda-comms",
+    "puda-python",
 ]
 
 [tool.uv.sources]
-puda-comms = {workspace = true}
+puda-python = {workspace = true}
 ```
 
 ### Key Points
@@ -106,14 +106,14 @@ uv sync --upgrade-package <package_name>
 Add a dependency to a specific workspace package:
 
 ```bash
-cd libs/comms
+cd libs/puda-python
 uv add nats-py
 ```
 
 Or from the root:
 
 ```bash
-uv add --package puda-comms nats-py
+uv add --package puda-python nats-py
 ```
 
 ### Add a Workspace Dependency
@@ -134,14 +134,14 @@ uv sync
 Run commands with workspace dependencies available:
 
 ```bash
-uv run python -m puda_comms
+uv run python -m puda
 ```
 
 Or activate the environment:
 
 ```bash
 source .venv/bin/activate  # or `.venv\Scripts\activate` on Windows
-python -m puda_comms
+python -m puda
 ```
 
 ## Workspace Package Development
@@ -172,12 +172,12 @@ puda/
 ├── pyproject.toml          # Workspace root
 ├── uv.lock                  # Shared lockfile
 ├── libs/
-│   └── comms/
+│   └── puda-python/
 │       └── pyproject.toml   # Communication library
 └── services/
     └── first/
         ├── edge/
-        │   └── pyproject.toml  # Depends on puda-comms (workspace)
+        │   └── pyproject.toml  # Depends on puda-python (workspace)
         └── mcp/
             └── pyproject.toml  # No workspace dependencies
 ```

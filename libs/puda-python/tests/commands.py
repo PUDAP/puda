@@ -16,8 +16,8 @@ import uuid
 import asyncio
 import logging
 import os
-from puda_comms import CommandService
-from puda_comms.models import CommandRequest, CommandResponseStatus, NATSMessage, ImmediateCommand
+from puda import CommandService
+from puda.models import CommandRequest, CommandResponseStatus, NATSMessage, ImmediateCommand
 
 # Configure logging
 logging.basicConfig(

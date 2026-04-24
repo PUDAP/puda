@@ -67,7 +67,7 @@ Workspace packages automatically reference each other.
 
 ```toml
 [tool.uv.sources]
-puda-comms = {workspace = true}
+puda-python = {workspace = true}
 ```
 
 See [`docs/uv.md`](docs/uv.md) for detailed information about working with UV workspaces.

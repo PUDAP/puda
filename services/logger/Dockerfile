@@ -16,7 +16,7 @@ COPY pyproject.toml ./pyproject.toml
 # Copy the entire workspace structure to maintain relative paths
 COPY services/logger/ ./services/logger/
 COPY libs/db/ ./libs/db/
-COPY libs/comms/ ./libs/comms/
+COPY libs/puda-python/ ./libs/puda-python/
 
 # Install dependencies using uv from the service directory
 WORKDIR /app/services/logger
@@ -26,6 +26,6 @@ RUN uv sync --no-dev
 WORKDIR /app/services/logger
 
 # Set Python path to include the workspace
-ENV PYTHONPATH=/app/services/logger:/app/libs/db/src:/app/libs/comms/src
+ENV PYTHONPATH=/app/services/logger:/app/libs/db/src:/app/libs/puda-python/src
 
 CMD ["uv", "run", "python", "main.py"]

@@ -19,8 +19,8 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from puda_comms import CommandService
-from puda_comms.models import CommandRequest, CommandResponseStatus, NATSMessage
+from puda import CommandService
+from puda.models import CommandRequest, CommandResponseStatus, NATSMessage
 
 # Configure logging
 logging.basicConfig(

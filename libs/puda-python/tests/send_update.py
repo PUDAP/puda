@@ -10,12 +10,12 @@ Usage
 -----
 Default (edge fetches from its existing origin and resets to main):
 
-    python libs/comms/tests/send_update.py --machine-id update-test
+    python libs/puda-python/tests/send_update.py --machine-id update-test
 
 Git update, explicit params (``--ref`` is optional; when set the edge
 re-points ``origin`` to it before fetching):
 
-    python libs/comms/tests/send_update.py \\
+    python libs/puda-python/tests/send_update.py \\
         --machine-id update-test \\
         --source-type git \\
         --ref https://github.com/PUDAP/machine-template.git \\
@@ -23,7 +23,7 @@ re-points ``origin`` to it before fetching):
 
 Docker update:
 
-    python libs/comms/tests/send_update.py \\
+    python libs/puda-python/tests/send_update.py \\
         --machine-id update-test \\
         --source-type docker \\
         --ref ghcr.io/pudap/machine-template:latest
@@ -47,7 +47,7 @@ import uuid
 import nats
 from nats.aio.msg import Msg
 
-from puda_comms.models import (
+from puda.models import (
     CommandRequest,
     MessageHeader,
     MessageType,

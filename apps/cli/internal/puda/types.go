@@ -12,7 +12,7 @@ type CommandRequest struct {
 	MachineID  string                 `json:"machine_id"`
 }
 
-// ImmediateCommand is the command name for immediate commands (matches puda_comms.models.ImmediateCommand).
+// ImmediateCommand is the command name for immediate commands (matches puda.models.ImmediateCommand).
 const (
 	ImmediateCommandStart    = "start"
 	ImmediateCommandComplete = "complete"

@@ -4,7 +4,7 @@ A Python module for communication between machines and command services via NATS
 
 ## Overview
 
-The `puda_comms` module enables asynchronous, reliable communication between command services and machines using NATS (NATS JetStream for guaranteed delivery). It handles:
+The `puda` module enables asynchronous, reliable communication between command services and machines using NATS (NATS JetStream for guaranteed delivery). It handles:
 
 - **Command execution**: Send commands to machines and receive responses
 - **Message routing**: Queue commands (sequential execution) and immediate commands (control operations)
