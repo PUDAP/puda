@@ -10,19 +10,19 @@ import (
 
 var envCmd = &cobra.Command{
 	Use:   "env",
-	Short: "Manage connection environments",
-	Long:  "Manage NATS connection environments. Use subcommands to list or switch environments.",
+	Short: "Manage PUDA environments",
+	Long:  "Manage PUDA environments. Use subcommands to list or switch environments.",
 }
 
 var envListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List available connection environments",
+	Short: "List available PUDA environments",
 	RunE:  runEnvList,
 }
 
 var envSwitchCmd = &cobra.Command{
 	Use:   "switch <env>",
-	Short: "Switch the active connection environment",
+	Short: "Switch the active PUDA environment",
 	Args:  cobra.ExactArgs(1),
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return sortedEnvNames(), cobra.ShellCompDirectiveNoFileComp
@@ -32,7 +32,7 @@ var envSwitchCmd = &cobra.Command{
 
 var envCurrentCmd = &cobra.Command{
 	Use:   "current",
-	Short: "Show the current active environment",
+	Short: "Show the current active PUDA environment",
 	RunE:  runEnvCurrent,
 }
 
