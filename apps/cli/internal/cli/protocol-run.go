@@ -17,7 +17,8 @@ var protocolRunCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Run a protocol on machines via NATS",
 	Long: `Run a protocol on machines via NATS.
-Loads a protocol JSON file from the given path and runs commands sequentially, stopping on first error. 
+Loads a protocol JSON file from the given path and runs commands step-by-step, stopping on first error.
+Commands with the same step_number are sent in parallel and must all finish before the next step runs.
 
 Optional: --nats-servers to override NATS server URLs in config file.
 

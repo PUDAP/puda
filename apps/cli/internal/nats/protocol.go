@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -29,7 +30,72 @@ func completeAllMachines(js nats.JetStreamContext, dispatcher *ResponseDispatche
 	}
 }
 
-// SendQueueCommands sends queued protocol commands sequentially
+type commandResult struct {
+	index    int
+	request  puda.CommandRequest
+	response *puda.NATSMessage
+	err      error
+}
+
+func sendQueueCommandBatch(js nats.JetStreamContext, dispatcher *ResponseDispatcher, requests []puda.CommandRequest, startIndex int, totalCommands int, runID, userID, username string, store *db.Store) error {
+	if len(requests) == 1 {
+		request := requests[0]
+		log.Printf("Sending command %d/%d: %s (step %d) to machine %s", startIndex+1, totalCommands, request.Name, request.StepNumber, request.MachineID)
+	} else {
+		log.Printf("Sending %d commands in parallel for step %d", len(requests), requests[0].StepNumber)
+		for idx, request := range requests {
+			log.Printf("Sending command %d/%d: %s (step %d) to machine %s", startIndex+idx+1, totalCommands, request.Name, request.StepNumber, request.MachineID)
+		}
+	}
+
+	results := make(chan commandResult, len(requests))
+	var wg sync.WaitGroup
+	for idx, request := range requests {
+		wg.Add(1)
+		go func(idx int, request puda.CommandRequest) {
+			defer wg.Done()
+			response, err := SendQueueCommand(js, dispatcher, request, runID, userID, username, store)
+			results <- commandResult{
+				index:    startIndex + idx,
+				request:  request,
+				response: response,
+				err:      err,
+			}
+		}(idx, request)
+	}
+
+	wg.Wait()
+	close(results)
+
+	for result := range results {
+		commandPosition := result.index + 1
+		if result.err != nil {
+			return fmt.Errorf("command %d/%d failed or timed out: %w", commandPosition, totalCommands, result.err)
+		}
+
+		if result.response.Response == nil {
+			return fmt.Errorf("command %d/%d returned response with no response data", commandPosition, totalCommands)
+		}
+
+		if result.response.Response.Status == puda.StatusError {
+			return fmt.Errorf("command %d/%d failed with error: %s", commandPosition, totalCommands, GetResponseMessage(result.response))
+		}
+
+		log.Printf("Command %d/%d succeeded: %s (step %d)", commandPosition, totalCommands, result.request.Name, result.request.StepNumber)
+
+		// Log response details
+		responseJSON, err := json.MarshalIndent(result.response, "", "  ")
+		if err != nil {
+			log.Printf("Response (unable to marshal): %+v", result.response)
+		} else {
+			log.Printf("Response: %s", string(responseJSON))
+		}
+	}
+
+	return nil
+}
+
+// SendQueueCommands sends queued protocol commands, running commands with the same step number in parallel
 func SendQueueCommands(js nats.JetStreamContext, dispatcher *ResponseDispatcher, requests []puda.CommandRequest, runID, userID, username string, store *db.Store) error {
 	const defaultTimeout = 30 // for immediate commands which should complete pretty much instantly
 
@@ -100,8 +166,9 @@ func SendQueueCommands(js nats.JetStreamContext, dispatcher *ResponseDispatcher,
 		startedMachines[machineID] = true
 	}
 
-	// Send commands sequentially
-	for idx, request := range requests {
+	// Send commands step-by-step. Commands with the same step number form a
+	// barrier: they are sent in parallel, then all must finish before moving on.
+	for idx := 0; idx < len(requests); {
 		// Check if interrupted
 		select {
 		case <-interrupted:
@@ -111,36 +178,18 @@ func SendQueueCommands(js nats.JetStreamContext, dispatcher *ResponseDispatcher,
 		default:
 		}
 
-		log.Printf("Sending command %d/%d: %s (step %d) to machine %s", idx+1, len(requests), request.Name, request.StepNumber, request.MachineID)
+		stepNumber := requests[idx].StepNumber
+		batchEnd := idx + 1
+		for batchEnd < len(requests) && requests[batchEnd].StepNumber == stepNumber {
+			batchEnd++
+		}
 
-		response, err := SendQueueCommand(js, dispatcher, request, runID, userID, username, store)
-		if err != nil {
+		if err := sendQueueCommandBatch(js, dispatcher, requests[idx:batchEnd], idx, len(requests), runID, userID, username, store); err != nil {
 			// Complete all started runs
 			completeAllMachines(js, dispatcher, startedMachines, runID, userID, username, defaultTimeout, completeStepNumber, store)
-			return fmt.Errorf("command %d/%d failed or timed out: %w", idx+1, len(requests), err)
+			return err
 		}
-
-		if response.Response == nil {
-			// Complete all started runs
-			completeAllMachines(js, dispatcher, startedMachines, runID, userID, username, defaultTimeout, completeStepNumber, store)
-			return fmt.Errorf("command %d/%d returned response with no response data", idx+1, len(requests))
-		}
-
-		if response.Response.Status == puda.StatusError {
-			// Complete all started runs
-			completeAllMachines(js, dispatcher, startedMachines, runID, userID, username, defaultTimeout, completeStepNumber, store)
-			return fmt.Errorf("command %d/%d failed with error: %s", idx+1, len(requests), GetResponseMessage(response))
-		}
-
-		log.Printf("Command %d/%d succeeded: %s (step %d)", idx+1, len(requests), request.Name, request.StepNumber)
-
-		// Log response details
-		responseJSON, err := json.MarshalIndent(response, "", "  ")
-		if err != nil {
-			log.Printf("Response (unable to marshal): %+v", response)
-		} else {
-			log.Printf("Response: %s", string(responseJSON))
-		}
+		idx = batchEnd
 	}
 
 	log.Printf("All %d commands completed successfully", len(requests))
@@ -251,12 +300,25 @@ func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string, startStep 
 	if len(commands) == 0 {
 		return fmt.Errorf("protocol contains no commands")
 	}
-	if startStep < 1 || startStep > len(commands) {
-		return fmt.Errorf("start step must be between 1 and %d", len(commands))
+
+	maxStepNumber := commands[0].StepNumber
+	for _, command := range commands[1:] {
+		if command.StepNumber > maxStepNumber {
+			maxStepNumber = command.StepNumber
+		}
+	}
+	if startStep < 1 || startStep > maxStepNumber {
+		return fmt.Errorf("start step must be between 1 and %d", maxStepNumber)
 	}
 	if startStep > 1 {
 		log.Printf("Starting protocol from step %d", startStep)
-		commands = commands[startStep-1:]
+		filteredCommands := make([]puda.CommandRequest, 0, len(commands))
+		for _, command := range commands {
+			if command.StepNumber >= startStep {
+				filteredCommands = append(filteredCommands, command)
+			}
+		}
+		commands = filteredCommands
 	}
 	log.Printf("Loaded %d commands from protocol, executing %d command(s) starting at step %d\n", len(protocolFile.Commands), len(commands), startStep)
 

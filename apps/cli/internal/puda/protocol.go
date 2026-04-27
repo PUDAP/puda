@@ -50,6 +50,8 @@ func LoadProtocol(filePath string) ([]byte, error) {
 // ValidateCommandStructure validates the structure of commands
 func ValidateCommandStructure(commands []CommandRequest) []ValidationError {
 	var errors []ValidationError
+	stepMachinePairs := make(map[string]int)
+	previousStepNumber := -1
 
 	for i, cmd := range commands {
 		// Validate required fields
@@ -78,6 +80,28 @@ func ValidateCommandStructure(commands []CommandRequest) []ValidationError {
 				Field:        "step_number",
 				Message:      "must be a non-negative integer",
 			})
+		} else if previousStepNumber > cmd.StepNumber {
+			errors = append(errors, ValidationError{
+				CommandIndex: i,
+				Field:        "step_number",
+				Message:      fmt.Sprintf("must not decrease from previous step %d", previousStepNumber),
+			})
+		}
+		if cmd.StepNumber >= 0 {
+			previousStepNumber = cmd.StepNumber
+		}
+
+		if cmd.MachineID != "" && cmd.StepNumber >= 0 {
+			stepMachineKey := fmt.Sprintf("%s:%d", cmd.MachineID, cmd.StepNumber)
+			if previousIndex, ok := stepMachinePairs[stepMachineKey]; ok {
+				errors = append(errors, ValidationError{
+					CommandIndex: i,
+					Field:        "step_number",
+					Message:      fmt.Sprintf("duplicates command #%d for machine %s at step %d", previousIndex+1, cmd.MachineID, cmd.StepNumber),
+				})
+			} else {
+				stepMachinePairs[stepMachineKey] = i
+			}
 		}
 	}
 

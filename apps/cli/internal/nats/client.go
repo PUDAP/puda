@@ -21,8 +21,8 @@ func SendImmediateCommand(js nats.JetStreamContext, dispatcher *ResponseDispatch
 		return nil, fmt.Errorf("failed to marshal command payload: %w", err)
 	}
 
-	responseCh := dispatcher.Register(runID, request.StepNumber)
-	defer dispatcher.Unregister(runID, request.StepNumber)
+	responseCh := dispatcher.Register(runID, request.StepNumber, request.MachineID)
+	defer dispatcher.Unregister(runID, request.StepNumber, request.MachineID)
 
 	// Publish command
 	_, err = js.Publish(subject, payloadJSON)
@@ -55,8 +55,8 @@ func SendQueueCommand(js nats.JetStreamContext, dispatcher *ResponseDispatcher, 
 		return nil, fmt.Errorf("failed to marshal command payload: %w", err)
 	}
 
-	responseCh := dispatcher.Register(runID, request.StepNumber)
-	defer dispatcher.Unregister(runID, request.StepNumber)
+	responseCh := dispatcher.Register(runID, request.StepNumber, request.MachineID)
+	defer dispatcher.Unregister(runID, request.StepNumber, request.MachineID)
 
 	// Publish command with ack wait long enough for busy streams (default is 5s), retry up to 3 times
 	const publishAckWait = 10 * time.Second

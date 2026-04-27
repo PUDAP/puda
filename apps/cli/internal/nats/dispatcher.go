@@ -20,11 +20,12 @@ const (
 type responseKey struct {
 	runID      string
 	stepNumber int
+	machineID  string
 }
 
 // ResponseDispatcher manages a single long-lived JetStream subscription per
 // response stream (immediate + queue) and routes incoming responses to the
-// correct caller via a correlation map keyed on (runID, stepNumber).
+// correct caller via a correlation map keyed on (runID, stepNumber, machineID).
 type ResponseDispatcher struct {
 	js           nats.JetStreamContext
 	userID       string
@@ -62,7 +63,7 @@ func (d *ResponseDispatcher) Start() error {
 			stepNumber = response.Command.StepNumber
 		}
 
-		key := responseKey{runID: runID, stepNumber: stepNumber}
+		key := responseKey{runID: runID, stepNumber: stepNumber, machineID: response.Header.MachineID}
 
 		d.mu.Lock()
 		ch, ok := d.pending[key]
@@ -114,18 +115,18 @@ func (d *ResponseDispatcher) Close() {
 }
 
 // Register returns a buffered channel that will receive the response matching
-// the given (runID, stepNumber) pair. Caller must defer Unregister.
-func (d *ResponseDispatcher) Register(runID string, stepNumber int) <-chan *puda.NATSMessage {
+// the given (runID, stepNumber, machineID) tuple. Caller must defer Unregister.
+func (d *ResponseDispatcher) Register(runID string, stepNumber int, machineID string) <-chan *puda.NATSMessage {
 	ch := make(chan *puda.NATSMessage, 1)
-	key := responseKey{runID: runID, stepNumber: stepNumber}
+	key := responseKey{runID: runID, stepNumber: stepNumber, machineID: machineID}
 	d.mu.Lock()
 	d.pending[key] = ch
 	d.mu.Unlock()
 	return ch
 }
 
-func (d *ResponseDispatcher) Unregister(runID string, stepNumber int) {
-	key := responseKey{runID: runID, stepNumber: stepNumber}
+func (d *ResponseDispatcher) Unregister(runID string, stepNumber int, machineID string) {
+	key := responseKey{runID: runID, stepNumber: stepNumber, machineID: machineID}
 	d.mu.Lock()
 	delete(d.pending, key)
 	d.mu.Unlock()

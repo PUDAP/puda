@@ -29,6 +29,8 @@ Checks:
   - Valid JSON format
   - Object structure with "commands" array field
   - Each command has required fields: name, machine_id, step_number
+  - Step numbers do not decrease through the command list
+  - Commands may share a step_number to run in parallel, but not for the same machine
   - Params field is optional for commands
 
 Example:
