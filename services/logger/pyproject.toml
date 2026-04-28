@@ -6,11 +6,11 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "puda-db",
-    "puda-python",
+    "puda",
     "python-dotenv>=1.2.1",
 ]
 
 [tool.uv.sources]
 puda-db = {workspace=true}
-puda-python = {workspace=true}
+puda = {workspace=true}
 

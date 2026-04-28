@@ -1,5 +1,5 @@
 [project]
-name = "puda-python"
+name = "puda"
 version = "0.0.15"
 description = "Official Python SDK for PUDA, the runtime environment for Physical AI"
 readme = "README.md"

@@ -56,7 +56,7 @@ View the interactive diagram on Excalidraw:
 
 ## Libraries
 
-- **puda-python**: NATS client (EdgeNatsClient, CommandService)
+- **puda**: NATS client (EdgeNatsClient, CommandService)
 - **puda-db**: Database utilities
 
 ## Infrastructure
