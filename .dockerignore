@@ -51,7 +51,6 @@ pnpm-debug.log*
 *.sqlite
 *.sqlite3
 infra/nats/db/
-infra/postgres/data/
 
 # Logs
 *.log
