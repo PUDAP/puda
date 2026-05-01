@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -242,34 +240,11 @@ func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string, startStep 
 		}
 	}
 
-	// Set up logging to both console and file
-	projectRoot := "."
-	if projCfg, err := puda.LoadProjectConfig(); err == nil && projCfg.ProjectRoot != "" {
-		projectRoot = projCfg.ProjectRoot
-	}
-	logsDir := filepath.Join(projectRoot, "logs")
-	if err := os.MkdirAll(logsDir, 0755); err != nil {
-		return fmt.Errorf("failed to create logs directory: %w", err)
-	}
-
-	logFilePath := filepath.Join(logsDir, fmt.Sprintf("%s.log", runID))
-	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open log file: %w", err)
-	}
-	defer logFile.Close()
-
-	// Create a multi-writer that writes to both stdout and the log file
-	multiWriter := io.MultiWriter(os.Stdout, logFile)
-	log.SetOutput(multiWriter)
-	defer log.SetOutput(os.Stderr) // Restore default log output (stderr) when done
-
 	log.Printf("Protocol created by %s (%s) at %s", finalUsername, finalUserID, protocolFile.Timestamp)
 	log.Printf("Description: %s", protocolFile.Description)
 
 	log.Printf("Run ID: %s", runID)
 	log.Printf("Ran by: %s (%s)", finalUsername, finalUserID)
-	log.Printf("Logging output to: %s", logFilePath)
 
 	// Parse NATS servers
 	log.Printf("Connecting to NATS servers: %v", finalNatsServers)
