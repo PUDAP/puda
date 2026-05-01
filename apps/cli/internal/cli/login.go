@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -23,7 +22,13 @@ var loginCmd = &cobra.Command{
 	RunE: runLogin,
 }
 
-// runLogin executes the login flow: prompt for username and write config file.
+var loginUsername string
+
+func init() {
+	loginCmd.Flags().StringVarP(&loginUsername, "username", "u", "", "Username for the PUDA account")
+}
+
+// runLogin executes the login flow: read username from flag and write config file.
 func runLogin(cmd *cobra.Command, args []string) error {
 	configPath, err := puda.GlobalConfigPath()
 	if err != nil {
@@ -32,22 +37,28 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	// If a config file already exists, assume the user is already logged in.
 	if _, err := os.Stat(configPath); err == nil {
-		fmt.Fprintln(cmd.OutOrStdout(), "You are already logged in.")
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			return logoutInvalidLogin(configPath, fmt.Errorf("failed to read existing config file: %w", err))
+		}
+
+		var cfg puda.GlobalConfig
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return logoutInvalidLogin(configPath, fmt.Errorf("failed to parse existing config file: %w", err))
+		}
+		if cfg.User.Username == "" {
+			return logoutInvalidLogin(configPath, fmt.Errorf("username is missing in existing config file %s", configPath))
+		}
+
+		fmt.Fprintf(cmd.OutOrStdout(), "You are already logged in as %s.\n", cfg.User.Username)
 		return nil
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("failed to check existing config file: %w", err)
 	}
 
-	reader := bufio.NewReader(os.Stdin)
-
-	fmt.Fprint(cmd.OutOrStdout(), "Enter username: ")
-	usernameRaw, err := reader.ReadString('\n')
-	if err != nil {
-		return fmt.Errorf("failed to read username: %w", err)
-	}
-	username := strings.TrimSpace(usernameRaw)
+	username := strings.TrimSpace(loginUsername)
 	if username == "" {
-		return fmt.Errorf("username cannot be empty")
+		return fmt.Errorf("username is required; pass --username <name>")
 	}
 
 	// Simulate talking to a backend auth service to obtain user ID and NATS endpoints.
@@ -73,4 +84,12 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	fmt.Fprintln(cmd.OutOrStdout(), "Login successful.")
 	fmt.Fprintf(cmd.OutOrStdout(), "Saved puda configuration to %s\n", configPath)
 	return nil
+}
+
+func logoutInvalidLogin(configPath string, cause error) error {
+	if err := os.Remove(configPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("%w; failed to log out user: %v", cause, err)
+	}
+
+	return fmt.Errorf("%w; you have been logged out, please log in again", cause)
 }
