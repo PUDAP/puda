@@ -26,9 +26,7 @@ services:
     container_name: logger
     restart: unless-stopped
     env_file:
-      - .env.example
-      - path: .env
-        required: false
+      - .env
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
