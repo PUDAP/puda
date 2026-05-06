@@ -37,7 +37,6 @@ puda/
 ├── uv.lock             # Shared lockfile for all Python dependencies
 ├── pnpm-workspace.yaml # pnpm workspace configuration
 ├── services/           # Application services that run independently of physical machines
-│   └── logger/         # Logs command responses on NATS to PostgreSQL database
 ├── infra/              # Infrastructure deployment and configuration files
 │   ├── nats/           # NATS messaging infrastructure setup and configuration
 │   └── postgres/       # PostgreSQL database setup
