@@ -1,250 +1,377 @@
 # puda-drivers
 
-Hardware drivers for the PUDA (Physical Unified Device Architecture) platform. This package provides Python interfaces for controlling laboratory automation equipment.
+Pure Python hardware drivers for the PUDA (Physical Unified Device Architecture) platform.
 
-## Features
+| Driver | Hardware | Transport |
+|---|---|---|
+| [`opentrons_driver`](#opentrons-ot-2-driver) | [Opentrons OT-2](https://opentrons.com/ot-2/) liquid-handling robot | HTTP REST `:31950` |
+| [`balance_driver`](#mass-balance-driver) | Arduino / ESP32 load cells and commercial balances | Serial via Balance Bridge HTTP `:9000` |
 
-- **Gantry Control**: Control G-code compatible motion systems (e.g., QuBot)
-- **Liquid Handling**: Interface with Sartorius rLINE® pipettes and dispensers
-- **Serial Communication**: Robust serial port management with automatic reconnection
-- **Logging**: Configurable logging with optional file output to logs folder
-- **Cross-platform**: Works on Linux, macOS, and Windows
+Each driver ships with its own **NATS edge service** (`edge/`) that connects the hardware to the PUDA message bus.
+
+---
+
+## Package Structure
+
+```
+libs/drivers/
+├── opentrons_driver/                  # OT-2 robot driver
+│   ├── __init__.py
+│   ├── core/
+│   │   ├── http_client.py             # OT2HttpClient — base URL, headers, HTTP verbs
+│   │   └── logging.py                 # setup_logging() — file + console
+│   ├── controllers/
+│   │   ├── protocol.py                # Protocol + ProtocolCommand, to_python_code(), upload_protocol()
+│   │   ├── run.py                     # create/play/pause/stop run, wait_for_completion()
+│   │   └── resources.py               # LABWARE_TYPES, PIPETTE_TYPES, BUILTIN_LABWARE
+│   ├── labware/                       # Custom labware JSON definitions
+│   │   ├── mass_balance_vial_30000.json
+│   │   └── mass_balance_vial_50000.json
+│   ├── machines/
+│   │   └── ot2.py                     # OT2 — unified high-level interface
+│   └── edge/                          # NATS edge service (OT-2 ↔ PUDA bus)
+│       ├── main.py
+│       ├── pyproject.toml
+│       ├── .env.example
+│       ├── Dockerfile
+│       ├── compose.yml
+│       └── start_edge.bat
+├── balance_driver/                    # Mass balance driver
+│   ├── __init__.py
+│   ├── core/
+│   │   ├── http_client.py             # BalanceBridgeClient — HTTP verbs to bridge
+│   │   └── logging.py                 # setup_logging() — file + console
+│   ├── controllers/
+│   │   ├── reading.py                 # connect, disconnect, read, tare, status, monitor, diagnose
+│   │   ├── calibration.py             # set/get/load calibration, bundled CSV OLS fit
+│   │   └── 100g load cell calibration.csv
+│   ├── machines/
+│   │   └── balance.py                 # Balance — unified high-level interface
+│   ├── cli.py                         # balance CLI entry-point
+│   └── edge/                          # NATS edge service (Balance ↔ PUDA bus)
+│       ├── main.py
+│       ├── pyproject.toml
+│       ├── .env.example
+│       ├── Dockerfile
+│       ├── compose.yml
+│       └── start_edge.bat
+├── tests/
+│   ├── conftest.py
+│   ├── test_protocol.py
+│   ├── test_run.py
+│   ├── test_labware.py
+│   ├── test_balance_reading.py
+│   ├── test_balance_calibration.py
+│   └── test_balance_cli.py
+├── pyproject.toml                     # puda-drivers package
+└── README.md
+```
+
+---
 
 ## Installation
 
-### From PyPI
-
 ```bash
+# OT-2 driver only
 pip install puda-drivers
+
+# OT-2 + balance driver
+pip install "puda-drivers[balance]"
 ```
 
-### From Source
+> **PUDA workspace users** — both drivers are already available as workspace sources.
+> Run `uv sync` from the repo root; no separate install needed.
+
+---
+
+## Opentrons OT-2 Driver
+
+### Features
+
+- Upload and run Opentrons protocols directly from Python
+- Play, pause, stop, and monitor protocol runs
+- Upload custom labware definitions
+- Build protocols programmatically with Pydantic models
+- NATS edge service for remote command and telemetry
+
+### Quick Start
+
+```python
+from opentrons_driver.machines import OT2
+from opentrons_driver.core.logging import setup_logging
+import logging
+
+setup_logging(log_level=logging.INFO)
+
+robot = OT2(robot_ip="192.168.50.64")
+
+if not robot.is_connected():
+    raise RuntimeError("Robot is unreachable")
+
+result = robot.upload_and_run(open("my_protocol.py").read())
+print(result["run_status"])   # "succeeded" / "failed" / "stopped"
+```
+
+### Build a Protocol Programmatically
+
+```python
+from opentrons_driver.controllers.protocol import Protocol, ProtocolCommand
+from opentrons_driver.machines import OT2
+
+robot = OT2(robot_ip="192.168.50.64")
+
+protocol = Protocol(
+    protocol_name="Simple Transfer",
+    author="Lab",
+    description="Transfer 100 µL from well A1 to B1",
+    robot_type="OT-2",
+    api_level="2.23",
+    commands=[
+        ProtocolCommand(command_type="load_labware", params={
+            "name": "tiprack", "labware_type": "opentrons_96_tiprack_300ul", "location": "1"
+        }),
+        ProtocolCommand(command_type="load_labware", params={
+            "name": "plate", "labware_type": "corning_96_wellplate_360ul_flat", "location": "2"
+        }),
+        ProtocolCommand(command_type="load_instrument", params={
+            "name": "p300", "instrument_type": "p300_single_gen2",
+            "mount": "right", "tip_racks": ["tiprack"]
+        }),
+        ProtocolCommand(command_type="transfer", params={
+            "pipette": "p300", "volume": 100,
+            "source_labware": "plate", "source_well": "A1",
+            "dest_labware": "plate", "dest_well": "B1",
+        }),
+    ],
+)
+
+result = robot.upload_and_run(protocol.to_python_code())
+print(result["run_status"])
+```
+
+### Run Control
+
+```python
+robot = OT2("192.168.50.64")
+
+result = robot.upload_and_run(code, wait=False)
+run_id = result["run_id"]
+
+robot.pause(run_id)
+robot.resume(run_id)
+robot.stop(run_id)
+
+status = robot.get_status(run_id)
+print(status["run_status"])
+```
+
+### Custom Labware
+
+```python
+from opentrons_driver.controllers.resources import BUILTIN_LABWARE, MASS_BALANCE_VIAL_30ML
+
+robot = OT2("192.168.50.64")
+robot.upload_labware(MASS_BALANCE_VIAL_30ML)
+robot.upload_labware(BUILTIN_LABWARE["mass_balance_vial_50000"])
+robot.upload_labware("/path/to/my_labware.json")
+```
+
+### OT-2 NATS Edge Service
+
+Bridges the OT-2 HTTP API to the PUDA NATS bus. Run on any machine that can reach the robot over the network.
+
+```
+NATS Server
+      │  puda.ot2.commands.*  (JetStream)
+      │  puda.ot2.telemetry.* (core)
+      ▼
+edge/main.py  ── HTTP REST ──▶  OT-2 :31950
+```
+
+**Setup and run:**
+
+```powershell
+cd libs\drivers\opentrons_driver\edge
+copy .env.example .env   # set ROBOT_IP and NATS_SERVERS
+uv sync                  # from repo root
+.\start_edge.bat
+```
+
+**Available NATS commands** (`machine_id="ot2"`):
+
+| Command | Key params | Description |
+|---|---|---|
+| `run_protocol` | `code`, `filename?`, `wait?`, `max_wait?` | Upload and run a protocol |
+| `get_status` | `run_id?` | Get run status |
+| `pause` | `run_id` | Pause a running protocol |
+| `resume` | `run_id` | Resume a paused protocol |
+| `stop` | `run_id` | Stop / cancel a run |
+| `upload_labware` | `labware` (dict) | Upload a custom labware definition |
+| `is_connected` | — | Check robot reachability |
+
+> See [`opentrons_driver/README.md`](opentrons_driver/README.md) for the full edge reference, Docker setup, and AI skills.
+
+---
+
+## Mass Balance Driver
+
+### Features
+
+- Single reading, retried reading, or continuous stream
+- Tare with configurable stabilisation wait
+- Bundled 11-point 100 g load-cell calibration CSV; supports custom CSV or manual slope/intercept
+- Auto-detect baud rate, monitor raw serial data
+- `balance` CLI for full terminal control
+- Context manager — automatic disconnect on exceptions
+- Modes: `arduino` (continuous background reader) and `commercial` (command-response)
+- NATS edge service for remote command and telemetry
+
+### Prerequisites
+
+The Balance Bridge must be running before using this driver:
 
 ```bash
-git clone https://github.com/zhao-bears/puda-drivers.git
-cd puda-drivers
-pip install -e .
+pip install pyserial fastapi uvicorn
+python balance_bridge.py
+# Bridge at http://localhost:9000
 ```
 
-## Quick Start
-
-### Logging Configuration
-
-Configure logging for your application with optional file output:
+### Quick Start
 
 ```python
-import logging
-from puda_drivers.core.logging import setup_logging
+from balance_driver.machines import Balance
+from balance_driver.core.logging import setup_logging
+import logging, time
 
-# Configure logging with file output enabled
-setup_logging(
-    enable_file_logging=True,
-    log_level=logging.DEBUG,
-    logs_folder="logs", # Optional: default to logs
-    log_file_name="my_experiment"  # Optional: custom log file name
-)
+setup_logging(log_level=logging.INFO)
 
-# Or disable file logging (console only)
-setup_logging(
-    enable_file_logging=False,
-    log_level=logging.INFO
-)
+with Balance(port="COM8", baudrate=115200, mode="arduino") as bal:
+    bal.load_default_calibration()
+    time.sleep(2)   # wait for first reading
+
+    mass = bal.get_mass(retries=3, retry_delay=1.0)
+    print(f"{mass:.6f} g  ({mass * 1000:.4f} mg)")
 ```
 
-**Logging Options:**
-- `enable_file_logging`: If `True`, logs are written to files in the `logs/` folder. If `False`, logs only go to console (default: `False`)
-- `log_level`: Logging level constant (e.g., `logging.DEBUG`, `logging.INFO`, `logging.WARNING`, `logging.ERROR`, `logging.CRITICAL`) (default: `logging.DEBUG`)
-- `logs_folder`: Name of the folder to store log files (default: `"logs"`)
-- `log_file_name`: Custom name for the log file. If `None` or empty, uses timestamp-based name (e.g., `log_20250101_120000.log`). If provided without `.log` extension, it will be added automatically.
-
-When file logging is enabled, logs are saved to timestamped files (unless a custom name is provided) in the `logs/` folder. The logs folder is created automatically if it doesn't exist.
-
-### First Machine Example
-
-The `First` machine integrates motion control, deck management, liquid handling, and camera capabilities:
+### Tare then Weigh
 
 ```python
+from balance_driver.machines import Balance
 import time
+
+with Balance(port="COM8") as bal:
+    bal.load_default_calibration()
+    time.sleep(2)
+
+    print(f"Before tare: {bal.get_mass():.6f} g")
+    bal.tare(wait=5.0)
+
+    time.sleep(1)
+    print(f"Sample mass: {bal.get_mass():.6f} g")
+```
+
+### `balance` CLI
+
+```bash
+balance connect    COM8
+balance read       COM8 --continuous
+balance tare       COM8
+balance calibrate  COM8                          # load bundled 100 g CSV
+balance calibrate  COM8 --set --slope 17450 --intercept -447
+balance diagnose   COM8                          # auto-detect baud rate
+balance status     COM8
+balance disconnect COM8
+```
+
+### Balance NATS Edge Service
+
+Bridges the Balance HTTP Bridge to the PUDA NATS bus. Requires the Balance Bridge to be running on the same machine.
+
+```
+NATS Server
+      │  puda.balance.commands.*  (JetStream)
+      │  puda.balance.telemetry.* (core)
+      ▼
+edge/main.py  ── HTTP ──▶  Balance Bridge :9000  ── Serial ──▶  Balance
+```
+
+**Setup and run:**
+
+```powershell
+cd libs\drivers\balance_driver\edge
+copy .env.example .env   # set BALANCE_PORT and NATS_SERVERS
+uv sync                  # from repo root
+.\start_edge.bat
+```
+
+**Available NATS commands** (`machine_id="balance"`):
+
+| Command | Key params | Description |
+|---|---|---|
+| `get_mass` | `retries?`, `retry_delay?` | Current mass in grams |
+| `get_latest` | — | Full latest reading dict |
+| `read` | `num_readings?`, `wait_time?` | Trigger a read |
+| `tare` | `wait?`, `tare_command?` | Zero the balance |
+| `status` | — | Connection + reader status |
+| `connect` / `disconnect` | — | Manage serial connection |
+| `set_calibration` | `slope`, `intercept?` | Set ADC→grams params |
+| `get_calibration` | — | Get current calibration |
+| `load_default_calibration` | — | Load built-in 100 g CSV |
+| `enable_calibration` | `enabled` | Enable/disable conversion |
+
+> See [`balance_driver/README.md`](balance_driver/README.md) for the full edge reference, Docker setup, and AI skills.
+
+---
+
+## Logging
+
+Both drivers share the same `setup_logging()` interface:
+
+```python
+from opentrons_driver.core.logging import setup_logging   # or balance_driver.core.logging
 import logging
-from puda_drivers.machines import First
-from puda_drivers.core.logging import setup_logging
 
-# Configure logging
-setup_logging(
-    enable_file_logging=False,
-    log_level=logging.DEBUG,
-)
-
-# Initialize the First machine
-machine = First(
-    qubot_port="/dev/ttyACM0",
-    sartorius_port="/dev/ttyUSB0",
-    camera_index=0,
-)
-
-# Start up the machine (connects all controllers, homes gantry, and initializes pipette)
-machine.startup()
-
-# Load labware onto the deck
-machine.load_deck({
-    "C1": "trash_bin",
-    "C2": "polyelectric_8_wellplate_30000ul",
-    "A3": "opentrons_96_tiprack_300ul",
-})
-
-# Start video recording
-machine.start_video_recording()
-
-# Perform liquid handling operations
-machine.attach_tip(slot="A3", well="G8")
-machine.aspirate_from(slot="C2", well="A1", amount=100, height_from_bottom=10.0)
-machine.dispense_to(slot="C2", well="B4", amount=100, height_from_bottom=30.0)
-machine.drop_tip(slot="C1", well="A1", height_from_bottom=10)
-
-# Stop video recording
-machine.stop_video_recording()
-
-# Shutdown the machine (gracefully disconnects all controllers)
-machine.shutdown()
+setup_logging(log_level=logging.INFO)                                    # console only
+setup_logging(enable_file_logging=True, logs_folder="logs")              # + timestamped file
+setup_logging(enable_file_logging=True, log_file_name="run_2026_03_30")  # + named file
 ```
 
-**Discovering Available Methods**: To explore what methods are available on any class instance, you can use Python's built-in `help()` function:
-
-```python
-machine = First()
-help(machine)  # See methods for the First machine
-help(machine.qubot)  # See GCodeController methods
-help(machine.pipette)  # See SartoriusController methods
-help(machine.camera)  # See CameraController methods
-```
-
-Alternatively, you can read the source code directly in the `src/puda_drivers/` directory.
-
-## Device Support
-
-The following device types are supported:
-
-- **GCode** - G-code compatible motion systems (e.g., QuBot)
-- **Sartorius rLINE®** - Electronic pipettes and robotic dispensers
-- **Camera** - Webcams and USB cameras for image and video capture
-
-## Logging Best Practices
-
-For production applications, configure logging at the start of your script:
-
-```python
-import logging
-from puda_drivers.core.logging import setup_logging
-
-# Configure logging first, before initializing devices
-setup_logging(
-    enable_file_logging=True,
-    log_level=logging.INFO,
-    log_file_name="experiment"
-)
-
-# Now all device operations will be logged
-# ... rest of your code
-```
-
-This ensures all device communication, movements, and errors are captured in log files for debugging and audit purposes.
-
-## Finding Serial Ports
-
-To discover available serial ports on your system:
-
-```python
-from puda_drivers.core import list_serial_ports
-
-# List all available ports
-ports = list_serial_ports()
-for port, desc, hwid in ports:
-    print(f"{port}: {desc} [{hwid}]")
-
-# Filter ports by description
-sartorius_ports = list_serial_ports(filter_desc="Sartorius")
-```
+---
 
 ## Requirements
 
-- Python >= 3.8
-- pyserial >= 3.5
-- See `pyproject.toml` for full dependency list
+| Dependency | Required for |
+|---|---|
+| Python >= 3.10 | All |
+| `requests >= 2.31` | OT-2 HTTP communication |
+| `pydantic >= 2.0` | Protocol model |
+| `pyserial >= 3.5` | Balance Bridge serial layer (`[balance]` extra) |
+| `fastapi >= 0.100` | Balance Bridge server (`[balance]` extra) |
+| `uvicorn >= 0.23` | Balance Bridge server (`[balance]` extra) |
+
+---
 
 ## Development
 
-### Setup Development Environment
-
-This package is part of a UV workspace monorepo. First, install `uv` if you haven't already. See the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/) for platform-specific instructions.
-
-**From the repository root:**
-
 ```bash
-# Or install dependencies for all workspace packages
-uv sync --all-packages
+# Install all dependencies including dev extras
+uv sync
+
+# Run all tests
+uv run pytest tests/ -v
+
+# Run OT-2 tests only
+uv run pytest tests/test_protocol.py tests/test_run.py tests/test_labware.py -v
+
+# Run balance tests only
+uv run pytest tests/test_balance_reading.py tests/test_balance_calibration.py tests/test_balance_cli.py -v
+
+# Run with coverage
+uv run pytest tests/ --cov=opentrons_driver --cov=balance_driver --cov-report=html
 ```
 
-This will:
-- Create a virtual environment at the repository root (`.venv/`)
-- Install all dependencies for all workspace packages
-- Install `puda-drivers` and other workspace packages in editable mode automatically
-
-**Using the package:**
-
-```bash
-# Run Python scripts with workspace context (recommended, works from anywhere in the workspace)
-uv run python your_script.py
-
-# Or activate the virtual environment (from repository root where .venv is located)
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-python your_script.py
-```
-
-**Adding dependencies:**
-
-```bash
-# From the package directory
-cd libs/drivers
-uv add some-package
-
-# Or from repository root
-uv add --package puda-drivers some-package
-```
-
-**Note:** Workspace packages are automatically installed in editable mode, so code changes are immediately available without reinstalling.
-
-### Building and Publishing
-
-```bash
-# Build distribution packages
-uv build
-
-# Publish to PyPI
-uv publish
-# Username: __token__
-# Password: <your PyPI API token>
-```
-
-### Version Management
-
-```bash
-# Set version explicitly
-uv version 0.0.1
-
-# Bump version (e.g., 1.2.3 -> 1.3.0)
-uv bump minor
-```
-
-## Documentation
-
-- [PyPI Package](https://pypi.org/project/puda-drivers/)
-- [GitHub Repository](https://github.com/zhao-bears/puda-drivers)
-- [Issue Tracker](https://github.com/zhao-bears/puda-drivers/issues)
+---
 
 ## License
 
-MIT License - see LICENSE file for details.
-
-## Contributing
-
-Contributions are welcome! Please open an issue or submit a pull request on GitHub.
+MIT License — see [LICENSE](LICENSE) file for details.

@@ -10,7 +10,10 @@ dependencies = [
 [tool.uv.workspace]
 members = [
     "libs/*",
+    "libs/drivers/opentrons_driver/edge",
+    "libs/drivers/balance_driver/edge",
     "services/*",
-    "machines/*/*"
+    "machines/*/*",
+    "apps/backend",
 ]
 

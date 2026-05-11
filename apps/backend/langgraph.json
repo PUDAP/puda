@@ -1,0 +1,10 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "general": "./app/agents/general/workflow.py:graph",
+    "researcher": "./app/agents/researcher/agent.py:graph",
+    "executor": "./app/agents/executor/agent.py:graph"
+  },
+  "env": "./.env"
+}
+

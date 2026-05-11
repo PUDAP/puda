@@ -27,7 +27,6 @@ Create or update the root `pyproject.toml`:
 [tool.uv.workspace]
 members = [
     "libs/comms",
-    "libs/drivers",
     "machines/first/edge",
     "machines/first/mcp",
 ]
@@ -41,13 +40,13 @@ Each member package needs its own `pyproject.toml` with standard project metadat
 
 ```toml
 [project]
-name = "puda-drivers"
-version = "0.0.16"
-description = "Hardware drivers for the PUDA platform."
-requires-python = ">=3.10"
+name = "puda-comms"
+version = "0.0.10"
+description = "Communication library for the PUDA platform."
+requires-python = ">=3.14"
 dependencies = [
     "nats-py>=2.12.0",
-    "opencv-python>=4.12.0.88",
+    "pydantic>=2.12.5",
 ]
 ```
 
@@ -57,32 +56,16 @@ dependencies = [
 
 When one workspace package depends on another, use the `tool.uv.sources` section to specify it's a workspace dependency:
 
-**Example: `libs/comms/pyproject.toml`**
-
-```toml
-[project]
-name = "puda-comms"
-dependencies = [
-    "nats-py>=2.12.0",
-    "puda-drivers"  # Reference the workspace package
-]
-
-[tool.uv.sources]
-puda-drivers = {workspace = true}  # Mark as workspace dependency
-```
-
 **Example: `machines/first/edge/pyproject.toml`**
 
 ```toml
 [project]
 name = "first-edge"
 dependencies = [
-    "puda-drivers",
     "puda-comms",
 ]
 
 [tool.uv.sources]
-puda-drivers = {workspace = true}
 puda-comms = {workspace = true}
 ```
 
@@ -189,14 +172,12 @@ puda/
 ├── pyproject.toml          # Workspace root
 ├── uv.lock                  # Shared lockfile
 ├── libs/
-│   ├── comms/
-│   │   └── pyproject.toml   # Depends on puda-drivers (workspace)
-│   └── drivers/
-│       └── pyproject.toml   # Standalone package
+│   └── comms/
+│       └── pyproject.toml   # Communication library
 └── services/
     └── first/
         ├── edge/
-        │   └── pyproject.toml  # Depends on puda-drivers, puda-comms (workspace)
+        │   └── pyproject.toml  # Depends on puda-comms (workspace)
         └── mcp/
             └── pyproject.toml  # No workspace dependencies
 ```

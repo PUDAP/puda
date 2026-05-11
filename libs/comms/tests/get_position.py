@@ -40,7 +40,7 @@ async def main():
     try:
         # Connect to NATS
         print("Connecting to NATS servers...")
-        nc = await nats.connect(servers=servers)
+        nc = await nats.connect(servers=servers, connect_timeout=10)
         print("Connected to NATS")
         print(f"Subscribing to position telemetry: {POSITION_SUBJECT}")
         print("=" * 60)

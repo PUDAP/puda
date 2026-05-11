@@ -10,6 +10,9 @@ RUN apt-get update && apt-get install -y \
 # Install uv for Python package management
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
+# Copy the root workspace configuration
+COPY pyproject.toml ./pyproject.toml
+
 # Copy the entire workspace structure to maintain relative paths
 COPY services/logger/ ./services/logger/
 COPY libs/db/ ./libs/db/
@@ -17,7 +20,7 @@ COPY libs/comms/ ./libs/comms/
 
 # Install dependencies using uv from the service directory
 WORKDIR /app/services/logger
-RUN uv sync --frozen --no-dev
+RUN uv sync --no-dev
 
 # Set working directory back to service location
 WORKDIR /app/services/logger
@@ -25,5 +28,4 @@ WORKDIR /app/services/logger
 # Set Python path to include the workspace
 ENV PYTHONPATH=/app/services/logger:/app/libs/db/src:/app/libs/comms/src
 
-CMD ["uv", "run", "python", "logger.py"]
-
+CMD ["uv", "run", "python", "main.py"]

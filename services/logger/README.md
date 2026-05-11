@@ -23,23 +23,6 @@ The service can be configured via environment variables:
 - `POSTGRES_USER`: PostgreSQL user (default: `puda`)
 - `POSTGRES_PASSWORD`: PostgreSQL password (required)
 
-## Database Schema
-
-The service uses the following table:
-
-### response_log
-- `log_id`: UUID primary key
-- `machine_id`: Machine identifier (references `machine` table)
-- `response_type`: 'queue' or 'immediate'
-- `command`: Command name
-- `run_id`: Optional run ID
-- `command_id`: Optional command ID
-- `status`: Response status ('success' or 'error')
-- `error`: Optional error message
-- `completed_at`: Completion timestamp
-- `full_payload`: Full message payload (JSONB)
-- `created_at`: Record creation timestamp
-
 ## Running
 
 ### Using Docker Compose
@@ -54,7 +37,15 @@ docker compose up -d
 ```bash
 cd services/logger
 uv sync
-uv run python logger.py
+uv run python main.py
+```
+
+## Dev
+
+Building docker image and pushing to ghcr
+```bash
+docker compose build
+docker push ghcr.io/pudap/logger:latest
 ```
 
 ## Features

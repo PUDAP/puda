@@ -1,0 +1,17 @@
+services:
+  ot2:
+    build:
+      context: ../../../..  # repo root — needed so uv can resolve workspace sources
+      dockerfile: libs/drivers/opentrons_driver/edge/Dockerfile
+    image: ghcr.io/pudap/ot2-edge:latest
+    container_name: ot2-edge
+    restart: unless-stopped
+    # No 'devices:' needed — OT-2 communicates over the network, not USB
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import opentrons_driver"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s

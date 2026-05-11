@@ -1,115 +1,57 @@
 -- Initialization script for PostgreSQL database
 -- This file is automatically executed when the database is first created
 
--- Enable UUID extension for gen_random_uuid() function
--- Note: PostgreSQL 13+ has gen_random_uuid() built-in, but enabling pgcrypto ensures compatibility
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-
-
--- 0. THE MACHINE TABLE
-CREATE TABLE machine (
-    machine_id VARCHAR(50) PRIMARY KEY,
-    machine_name VARCHAR(50) NOT NULL,
+-- 0. THE PROTOCOL TABLE
+-- Represents a protocol definition with commands and metadata.
+CREATE TABLE IF NOT EXISTS protocol (
+    protocol_id TEXT PRIMARY KEY,
+    user_id TEXT,
+    username TEXT,
+    description TEXT,
+    commands TEXT, -- JSON array of command requests
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 1. THE RUN TABLE
--- Represents the "Batch" or high-level project.
-CREATE TABLE run (
-    run_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    machine_id VARCHAR(50) REFERENCES machine(machine_id),
-    description TEXT, -- "Higher level description of sample, measurement"
-    data_payload JSONB,
+-- 1. THE RUN TABLE (when protocols are executed, they create runs)
+CREATE TABLE IF NOT EXISTS run (
+    run_id TEXT PRIMARY KEY,
+    protocol_id TEXT REFERENCES protocol(protocol_id) ON DELETE SET NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    
-    -- Foreign Key linking to Machine
-    CONSTRAINT fk_machine
-      FOREIGN KEY(machine_id) 
-      REFERENCES machine(machine_id)
-      ON DELETE CASCADE
 );
 
--- 2. THE SAMPLE TABLE
--- A run can have multiple samples.
-CREATE TABLE sample (
-    sample_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    run_id UUID REFERENCES run(run_id),
-    data_payload JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    -- Foreign Key linking to Run
-    CONSTRAINT fk_run
-      FOREIGN KEY(run_id) 
-      REFERENCES run(run_id)
-      ON DELETE CASCADE
+-- 2. THE SAMPLE TABLE (when runs are executed, they create samples)
+CREATE TABLE IF NOT EXISTS sample (
+    sample_id TEXT PRIMARY KEY,
+    run_id TEXT REFERENCES run(run_id) ON DELETE CASCADE,
+    payload JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 3. THE MEASUREMENT TABLE
 -- A sample can have multiple measurements.
 -- Each measurement records a property (what is being measured) and the method used to measure it.
-CREATE TABLE measurement (
-    measurement_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    sample_id UUID REFERENCES sample(sample_id),
-    data_payload JSONB, 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-    -- Foreign Key linking to Sample
-    CONSTRAINT fk_sample
-      FOREIGN KEY(sample_id) 
-      REFERENCES sample(sample_id)
-      ON DELETE CASCADE
+CREATE TABLE IF NOT EXISTS measurement (
+    measurement_id TEXT PRIMARY KEY,
+    sample_id TEXT REFERENCES sample(sample_id) ON DELETE CASCADE,
+    payload JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 4. THE COMMAND_LOG TABLE
--- Logs all commands sent to machines via NATS
-CREATE TABLE command_log (
-    log_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    machine_id VARCHAR(50) REFERENCES machine(machine_id),
-    command_type VARCHAR(20) NOT NULL, -- 'queue' or 'immediate'
-    command VARCHAR(100) NOT NULL,
-    run_id UUID,
-    command_id VARCHAR(100),
-    params JSONB,
-    result_status VARCHAR(20) NOT NULL, -- 'success' or 'error'
-    result_error TEXT,
-    result_completed_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    CONSTRAINT fk_machine_cmd
-      FOREIGN KEY(machine_id)
-      REFERENCES machine(machine_id)
-      ON DELETE CASCADE
-);
-
--- 5. THE RESPONSE_LOG TABLE
 -- Logs all command responses received from machines via NATS
-CREATE TABLE response_log (
-    log_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    machine_id VARCHAR(50) REFERENCES machine(machine_id),
-    response_type VARCHAR(20) NOT NULL, -- 'queue' or 'immediate'
-    command VARCHAR(100) NOT NULL,
-    run_id UUID,
-    command_id VARCHAR(100),
-    status VARCHAR(20) NOT NULL, -- 'success' or 'error'
-    error TEXT,
-    completed_at TIMESTAMP,
-    full_payload JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    CONSTRAINT fk_machine_resp
-      FOREIGN KEY(machine_id)
-      REFERENCES machine(machine_id)
-      ON DELETE CASCADE
+CREATE TABLE IF NOT EXISTS command_log (
+    command_log_id SERIAL PRIMARY KEY,
+    run_id TEXT REFERENCES run(run_id) ON DELETE CASCADE,
+    step_number INTEGER,
+    command_name TEXT,
+    payload JSONB,
+    machine_id TEXT,
+    command_type TEXT CHECK (command_type IN ('queue', 'immediate')),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create indexes for efficient querying
-CREATE INDEX idx_command_log_machine_id ON command_log(machine_id);
-CREATE INDEX idx_command_log_run_id ON command_log(run_id);
-CREATE INDEX idx_command_log_command_id ON command_log(command_id);
-CREATE INDEX idx_command_log_created_at ON command_log(created_at);
-
-CREATE INDEX idx_response_log_machine_id ON response_log(machine_id);
-CREATE INDEX idx_response_log_run_id ON response_log(run_id);
-CREATE INDEX idx_response_log_command_id ON response_log(command_id);
-CREATE INDEX idx_response_log_status ON response_log(status);
-CREATE INDEX idx_response_log_created_at ON response_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_command_log_machine_id ON command_log(machine_id);
+CREATE INDEX IF NOT EXISTS idx_command_log_run_id ON command_log(run_id);
+CREATE INDEX IF NOT EXISTS idx_command_log_step_number ON command_log(step_number);
+CREATE INDEX IF NOT EXISTS idx_command_log_created_at ON command_log(created_at);

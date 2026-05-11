@@ -1,0 +1,22 @@
+services:
+  balance:
+    build:
+      context: ../../..  # repo root — needed so uv can resolve workspace sources
+      dockerfile: libs/drivers/balance_driver/edge/Dockerfile
+    image: ghcr.io/pudap/balance-edge:latest
+    container_name: balance-edge
+    restart: unless-stopped
+    # Mount the serial port the balance is connected to
+    devices:
+      - ${BALANCE_PORT:-/dev/ttyUSB0}:${BALANCE_PORT:-/dev/ttyUSB0}
+    # Allow access to all serial devices (needed on some Linux distros)
+    group_add:
+      - dialout
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import balance_driver"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
