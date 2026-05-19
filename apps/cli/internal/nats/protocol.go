@@ -130,14 +130,19 @@ func SendQueueCommands(js nats.JetStreamContext, dispatcher *ResponseDispatcher,
 	// Track started machines for cleanup
 	startedMachines := make(map[string]bool)
 
-	// Goroutine to handle signals
+	// Goroutine to handle signals: first Ctrl+C graceful, second forces exit
 	interrupted := make(chan bool, 1)
 	go func() {
 		<-sigChan
+		fmt.Fprintln(os.Stderr, "Gracefully Stopping... press Ctrl+C again to force")
 		log.Printf("Interrupt signal received, sending COMPLETE commands to all machines...")
 		completeAllMachines(js, dispatcher, startedMachines, runID, userID, username, defaultTimeout, completeStepNumber, store)
 		interrupted <- true
 		cancel()
+
+		<-sigChan
+		fmt.Fprintln(os.Stderr, "Force stopping.")
+		os.Exit(1)
 	}()
 
 	// Send START commands to all machines

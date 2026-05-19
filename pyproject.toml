@@ -11,6 +11,5 @@ dependencies = [
 members = [
     "libs/*",
     "services/*",
-    "machines/*/*",
 ]
 

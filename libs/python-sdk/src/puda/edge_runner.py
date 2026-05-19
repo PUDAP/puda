@@ -134,7 +134,24 @@ class EdgeRunner:
         await self._setup_subscriptions()
         # publish commands to KV store (only need to do this once on startup)
         await self._publish_commands()
-        await self._run_main_loop()
+        try:
+            await self._run_main_loop()
+        finally:
+            await self._shutdown()
+
+    async def _shutdown(self) -> None:
+        """Publish offline state, release driver resources, and close NATS."""
+        logger.info("Shutting down edge runner...")
+        try:
+            await self._publish_state("offline")
+        except Exception as e:
+            logger.warning("Failed to publish offline state: %s", e)
+        await self._driver_shutdown()
+        try:
+            await self.nats_client.disconnect()
+        except Exception as e:
+            logger.warning("Error closing NATS connection: %s", e)
+        logger.info("Edge runner shutdown complete")
 
     # -- subscription / connection -------------------------------------------
 
@@ -145,8 +162,8 @@ class EdgeRunner:
     
     async def _driver_shutdown(self) -> None:
         """
-        Best-effort cleanup on the machine driver before the edge exits for an
-        update. Looks for (in order) an async or sync `shutdown`, `close`, or
+        Best-effort cleanup on the machine driver before the edge exits. 
+        Looks for (in order) an async or sync `shutdown`, `close`, or
         `disconnect` method on the driver so serial ports, sockets, cameras,
         etc. are released for the next process.
         """
@@ -328,8 +345,8 @@ class EdgeRunner:
                     logger.error("Error publishing telemetry: %s", e, exc_info=True)
                     await asyncio.sleep(1)
             except asyncio.CancelledError:
-                logger.warning("Received CancelledError in main loop, continuing...")
-                await asyncio.sleep(1)
+                logger.info("Main loop cancelled, shutting down...")
+                raise
             except Exception as e:
                 logger.error("Unexpected error in main loop: %s", e, exc_info=True)
                 await asyncio.sleep(5)
