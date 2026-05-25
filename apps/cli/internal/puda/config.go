@@ -9,8 +9,8 @@ import (
 
 const (
 	GlobalConfigFileName        = "config.json"
-	ProjectConfigFileName       = "config.json"
-	LegacyProjectConfigFileName = "puda.config"
+	ProjectConfigFileName       = "puda.config"
+	LegacyProjectConfigFileName = "config.json"
 )
 
 // GlobalConfigPath returns the path to the main/global PUDA configuration file.
@@ -131,15 +131,11 @@ func ProjectConfigPathForDir(dir string) string {
 	return filepath.Join(dir, ProjectConfigFileName)
 }
 
-func projectConfigCandidates(dir string) []string {
-	return []string{
+func findProjectConfigInDir(dir string) (string, error) {
+	for _, configPath := range []string{
 		ProjectConfigPathForDir(dir),
 		filepath.Join(dir, LegacyProjectConfigFileName),
-	}
-}
-
-func findProjectConfigInDir(dir string) (string, error) {
-	for _, configPath := range projectConfigCandidates(dir) {
+	} {
 		if _, err := os.Stat(configPath); err == nil {
 			return configPath, nil
 		} else if !os.IsNotExist(err) {
@@ -150,8 +146,8 @@ func findProjectConfigInDir(dir string) (string, error) {
 	return "", nil
 }
 
-// ProjectConfigPath returns the path to the project-level config.json file.
-// It recursively searches for config.json, then the legacy puda.config, starting
+// ProjectConfigPath returns the path to the project-level puda.config file.
+// It recursively searches for puda.config, then the legacy config.json, starting
 // from the current directory and walking up the directory tree.
 func ProjectConfigPath() (string, error) {
 	// Start from current working directory
@@ -192,7 +188,7 @@ func LoadProjectConfig() (*ProjectConfig, error) {
 		return nil, fmt.Errorf("failed to determine project config path: %w", err)
 	}
 	if configPath == "" {
-		return nil, fmt.Errorf("project config.json file not found in current directory. Please run 'puda init' to create it first")
+		return nil, fmt.Errorf("project puda.config file not found in current directory. Please run 'puda init' to create it first")
 	}
 
 	return loadProjectConfigFromPath(configPath)
