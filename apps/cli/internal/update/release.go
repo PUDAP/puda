@@ -67,6 +67,11 @@ func printIndentedReleaseBody(w io.Writer, body string) {
 			fmt.Fprintln(w)
 			continue
 		}
+		// Commit list entries that don't mention (cli) are not relevant to this binary.
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "*") && !strings.Contains(trimmed, "(cli)") {
+			continue
+		}
 		fmt.Fprintf(w, "  %s\n", line)
 	}
 }
