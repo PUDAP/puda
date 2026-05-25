@@ -10,20 +10,21 @@ import (
 	natsio "github.com/nats-io/nats.go"
 )
 
-// WatchEvent represents a single telemetry or event message from a machine.
+// WatchEvent represents a single message from a machine (telemetry, event, or command).
 type WatchEvent struct {
 	Timestamp time.Time       `json:"timestamp"`
 	Subject   string          `json:"subject"`
 	MachineID string          `json:"machine_id"`
-	Category  string          `json:"category"` // "tlm" or "evt"
+	Category  string          `json:"category"` // "tlm", "evt", or "cmd"
 	Topic     string          `json:"topic"`
 	Data      json.RawMessage `json:"data"`
 }
 
 // WatchOpts configures which subjects SubscribeMachineSubjects subscribes to.
 type WatchOpts struct {
-	// Subjects limits output to these subject suffixes (e.g. "pos", "health").
-	// Nil or empty means all subjects pass.
+	// Subjects limits output to messages whose "category.topic" starts with one
+	// of these prefixes (e.g. "tlm.health", "cmd.response"). Nil or empty means
+	// all subjects pass.
 	Subjects map[string]struct{}
 	// IncludeHeartbeat must be true to receive heartbeat messages.
 	// Heartbeats are excluded by default because they are high-frequency
@@ -31,9 +32,9 @@ type WatchOpts struct {
 	IncludeHeartbeat bool
 }
 
-// SubscribeMachineSubjects subscribes to puda.<id>.tlm.* and puda.<id>.evt.* for
-// every machine ID in the slice and multiplexes all messages into a single
-// channel.
+// SubscribeMachineSubjects subscribes to puda.<id>.> for every machine ID in
+// the slice, capturing all telemetry (tlm), events (evt), and command (cmd)
+// traffic, and multiplexes all messages into a single channel.
 func SubscribeMachineSubjects(ctx context.Context, nc *natsio.Conn, machineIDs []string, opts WatchOpts) (<-chan WatchEvent, error) {
 	if len(machineIDs) == 0 {
 		return nil, fmt.Errorf("at least one machine ID is required")
@@ -54,7 +55,15 @@ func SubscribeMachineSubjects(ctx context.Context, nc *natsio.Conn, machineIDs [
 			return
 		}
 		if len(opts.Subjects) > 0 {
-			if _, ok := opts.Subjects[topic]; !ok {
+			catTopic := category + "." + topic
+			matched := false
+			for filter := range opts.Subjects {
+				if catTopic == filter || strings.HasPrefix(catTopic, filter+".") {
+					matched = true
+					break
+				}
+			}
+			if !matched {
 				return
 			}
 		}
@@ -80,27 +89,17 @@ func SubscribeMachineSubjects(ctx context.Context, nc *natsio.Conn, machineIDs [
 		}
 	}
 
-	subs := make([]*natsio.Subscription, 0, len(machineIDs)*2)
+	subs := make([]*natsio.Subscription, 0, len(machineIDs))
 	for _, id := range machineIDs {
-		tlmSub, err := nc.Subscribe(fmt.Sprintf("puda.%s.tlm.*", id), handler)
+		sub, err := nc.Subscribe(fmt.Sprintf("puda.%s.>", id), handler)
 		if err != nil {
 			for _, s := range subs {
 				s.Unsubscribe()
 			}
 			close(ch)
-			return nil, fmt.Errorf("failed to subscribe to telemetry for %s: %w", id, err)
+			return nil, fmt.Errorf("failed to subscribe to machine %s: %w", id, err)
 		}
-		subs = append(subs, tlmSub)
-
-		evtSub, err := nc.Subscribe(fmt.Sprintf("puda.%s.evt.*", id), handler)
-		if err != nil {
-			for _, s := range subs {
-				s.Unsubscribe()
-			}
-			close(ch)
-			return nil, fmt.Errorf("failed to subscribe to events for %s: %w", id, err)
-		}
-		subs = append(subs, evtSub)
+		subs = append(subs, sub)
 	}
 
 	go func() {

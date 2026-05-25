@@ -115,12 +115,18 @@ var machineCommandsCmd = &cobra.Command{
 
 var machineWatchCmd = &cobra.Command{
 	Use:   "watch --targets <machine_id1,machine_id2> [--subjects <subject1,subject2>]",
-	Short: "Stream telemetry and events from one or more machines as NDJSON",
-	Long: `Subscribe to puda.<machine_id>.tlm.* and puda.<machine_id>.evt.* for each
-target and stream every message to stdout as newline-delimited JSON.
+	Short: "Stream all traffic from one or more machines as NDJSON",
+	Long: `Subscribe to puda.<machine_id>.> for each target, capturing all telemetry
+(tlm), command (cmd), and event (evt) messages, and stream them to stdout as
+newline-delimited JSON.
 
-If --subjects is omitted all subjects are included. Use --timeout to auto-stop
-after N seconds, or Ctrl-C to stop.`,
+Filter with --subjects using category.topic prefixes, e.g.:
+  tlm.health        only system-vitals telemetry
+  cmd.response      all command responses (queue and immediate)
+  cmd               every command message
+
+If --subjects is omitted all messages are included (except heartbeats).
+Use --timeout to auto-stop after N seconds, or Ctrl-C to stop.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(watchTargets) == 0 {
@@ -180,7 +186,7 @@ func init() {
 	machineWatchCmd.Flags().StringSliceVar(&watchTargets, "targets", nil, "Comma-separated list of machine IDs to watch")
 	machineWatchCmd.MarkFlagRequired("targets")
 	machineWatchCmd.Flags().IntVar(&watchTimeout, "timeout", 0, "Auto-stop after N seconds (0 = run until interrupted)")
-	machineWatchCmd.Flags().StringSliceVar(&watchSubjects, "subjects", nil, "Comma-separated list of subjects to include (e.g. pos,health,alert)")
+	machineWatchCmd.Flags().StringSliceVar(&watchSubjects, "subjects", nil, "Comma-separated category.topic prefixes to include (e.g. tlm.health,cmd.response,evt)")
 	machineWatchCmd.Flags().BoolVar(&watchIncludeHeartbeat, "include-heartbeat", false, "Include heartbeat messages (excluded by default)")
 	machineCmd.AddCommand(machineListCmd)
 	machineCmd.AddCommand(machineStateCmd)
