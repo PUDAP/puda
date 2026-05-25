@@ -5,8 +5,15 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
+	"sync"
 
+	"github.com/PUDAP/puda/apps/cli/internal/update"
 	"github.com/spf13/cobra"
+)
+
+var (
+	notifyWg     sync.WaitGroup
+	noticeOutput string
 )
 
 // Version, Commit and BuildDate may be overridden at build time via ldflags.
@@ -91,15 +98,24 @@ var rootCmd = &cobra.Command{
 	Short:         "PUDA CLI - Command-line interface for PUDA",
 	Long:          "PUDA CLI provides commands for the platform",
 	SilenceErrors: true,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		update.CheckForUpdateInBackground(Version, &notifyWg, &noticeOutput)
+	},
 	Run: func(cmd *cobra.Command, args []string) {
-		// Show help when no subcommand is provided
 		cmd.Help()
 	},
 }
 
 // Execute runs the root command
 func Execute() error {
-	if err := rootCmd.Execute(); err != nil {
+	err := rootCmd.Execute()
+	// Wait for any background update check to finish, then print its notice
+	// after all command output so it never interleaves with stdout.
+	notifyWg.Wait()
+	if noticeOutput != "" {
+		fmt.Fprint(os.Stderr, noticeOutput)
+	}
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return err
 	}
