@@ -5,6 +5,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"sync"
 
 	"github.com/PUDAP/puda/apps/cli/internal/update"
@@ -98,6 +99,7 @@ var rootCmd = &cobra.Command{
 	Short:         "PUDA CLI - Command-line interface for PUDA",
 	Long:          "PUDA CLI provides commands for the platform",
 	SilenceErrors: true,
+	SilenceUsage:  true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		update.CheckForUpdateInBackground(Version, &notifyWg, &noticeOutput)
 	},
@@ -108,7 +110,7 @@ var rootCmd = &cobra.Command{
 
 // Execute runs the root command
 func Execute() error {
-	err := rootCmd.Execute()
+	cmd, err := rootCmd.ExecuteC()
 	// Wait for any background update check to finish, then print its notice
 	// after all command output so it never interleaves with stdout.
 	notifyWg.Wait()
@@ -116,10 +118,47 @@ func Execute() error {
 		fmt.Fprint(os.Stderr, noticeOutput)
 	}
 	if err != nil {
+		if isCommandLineError(err) {
+			if cmd == nil {
+				cmd = rootCmd
+			}
+			fmt.Fprint(os.Stderr, cmd.UsageString())
+		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return err
 	}
 	return nil
+}
+
+func isCommandLineError(err error) bool {
+	msg := err.Error()
+
+	for _, prefix := range []string{
+		"unknown command ",
+		"unknown flag: ",
+		"unknown shorthand flag:",
+		"flag needs an argument:",
+		"invalid argument ",
+		"required flag(s) ",
+	} {
+		if strings.HasPrefix(msg, prefix) {
+			return true
+		}
+	}
+
+	for _, fragment := range []string{
+		" arg(s), received ",
+		"accepts at least ",
+		"accepts at most ",
+		"accepts between ",
+		"requires at least ",
+		"takes no arguments",
+	} {
+		if strings.Contains(msg, fragment) {
+			return true
+		}
+	}
+	return false
 }
 
 // init registers all top-level commands with the root command
