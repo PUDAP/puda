@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -33,6 +34,13 @@ type commandResult struct {
 	request  puda.CommandRequest
 	response *puda.NATSMessage
 	err      error
+}
+
+// StepRange selects an inclusive range of protocol steps. EndStep 0 means
+// through the final protocol step.
+type StepRange struct {
+	StartStep int
+	EndStep   int
 }
 
 func sendQueueCommandBatch(js nats.JetStreamContext, dispatcher *ResponseDispatcher, requests []puda.CommandRequest, startIndex int, totalCommands int, runID, userID, username string, store *db.Store) error {
@@ -204,8 +212,9 @@ func SendQueueCommands(js nats.JetStreamContext, dispatcher *ResponseDispatcher,
 	return nil
 }
 
-// RunProtocol executes a puda protocol via NATS
-func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string, startStep int) error {
+// RunProtocol executes a puda protocol via NATS.
+// stepRanges selects inclusive step ranges; nil or empty means the full protocol.
+func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string, stepRanges []StepRange) error {
 	// Initialize database connection (optional - if it fails, database operations will be skipped gracefully)
 	store, err := db.Connect()
 	if err != nil {
@@ -287,20 +296,33 @@ func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string, startStep 
 			maxStepNumber = command.StepNumber
 		}
 	}
-	if startStep < 1 || startStep > maxStepNumber {
-		return fmt.Errorf("start step must be between 1 and %d", maxStepNumber)
-	}
-	if startStep > 1 {
-		log.Printf("Starting protocol from step %d", startStep)
+	if len(stepRanges) > 0 {
+		for _, stepRange := range stepRanges {
+			if stepRange.StartStep < 1 || stepRange.StartStep > maxStepNumber {
+				return fmt.Errorf("step range start must be between 1 and %d", maxStepNumber)
+			}
+			endStep := stepRange.EndStep
+			if endStep == 0 {
+				endStep = maxStepNumber
+			}
+			if endStep < 1 || endStep > maxStepNumber {
+				return fmt.Errorf("step range end must be between 1 and %d", maxStepNumber)
+			}
+			if endStep < stepRange.StartStep {
+				return fmt.Errorf("step range end must be greater than or equal to start")
+			}
+		}
+
+		log.Printf("Running protocol step selection: %s", formatStepRanges(stepRanges))
 		filteredCommands := make([]puda.CommandRequest, 0, len(commands))
 		for _, command := range commands {
-			if command.StepNumber >= startStep {
+			if stepSelected(command.StepNumber, stepRanges, maxStepNumber) {
 				filteredCommands = append(filteredCommands, command)
 			}
 		}
 		commands = filteredCommands
 	}
-	log.Printf("Loaded %d commands from protocol, executing %d command(s) starting at step %d\n", len(protocolFile.Commands), len(commands), startStep)
+	log.Printf("Loaded %d commands from protocol, executing %d command(s)\n", len(protocolFile.Commands), len(commands))
 
 	// Send protocol commands
 	if err := SendQueueCommands(js, dispatcher, commands, runID, finalUserID, finalUsername, store); err != nil {
@@ -310,4 +332,31 @@ func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string, startStep 
 
 	log.Printf("Protocol commands completed successfully!")
 	return nil
+}
+
+func stepSelected(stepNumber int, stepRanges []StepRange, maxStepNumber int) bool {
+	for _, stepRange := range stepRanges {
+		endStep := stepRange.EndStep
+		if endStep == 0 {
+			endStep = maxStepNumber
+		}
+		if stepNumber >= stepRange.StartStep && stepNumber <= endStep {
+			return true
+		}
+	}
+	return false
+}
+
+func formatStepRanges(stepRanges []StepRange) string {
+	parts := make([]string, 0, len(stepRanges))
+	for _, stepRange := range stepRanges {
+		if stepRange.EndStep == 0 {
+			parts = append(parts, fmt.Sprintf("%d-", stepRange.StartStep))
+		} else if stepRange.StartStep == stepRange.EndStep {
+			parts = append(parts, fmt.Sprintf("%d", stepRange.StartStep))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d-%d", stepRange.StartStep, stepRange.EndStep))
+		}
+	}
+	return strings.Join(parts, ",")
 }
