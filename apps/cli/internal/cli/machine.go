@@ -20,7 +20,7 @@ const heartbeatTimeout = 2 * time.Second
 
 var machineNatsServers string
 var machineListJSON bool
-var watchTargets []string
+var watchMachines []string
 var watchTimeout int
 var watchSubjects []string
 var watchIncludeHeartbeat bool
@@ -114,25 +114,36 @@ var machineCommandsCmd = &cobra.Command{
 }
 
 var machineWatchCmd = &cobra.Command{
-	Use:   "watch --targets <machine_id1,machine_id2> [--subjects <subject1,subject2>]",
-	Short: "Stream all traffic from one or more machines as NDJSON",
-	Long: `Subscribe to puda.<machine_id>.> for each target, capturing all telemetry
-(tlm), command (cmd), and event (evt) messages, and stream them to stdout as
-newline-delimited JSON.
+	Use:   "watch [--machines <machine_id1,machine_id2>] [--subjects <subject1,subject2>]",
+	Short: "Stream machine traffic as NDJSON",
+	Long: `Subscribe to puda.*.> by default, or puda.<machine_id>.> for each selected
+machine, and stream messages to stdout as newline-delimited JSON.
 
-Filter with --subjects using category.topic prefixes, e.g.:
-  tlm.health        only system-vitals telemetry
-  cmd.response      all command responses (queue and immediate)
-  cmd               every command message
+Use --machines/-m to select machines. If omitted, all machines are included.
+Use --subjects/-s to filter with category.topic prefixes. If omitted, all
+subjects are included (except heartbeats).
 
-If --subjects is omitted all messages are included (except heartbeats).
+Available subject filters:
+  tlm               all telemetry
+  tlm.heartbeat     heartbeat telemetry (requires --include-heartbeat)
+  tlm.pos           position telemetry
+  tlm.health        system-vitals telemetry
+  cmd               all command messages
+  cmd.queue         queued commands
+  cmd.immediate     immediate commands
+  cmd.response      all command responses
+  cmd.response.queue
+  cmd.response.immediate
+  evt               all events
+  evt.log           log events
+  evt.alert         alert events
+  evt.media         media events
+  update            update messages
+  update.response   update responses
+
 Use --timeout to auto-stop after N seconds, or Ctrl-C to stop.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if len(watchTargets) == 0 {
-			return fmt.Errorf("at least one target is required (use --targets)")
-		}
-
 		nc, err := connectMachineNATS()
 		if err != nil {
 			return err
@@ -165,7 +176,7 @@ Use --timeout to auto-stop after N seconds, or Ctrl-C to stop.`,
 			}
 		}
 
-		events, err := pudanats.SubscribeMachineSubjects(ctx, nc, watchTargets, opts)
+		events, err := pudanats.SubscribeMachineSubjects(ctx, nc, watchMachines, opts)
 		if err != nil {
 			return err
 		}
@@ -183,10 +194,11 @@ Use --timeout to auto-stop after N seconds, or Ctrl-C to stop.`,
 func init() {
 	machineCmd.PersistentFlags().StringVar(&machineNatsServers, "nats-servers", "", "Comma-separated NATS server URLs (overrides active env)")
 	machineListCmd.Flags().BoolVar(&machineListJSON, "json", false, "Output machine list as JSON")
-	machineWatchCmd.Flags().StringSliceVar(&watchTargets, "targets", nil, "Comma-separated list of machine IDs to watch")
-	machineWatchCmd.MarkFlagRequired("targets")
+	machineWatchCmd.Flags().StringSliceVarP(&watchMachines, "machines", "m", nil, "Comma-separated list of machine IDs to watch (default: all machines)")
+	machineWatchCmd.Flags().StringSliceVar(&watchMachines, "targets", nil, "Deprecated alias for --machines")
+	machineWatchCmd.Flags().MarkHidden("targets")
 	machineWatchCmd.Flags().IntVar(&watchTimeout, "timeout", 0, "Auto-stop after N seconds (0 = run until interrupted)")
-	machineWatchCmd.Flags().StringSliceVar(&watchSubjects, "subjects", nil, "Comma-separated category.topic prefixes to include (e.g. tlm.health,cmd.response,evt)")
+	machineWatchCmd.Flags().StringSliceVarP(&watchSubjects, "subjects", "s", nil, "Comma-separated category.topic prefixes to include (default: all subjects)")
 	machineWatchCmd.Flags().BoolVar(&watchIncludeHeartbeat, "include-heartbeat", false, "Include heartbeat messages (excluded by default)")
 	machineCmd.AddCommand(machineListCmd)
 	machineCmd.AddCommand(machineStateCmd)

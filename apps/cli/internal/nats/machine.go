@@ -33,13 +33,9 @@ type WatchOpts struct {
 }
 
 // SubscribeMachineSubjects subscribes to puda.<id>.> for every machine ID in
-// the slice, capturing all telemetry (tlm), events (evt), and command (cmd)
-// traffic, and multiplexes all messages into a single channel.
+// the slice, or puda.*.> when machineIDs is empty. It captures machine traffic
+// and multiplexes all messages into a single channel.
 func SubscribeMachineSubjects(ctx context.Context, nc *natsio.Conn, machineIDs []string, opts WatchOpts) (<-chan WatchEvent, error) {
-	if len(machineIDs) == 0 {
-		return nil, fmt.Errorf("at least one machine ID is required")
-	}
-
 	ch := make(chan WatchEvent, 64)
 
 	handler := func(msg *natsio.Msg) {
@@ -89,15 +85,24 @@ func SubscribeMachineSubjects(ctx context.Context, nc *natsio.Conn, machineIDs [
 		}
 	}
 
-	subs := make([]*natsio.Subscription, 0, len(machineIDs))
-	for _, id := range machineIDs {
-		sub, err := nc.Subscribe(fmt.Sprintf("puda.%s.>", id), handler)
+	subjects := make([]string, 0, len(machineIDs))
+	if len(machineIDs) == 0 {
+		subjects = append(subjects, "puda.*.>")
+	} else {
+		for _, id := range machineIDs {
+			subjects = append(subjects, fmt.Sprintf("puda.%s.>", id))
+		}
+	}
+
+	subs := make([]*natsio.Subscription, 0, len(subjects))
+	for _, subject := range subjects {
+		sub, err := nc.Subscribe(subject, handler)
 		if err != nil {
 			for _, s := range subs {
 				s.Unsubscribe()
 			}
 			close(ch)
-			return nil, fmt.Errorf("failed to subscribe to machine %s: %w", id, err)
+			return nil, fmt.Errorf("failed to subscribe to %s: %w", subject, err)
 		}
 		subs = append(subs, sub)
 	}
