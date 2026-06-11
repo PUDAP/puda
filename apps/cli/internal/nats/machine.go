@@ -171,46 +171,51 @@ func GetMachineCommands(nc *natsio.Conn, machineID string) error {
 	return nil
 }
 
-// GetSingleMachineState retrieves the state of a specific machine from KV store
-func GetSingleMachineState(nc *natsio.Conn, machineID string) error {
+// GetMachineState retrieves the state of a specific machine from KV store.
+func GetMachineState(nc *natsio.Conn, machineID string) (json.RawMessage, error) {
 	js, err := nc.JetStream()
 	if err != nil {
-		return fmt.Errorf("failed to get JetStream context: %w", err)
+		return nil, fmt.Errorf("failed to get JetStream context: %w", err)
 	}
 
 	kvBucketName := fmt.Sprintf("MACHINE_STATE_%s", strings.ReplaceAll(machineID, ".", "-"))
 
 	kv, err := js.KeyValue(kvBucketName)
 	if err != nil {
-		errorResponse := map[string]string{
-			"error": fmt.Sprintf("KV bucket not found for %s: %v", machineID, err),
-		}
-		jsonBytes, _ := json.MarshalIndent(errorResponse, "", "  ")
-		fmt.Println(string(jsonBytes))
-		return fmt.Errorf("KV bucket not found: %w", err)
+		return nil, fmt.Errorf("KV bucket not found: %w", err)
 	}
 
 	entry, err := kv.Get(machineID)
 	if err != nil {
-		errorResponse := map[string]string{
-			"error": fmt.Sprintf("Could not find state for %s: %v", machineID, err),
-		}
-		jsonBytes, _ := json.MarshalIndent(errorResponse, "", "  ")
-		fmt.Println(string(jsonBytes))
-		return fmt.Errorf("failed to get machine state: %w", err)
+		return nil, fmt.Errorf("failed to get machine state: %w", err)
 	}
 
-	var state map[string]interface{}
-	if err := json.Unmarshal(entry.Value(), &state); err != nil {
+	state := append(json.RawMessage(nil), entry.Value()...)
+	if !json.Valid(state) {
+		return nil, fmt.Errorf("failed to parse state JSON")
+	}
+
+	return state, nil
+}
+
+// GetSingleMachineState retrieves and prints the state of a specific machine from KV store.
+func GetSingleMachineState(nc *natsio.Conn, machineID string) error {
+	state, err := GetMachineState(nc, machineID)
+	if err != nil {
 		errorResponse := map[string]string{
-			"error": fmt.Sprintf("Failed to parse state JSON for %s: %v", machineID, err),
+			"error": fmt.Sprintf("Could not get state for %s: %v", machineID, err),
 		}
 		jsonBytes, _ := json.MarshalIndent(errorResponse, "", "  ")
 		fmt.Println(string(jsonBytes))
+		return err
+	}
+
+	var prettyState interface{}
+	if err := json.Unmarshal(state, &prettyState); err != nil {
 		return fmt.Errorf("failed to parse state JSON: %w", err)
 	}
 
-	jsonBytes, err := json.MarshalIndent(state, "", "  ")
+	jsonBytes, err := json.MarshalIndent(prettyState, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal state: %w", err)
 	}

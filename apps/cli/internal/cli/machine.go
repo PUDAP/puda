@@ -76,21 +76,6 @@ var machineListCmd = &cobra.Command{
 	},
 }
 
-var machineStateCmd = &cobra.Command{
-	Use:   "state <machine_id>",
-	Short: "Watch the state of a machine",
-	Long:  `Refresh the machine state every second until interrupted, similar to docker stats.`,
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		nc, err := connectMachineNATS()
-		if err != nil {
-			return err
-		}
-		defer nc.Close()
-		return watchMachineState(nc, args[0])
-	},
-}
-
 var machineResetCmd = &cobra.Command{
 	Use:   "reset <machine_id>",
 	Short: "Reset a machine",
@@ -202,52 +187,9 @@ func init() {
 	machineWatchCmd.Flags().StringSliceVarP(&watchSubjects, "subjects", "s", nil, "Comma-separated category.topic prefixes to include (default: all subjects)")
 	machineWatchCmd.Flags().BoolVar(&watchIncludeHeartbeat, "include-heartbeat", false, "Include heartbeat messages (excluded by default)")
 	machineCmd.AddCommand(machineListCmd)
-	machineCmd.AddCommand(machineStateCmd)
 	machineCmd.AddCommand(machineResetCmd)
 	machineCmd.AddCommand(machineCommandsCmd)
 	machineCmd.AddCommand(machineWatchCmd)
-}
-
-func watchMachineState(nc *natsio.Conn, machineID string) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sigCh)
-
-	go func() {
-		select {
-		case <-sigCh:
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
-
-	render := func() error {
-		fmt.Print("\033[H\033[2J")
-		fmt.Printf("Machine: %s | Updated: %s | Press Ctrl-C to stop\n\n", machineID, time.Now().Format(time.RFC3339))
-		return pudanats.GetSingleMachineState(nc, machineID)
-	}
-
-	if err := render(); err != nil {
-		return err
-	}
-
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			fmt.Println()
-			return nil
-		case <-ticker.C:
-			if err := render(); err != nil {
-				return err
-			}
-		}
-	}
 }
 
 func connectMachineNATS() (*natsio.Conn, error) {
