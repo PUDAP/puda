@@ -18,10 +18,13 @@ type machineStateSnapshot struct {
 }
 
 type machineStateResult struct {
-	OK    bool            `json:"ok"`
-	State json.RawMessage `json:"state,omitempty"`
-	Error string          `json:"error,omitempty"`
+	OK     bool            `json:"ok"`
+	Online *bool           `json:"online,omitempty"`
+	State  json.RawMessage `json:"state,omitempty"`
+	Error  string          `json:"error,omitempty"`
 }
+
+var machineStateIncludeOffline bool
 
 var machineStateCmd = &cobra.Command{
 	Use:   "state [machine_id...]",
@@ -29,6 +32,8 @@ var machineStateCmd = &cobra.Command{
 	Long: `Get machine state as a single JSON snapshot and exit.
 
 If no machine IDs are provided, all machines discovered by heartbeat are shown.
+Use --include-offline to also include machines with persisted state that are not
+currently sending heartbeats.
 Machine IDs can be comma-separated, e.g. puda machine state biologic,first`,
 	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -38,27 +43,52 @@ Machine IDs can be comma-separated, e.g. puda machine state biologic,first`,
 		}
 		defer nc.Close()
 
-		machineIDs := parseMachineIDs(args)
-		if len(machineIDs) == 0 {
-			machineIDs, err = pudanats.ListMachines(nc, heartbeatTimeout)
-			if err != nil {
-				return err
-			}
-			sort.Strings(machineIDs)
-			if len(machineIDs) == 0 {
-				return writeMachineStateSnapshot(nc, machineIDs)
-			}
+		machineIDs, onlineMachines, err := resolveMachineStateIDs(nc, args)
+		if err != nil {
+			return err
 		}
-
-		return writeMachineStateSnapshot(nc, machineIDs)
+		return writeMachineStateSnapshot(nc, machineIDs, onlineMachines)
 	},
 }
 
 func init() {
+	machineStateCmd.Flags().BoolVar(&machineStateIncludeOffline, "include-offline", false, "Include machines with persisted state even when no heartbeat is seen")
 	machineCmd.AddCommand(machineStateCmd)
 }
 
-func writeMachineStateSnapshot(nc *natsio.Conn, machineIDs []string) error {
+func resolveMachineStateIDs(nc *natsio.Conn, args []string) ([]string, map[string]struct{}, error) {
+	machineIDs := uniqueMachineIDs(parseMachineIDs(args))
+	if len(machineIDs) > 0 && !machineStateIncludeOffline {
+		sort.Strings(machineIDs)
+		return machineIDs, nil, nil
+	}
+
+	onlineMachines, err := pudanats.ListMachines(nc, heartbeatTimeout)
+	if err != nil {
+		return nil, nil, err
+	}
+	onlineSet := machineIDSet(onlineMachines)
+
+	if len(machineIDs) > 0 {
+		sort.Strings(machineIDs)
+		return machineIDs, onlineSet, nil
+	}
+
+	if machineStateIncludeOffline {
+		knownMachines, err := pudanats.ListMachineStateMachines(nc)
+		if err != nil {
+			return nil, nil, err
+		}
+		machineIDs = mergeMachineIDs(onlineMachines, knownMachines)
+	} else {
+		machineIDs = uniqueMachineIDs(onlineMachines)
+	}
+
+	sort.Strings(machineIDs)
+	return machineIDs, onlineSet, nil
+}
+
+func writeMachineStateSnapshot(nc *natsio.Conn, machineIDs []string, onlineMachines map[string]struct{}) error {
 	snapshot := machineStateSnapshot{
 		Machines:  make(map[string]machineStateResult, len(machineIDs)),
 		Count:     len(machineIDs),
@@ -66,20 +96,59 @@ func writeMachineStateSnapshot(nc *natsio.Conn, machineIDs []string) error {
 	}
 
 	for _, machineID := range machineIDs {
+		online := machineOnlineStatus(machineID, onlineMachines)
 		state, err := pudanats.GetMachineState(nc, machineID)
 		if err != nil {
 			snapshot.Machines[machineID] = machineStateResult{
-				OK:    false,
-				Error: err.Error(),
+				OK:     false,
+				Online: online,
+				Error:  err.Error(),
 			}
 			continue
 		}
 		snapshot.Machines[machineID] = machineStateResult{
-			OK:    true,
-			State: state,
+			OK:     true,
+			Online: online,
+			State:  state,
 		}
 	}
 
 	enc := json.NewEncoder(os.Stdout)
 	return enc.Encode(snapshot)
+}
+
+func machineOnlineStatus(machineID string, onlineMachines map[string]struct{}) *bool {
+	if onlineMachines == nil {
+		return nil
+	}
+	_, found := onlineMachines[machineID]
+	online := found
+	return &online
+}
+
+func machineIDSet(machineIDs []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(machineIDs))
+	for _, machineID := range machineIDs {
+		set[machineID] = struct{}{}
+	}
+	return set
+}
+
+func mergeMachineIDs(groups ...[]string) []string {
+	merged := make(map[string]struct{})
+	for _, group := range groups {
+		for _, machineID := range group {
+			merged[machineID] = struct{}{}
+		}
+	}
+
+	machineIDs := make([]string, 0, len(merged))
+	for machineID := range merged {
+		machineIDs = append(machineIDs, machineID)
+	}
+	return machineIDs
+}
+
+func uniqueMachineIDs(machineIDs []string) []string {
+	return mergeMachineIDs(machineIDs)
 }

@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const heartbeatTimeout = 2 * time.Second
+const heartbeatTimeout = 1500 * time.Millisecond
 
 var machineNatsServers string
 var machineListJSON bool

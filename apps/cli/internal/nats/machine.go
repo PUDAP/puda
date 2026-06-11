@@ -144,6 +144,32 @@ func ListMachines(nc *natsio.Conn, timeout time.Duration) ([]string, error) {
 	return machines, nil
 }
 
+// ListMachineStateMachines returns machine IDs that have persisted state KV buckets.
+func ListMachineStateMachines(nc *natsio.Conn) ([]string, error) {
+	js, err := nc.JetStream()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get JetStream context: %w", err)
+	}
+
+	const streamPrefix = "KV_MACHINE_STATE_"
+	seen := make(map[string]struct{})
+	for streamName := range js.StreamNames() {
+		if !strings.HasPrefix(streamName, streamPrefix) {
+			continue
+		}
+		machineID := strings.TrimPrefix(streamName, streamPrefix)
+		if machineID != "" {
+			seen[machineID] = struct{}{}
+		}
+	}
+
+	machines := make([]string, 0, len(seen))
+	for id := range seen {
+		machines = append(machines, id)
+	}
+	return machines, nil
+}
+
 // GetMachineCommands retrieves the commands of a specific machine from KV store
 func GetMachineCommands(nc *natsio.Conn, machineID string) error {
 	js, err := nc.JetStream()
