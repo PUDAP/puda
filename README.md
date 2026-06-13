@@ -1,6 +1,6 @@
 # PUDA
 
-Physical Unified Device Architecture - A runtime environment for Physical AI
+The Runtime Enivronment for Physical AI
 
 ## Overview
 

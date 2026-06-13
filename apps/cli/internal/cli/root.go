@@ -97,7 +97,7 @@ func versionString() string {
 var rootCmd = &cobra.Command{
 	Use:           "puda",
 	Short:         "PUDA CLI - Command-line interface for PUDA",
-	Long:          "PUDA CLI provides commands for the platform",
+	Long:          "The Runtime Environment for Physical AI",
 	SilenceErrors: true,
 	SilenceUsage:  true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
