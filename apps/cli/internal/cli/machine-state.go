@@ -33,12 +33,13 @@ var machineStateCmd = &cobra.Command{
 	Short: "Get machine state as JSON",
 	Long: `Get machine state as a single JSON snapshot and exit.
 
+When no machine IDs are provided, state is fetched for all online machines.
 Provide one or more machine IDs to get specific machine state.
 Machine IDs can be comma-separated, e.g. puda machine state first,biologic`,
 	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(parseMachineIDs(args)) == 0 && !machineStateAll && !machineStateOffline {
-			return cmd.Help()
+			machineStateAll = true
 		}
 
 		nc, err := connectMachineNATS()
@@ -56,7 +57,7 @@ Machine IDs can be comma-separated, e.g. puda machine state first,biologic`,
 }
 
 func init() {
-	machineStateCmd.Flags().BoolVar(&machineStateAll, "all", false, "Show state for all machines discovered by heartbeat")
+	machineStateCmd.Flags().BoolVar(&machineStateAll, "all", false, "Show state for all machines discovered by heartbeat (default when no machine IDs are given)")
 	machineStateCmd.Flags().BoolVar(&machineStateOffline, "offline", false, "Show machines with persisted state but no heartbeat")
 	machineCmd.AddCommand(machineStateCmd)
 }

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -21,7 +22,7 @@ var machinePauseCmd = &cobra.Command{
 Machine IDs can be comma-separated, e.g. puda machine pause biologic,first`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return sendImmediateCommandToMachines(parseMachineIDs(args), "Pause", pudanats.SendPauseCommand)
+		return runImmediateCommandForMachines(parseMachineIDs(args), "Pause", pudanats.SendPauseCommand)
 	},
 }
 
@@ -32,7 +33,7 @@ var machineResumeCmd = &cobra.Command{
 Machine IDs can be comma-separated, e.g. puda machine resume biologic,first`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return sendImmediateCommandToMachines(parseMachineIDs(args), "Resume", pudanats.SendResumeCommand)
+		return runImmediateCommandForMachines(parseMachineIDs(args), "Resume", pudanats.SendResumeCommand)
 	},
 }
 
@@ -43,7 +44,7 @@ var machineResetCmd = &cobra.Command{
 Machine IDs can be comma-separated, e.g. puda machine reset biologic,first`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return sendImmediateCommandToMachines(parseMachineIDs(args), "Reset", pudanats.SendResetCommand)
+		return runImmediateCommandForMachines(parseMachineIDs(args), "Reset", pudanats.SendResetCommand)
 	},
 }
 
@@ -73,6 +74,68 @@ type immediateCommandSender func(
 	timeoutSeconds int,
 	store *db.Store,
 ) (*puda.NATSMessage, error)
+
+func runImmediateCommandForMachines(
+	machineIDs []string,
+	commandLabel string,
+	send immediateCommandSender,
+) error {
+	if len(machineIDs) == 0 {
+		return fmt.Errorf("at least one machine ID is required")
+	}
+
+	nc, err := connectMachineNATS()
+	if err != nil {
+		return err
+	}
+	defer nc.Close()
+
+	onlineMachines, err := pudanats.ListMachines(nc, heartbeatTimeout)
+	if err != nil {
+		return fmt.Errorf("failed to list online machines: %w", err)
+	}
+
+	onlineMachineSet := machineIDSet(onlineMachines)
+	onlineMachineIDs, offlineMachineIDs := splitImmediateCommandTargets(machineIDs, onlineMachineSet)
+	if len(onlineMachineIDs) == 0 {
+		for _, machineID := range machineIDs {
+			writeImmediateCommandResult(os.Stdout, commandLabel, machineID, fmt.Errorf("offline or does not exist"))
+		}
+		return fmt.Errorf("%s command failed for %d machine(s)", strings.ToLower(commandLabel), len(machineIDs))
+	}
+
+	pendingOnlineMachineIDs := make([]string, 0, len(onlineMachineIDs))
+	for _, machineID := range machineIDs {
+		if _, found := onlineMachineSet[machineID]; found {
+			pendingOnlineMachineIDs = append(pendingOnlineMachineIDs, machineID)
+			continue
+		}
+		if err := flushImmediateCommandTargets(pendingOnlineMachineIDs, commandLabel, send); err != nil {
+			return err
+		}
+		pendingOnlineMachineIDs = pendingOnlineMachineIDs[:0]
+		writeImmediateCommandResult(os.Stdout, commandLabel, machineID, fmt.Errorf("offline or does not exist"))
+	}
+	if err := flushImmediateCommandTargets(pendingOnlineMachineIDs, commandLabel, send); err != nil {
+		return err
+	}
+
+	if len(offlineMachineIDs) > 0 {
+		return fmt.Errorf("%s command failed for %d machine(s)", strings.ToLower(commandLabel), len(offlineMachineIDs))
+	}
+	return nil
+}
+
+func flushImmediateCommandTargets(
+	machineIDs []string,
+	commandLabel string,
+	send immediateCommandSender,
+) error {
+	if len(machineIDs) == 0 {
+		return nil
+	}
+	return sendImmediateCommandToMachines(machineIDs, commandLabel, send)
+}
 
 func sendImmediateCommandToMachines(
 	machineIDs []string,
@@ -117,20 +180,50 @@ func sendImmediateCommandToMachines(
 	}
 	defer dispatcher.Close()
 
+	failedCount := 0
 	for _, machineID := range machineIDs {
 		response, err := send(js, dispatcher, machineID, "", userID, username, immediateCommandTimeoutSeconds, store)
 		if err != nil {
-			return fmt.Errorf("%s command failed for %s: %w", strings.ToLower(commandLabel), machineID, err)
+			failedCount++
+			writeImmediateCommandResult(os.Stdout, commandLabel, machineID, err)
+			continue
 		}
 		if response.Response != nil && response.Response.Status == puda.StatusError {
 			msg := "unknown error"
 			if response.Response.Message != nil {
 				msg = *response.Response.Message
 			}
-			return fmt.Errorf("%s command failed for %s: %s", strings.ToLower(commandLabel), machineID, msg)
+			failedCount++
+			writeImmediateCommandResult(os.Stdout, commandLabel, machineID, fmt.Errorf("%s", msg))
+			continue
 		}
+		writeImmediateCommandResult(os.Stdout, commandLabel, machineID, nil)
 	}
 
-	fmt.Fprintf(os.Stdout, "%s command sent successfully to %d machine(s)\n", commandLabel, len(machineIDs))
+	if failedCount > 0 {
+		return fmt.Errorf("%s command failed for %d machine(s)", strings.ToLower(commandLabel), failedCount)
+	}
 	return nil
+}
+
+func splitImmediateCommandTargets(machineIDs []string, onlineMachines map[string]struct{}) ([]string, []string) {
+	online := make([]string, 0, len(machineIDs))
+	offline := make([]string, 0)
+	for _, machineID := range machineIDs {
+		if _, found := onlineMachines[machineID]; found {
+			online = append(online, machineID)
+			continue
+		}
+		offline = append(offline, machineID)
+	}
+	return online, offline
+}
+
+func writeImmediateCommandResult(w io.Writer, commandLabel, machineID string, err error) {
+	commandName := strings.ToLower(commandLabel)
+	if err != nil {
+		fmt.Fprintf(w, "%s: %s command failed: %v\n", machineID, commandName, err)
+		return
+	}
+	fmt.Fprintf(w, "%s: %s command sent successfully\n", machineID, commandName)
 }
