@@ -36,9 +36,21 @@ Machine IDs can be comma-separated, e.g. puda machine resume biologic,first`,
 	},
 }
 
+var machineResetCmd = &cobra.Command{
+	Use:   "reset <machine_ids>",
+	Short: "Reset one or more machines",
+	Long: `Send reset immediate command to one or more machines.
+Machine IDs can be comma-separated, e.g. puda machine reset biologic,first`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendImmediateCommandToMachines(parseMachineIDs(args), "Reset", pudanats.SendResetCommand)
+	},
+}
+
 func init() {
 	machineCmd.AddCommand(machinePauseCmd)
 	machineCmd.AddCommand(machineResumeCmd)
+	machineCmd.AddCommand(machineResetCmd)
 }
 
 func parseMachineIDs(args []string) []string {

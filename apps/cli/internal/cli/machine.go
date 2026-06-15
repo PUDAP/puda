@@ -76,15 +76,6 @@ var machineListCmd = &cobra.Command{
 	},
 }
 
-var machineResetCmd = &cobra.Command{
-	Use:   "reset <machine_id>",
-	Short: "Reset a machine",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return resetMachine(args[0])
-	},
-}
-
 var machineCommandsCmd = &cobra.Command{
 	Use:   "commands <machine_id>",
 	Short: "Show available commands for a machine",
@@ -187,7 +178,6 @@ func init() {
 	machineWatchCmd.Flags().StringSliceVarP(&watchSubjects, "subjects", "s", nil, "Comma-separated category.topic prefixes to include (default: all subjects)")
 	machineWatchCmd.Flags().BoolVar(&watchIncludeHeartbeat, "include-heartbeat", false, "Include heartbeat messages (excluded by default)")
 	machineCmd.AddCommand(machineListCmd)
-	machineCmd.AddCommand(machineResetCmd)
 	machineCmd.AddCommand(machineCommandsCmd)
 	machineCmd.AddCommand(machineWatchCmd)
 }
