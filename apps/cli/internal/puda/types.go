@@ -121,7 +121,7 @@ type Env struct {
 
 // BuiltinEnvs contains the hardcoded connection environments.
 var BuiltinEnvs = map[string]Env{
-	"bears": {NATSServers: "nats://100.109.131.12:4222,nats://100.109.131.12:4223,nats://100.109.131.12:4224", Description: "create tower (dev work)"},
+	"bears": {NATSServers: "nats://bears:4222,nats://bears:4223,nats://bears:4224", Description: "create tower (dev work)"},
 	"imre":  {NATSServers: "nats://100.109.131.12:4222,nats://100.109.131.12:4223,nats://100.109.131.12:4224", Description: "CuspAI setup"},
 	"ntu":   {NATSServers: "nats://100.109.131.12:4223,nats://100.109.131.12:4223,nats://100.109.131.12:4224", Description: "PUDA NTU setup"},
 	"ifim":  {NATSServers: "nats://100.109.131.12:4223,nats://100.109.131.12:4223,nats://100.109.131.12:4224", Description: "IFIM setup"},
