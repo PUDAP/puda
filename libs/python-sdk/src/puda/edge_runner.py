@@ -162,25 +162,21 @@ class EdgeRunner:
     
     async def _driver_shutdown(self) -> None:
         """
-        Best-effort cleanup on the machine driver before the edge exits. 
-        Looks for (in order) an async or sync `shutdown`, `close`, or
-        `disconnect` method on the driver so serial ports, sockets, cameras,
-        etc. are released for the next process.
+        Best-effort cleanup on the machine driver before the edge exits.
+        Calls `shutdown` on the driver (if defined) so serial ports, sockets,
+        cameras, etc. are released for the next process.
         """
-        for attr in ("shutdown", "close", "disconnect"):
-            method = getattr(self.machine_driver, attr, None)
-            if not callable(method):
-                continue
-            try:
-                logger.info("Invoking driver.%s() before restart", attr)
-                result = method()
-                if inspect.isawaitable(result):
-                    await result
-                return
-            except Exception as e:
-                logger.error("Driver %s() raised during shutdown: %s", attr, e, exc_info=True)
-                return
-        logger.info("Driver has no shutdown/close/disconnect method; skipping")
+        method = getattr(self.machine_driver, "shutdown", None)
+        if not callable(method):
+            logger.info("Driver has no shutdown method; skipping")
+            return
+        try:
+            logger.info("Invoking driver.shutdown() before restart")
+            result = method()
+            if inspect.isawaitable(result):
+                await result
+        except Exception as e:
+            logger.error("Driver shutdown() raised during shutdown: %s", e, exc_info=True)
 
     async def _ensure_connection(self) -> bool:
         if self.updater.is_restarting:
