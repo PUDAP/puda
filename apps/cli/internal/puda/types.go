@@ -113,34 +113,11 @@ type ConfigDatabase struct {
 	Path string `json:"path"`
 }
 
-// Env represents a named connection environment with NATS endpoints.
-type Env struct {
-	NATSServers string `json:"nats_servers"`
-	Description string `json:"description"`
-}
-
-// BuiltinEnvs contains the hardcoded connection environments.
-var BuiltinEnvs = map[string]Env{
-	"bears": {NATSServers: "nats://bears:4222,nats://bears:4223,nats://bears:4224", Description: "create tower (dev work)"},
-	"imre":  {NATSServers: "nats://100.109.131.12:4222,nats://100.109.131.12:4223,nats://100.109.131.12:4224", Description: "CuspAI setup"},
-	"ntu":   {NATSServers: "nats://100.109.131.12:4223,nats://100.109.131.12:4223,nats://100.109.131.12:4224", Description: "PUDA NTU setup"},
-	"ifim":  {NATSServers: "nats://100.109.131.12:4223,nats://100.109.131.12:4223,nats://100.109.131.12:4224", Description: "IFIM setup"},
-}
-
 // GlobalConfig represents the structure of the global PUDA CLI configuration file.
 // This is stored in the user's config directory and only contains user identity.
 type GlobalConfig struct {
-	User      ConfigUser `json:"user"`
-	ActiveEnv string     `json:"active_env,omitempty"`
-}
-
-// ActiveEnvNATSServers returns the NATS server URLs for the active env.
-// Falls back to "bears" if the env is not set or not found.
-func (g *GlobalConfig) ActiveEnvNATSServers() string {
-	if e, ok := BuiltinEnvs[g.ActiveEnv]; ok {
-		return e.NATSServers
-	}
-	return BuiltinEnvs["bears"].NATSServers
+	User        ConfigUser `json:"user"`
+	NATSServers string     `json:"nats_servers,omitempty"`
 }
 
 // ProjectConfig represents the structure of the project-level PUDA CLI config.json file.

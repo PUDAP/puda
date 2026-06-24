@@ -13,4 +13,6 @@ var configCmd = &cobra.Command{
 func init() {
 	configCmd.AddCommand(configListCmd)
 	configCmd.AddCommand(configEditCmd)
+	configCmd.AddCommand(configGetCmd)
+	configCmd.AddCommand(configSetCmd)
 }

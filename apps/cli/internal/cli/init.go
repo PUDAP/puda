@@ -151,34 +151,31 @@ func resolveProjectTargetDir(args []string) (string, error) {
 	return targetDir, nil
 }
 
-// loadOrCreateProjectConfig loads an existing project config from the current or
-// legacy path, or seeds a new one from the logged-in user's global config.
+// loadOrCreateProjectConfig loads an existing project config, or seeds a new
+// one from the logged-in user's global config.
 func loadOrCreateProjectConfig(projectConfigPath, targetDir string) (*puda.ProjectConfig, error) {
 	// check if the project config file exists
-	configPaths := []string{projectConfigPath, filepath.Join(targetDir, puda.LegacyProjectConfigFileName)}
-	for _, configPath := range configPaths {
-		if _, err := os.Stat(configPath); err == nil {
-			data, err := os.ReadFile(configPath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read project config file: %w", err)
-			}
-
-			var cfg puda.ProjectConfig
-			if err := json.Unmarshal(data, &cfg); err != nil {
-				return nil, fmt.Errorf("failed to parse project config file: %w", err)
-			}
-
-			if cfg.ProjectRoot == "" {
-				cfg.ProjectRoot = targetDir
-			}
-			if cfg.Database.Path == "" {
-				cfg.Database.Path = "puda.db"
-			}
-
-			return &cfg, nil
-		} else if !os.IsNotExist(err) {
-			return nil, fmt.Errorf("failed to access project config file: %w", err)
+	if _, err := os.Stat(projectConfigPath); err == nil {
+		data, err := os.ReadFile(projectConfigPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read project config file: %w", err)
 		}
+
+		var cfg puda.ProjectConfig
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return nil, fmt.Errorf("failed to parse project config file: %w", err)
+		}
+
+		if cfg.ProjectRoot == "" {
+			cfg.ProjectRoot = targetDir
+		}
+		if cfg.Database.Path == "" {
+			cfg.Database.Path = "puda.db"
+		}
+
+		return &cfg, nil
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("failed to access project config file: %w", err)
 	}
 
 	// create a new project config

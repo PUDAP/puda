@@ -68,7 +68,6 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	var cfg puda.GlobalConfig
 	cfg.User.Username = username
 	cfg.User.UserID = uuid.NewString()
-	cfg.ActiveEnv = "bears"
 
 	fmt.Fprintln(cmd.OutOrStdout(), "Fetching user configuration...")
 

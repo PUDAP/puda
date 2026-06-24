@@ -8,9 +8,8 @@ import (
 )
 
 const (
-	GlobalConfigFileName        = "config.json"
-	ProjectConfigFileName       = "puda.config"
-	LegacyProjectConfigFileName = "config.json"
+	GlobalConfigFileName  = "config.json"
+	ProjectConfigFileName = "puda.config"
 )
 
 // GlobalConfigPath returns the path to the main/global PUDA configuration file.
@@ -62,10 +61,6 @@ func loadGlobalConfigFromPath(configPath string) (*GlobalConfig, error) {
 	}
 	if fileCfg.User.UserID == "" {
 		return nil, fmt.Errorf("user ID is missing in PUDA config file %s", configPath)
-	}
-
-	if fileCfg.ActiveEnv == "" {
-		fileCfg.ActiveEnv = "bears"
 	}
 
 	return &fileCfg, nil
@@ -132,17 +127,12 @@ func ProjectConfigPathForDir(dir string) string {
 }
 
 func findProjectConfigInDir(dir string) (string, error) {
-	for _, configPath := range []string{
-		ProjectConfigPathForDir(dir),
-		filepath.Join(dir, LegacyProjectConfigFileName),
-	} {
-		if _, err := os.Stat(configPath); err == nil {
-			return configPath, nil
-		} else if !os.IsNotExist(err) {
-			return "", fmt.Errorf("failed to access project config file %s: %w", configPath, err)
-		}
+	configPath := ProjectConfigPathForDir(dir)
+	if _, err := os.Stat(configPath); err == nil {
+		return configPath, nil
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("failed to access project config file %s: %w", configPath, err)
 	}
-
 	return "", nil
 }
 

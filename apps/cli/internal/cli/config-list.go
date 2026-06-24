@@ -27,6 +27,7 @@ func runConfigList(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "user.user_id=%s\n", globalCfg.User.UserID)
 		fmt.Fprintf(cmd.OutOrStdout(), "user.username=%s\n", globalCfg.User.Username)
+		fmt.Fprintf(cmd.OutOrStdout(), "nats_servers=%s\n", globalCfg.NATSServers)
 		return nil
 	}
 

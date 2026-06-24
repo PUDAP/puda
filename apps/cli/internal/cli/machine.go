@@ -189,7 +189,10 @@ func connectMachineNATS() (*natsio.Conn, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
 		}
-		servers = cfg.ActiveEnvNATSServers()
+		servers = cfg.NATSServers
+	}
+	if servers == "" {
+		return nil, fmt.Errorf("NATS servers not configured; run 'puda config set nats_servers <url>'")
 	}
 	nc, err := natsio.Connect(servers, natsio.MaxReconnects(3), natsio.ReconnectWait(2*time.Second))
 	if err != nil {
