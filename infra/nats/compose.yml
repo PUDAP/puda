@@ -14,6 +14,7 @@ services:
       - ./nats.conf:/etc/nats/nats.conf:ro
     environment:
       - SERVER_NAME=nats1
+      - EXTERNAL_PORT=4222
     # UPDATE: Advertise the Host IP and the External Port (4222)
     command: "-c /etc/nats/nats.conf --client_advertise ${HOST_IP}:4222"
     healthcheck:
@@ -44,6 +45,7 @@ services:
       - ./nats.conf:/etc/nats/nats.conf:ro
     environment:
       - SERVER_NAME=nats2
+      - EXTERNAL_PORT=4223
     # UPDATE: Advertise the Host IP and the External Port (4223)
     command: "-c /etc/nats/nats.conf --client_advertise ${HOST_IP}:4223"
     healthcheck:
@@ -74,6 +76,7 @@ services:
       - ./nats.conf:/etc/nats/nats.conf:ro
     environment:
       - SERVER_NAME=nats3
+      - EXTERNAL_PORT=4224
     # UPDATE: Advertise the Host IP and the External Port (4224)
     command: "-c /etc/nats/nats.conf --client_advertise ${HOST_IP}:4224"
     healthcheck:
