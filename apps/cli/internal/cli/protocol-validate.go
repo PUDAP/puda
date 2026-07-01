@@ -19,8 +19,6 @@ var protocolValidateCmd = &cobra.Command{
 
 The JSON file must be an object with the following structure:
   {
-    "user_id": "user123",
-    "username": "john",
     "description": "Test run",
     "commands": [...]
   }
@@ -61,12 +59,6 @@ func validateProtocol(cmd *cobra.Command, args []string) error {
 	validationErrors, err := puda.ValidateProtocol(&protocolFile)
 
 	// Print file metadata
-	if protocolFile.UserID != "" {
-		fmt.Fprintf(os.Stdout, "  user_id: %s\n", protocolFile.UserID)
-	}
-	if protocolFile.Username != "" {
-		fmt.Fprintf(os.Stdout, "  username: %s\n", protocolFile.Username)
-	}
 	if protocolFile.Description != "" {
 		fmt.Fprintf(os.Stdout, "  description: %s\n", protocolFile.Description)
 	}

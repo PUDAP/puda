@@ -75,8 +75,8 @@ type MachineHeartbeat struct {
 type ProtocolFile struct {
 	ProjectID   string           `json:"project_id"`
 	ProtocolID  string           `json:"protocol_id"`
-	UserID      string           `json:"user_id"`
-	Username    string           `json:"username"`
+	UserID      string           `json:"user_id,omitempty"`
+	Username    string           `json:"username,omitempty"`
 	Description string           `json:"description"`
 	Timestamp   string           `json:"timestamp"`
 	Commands    []CommandRequest `json:"commands"`

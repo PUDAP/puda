@@ -224,29 +224,27 @@ func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string, stepRanges
 		defer store.Disconnect()
 	}
 
+	// Load global config for NATS servers and user identity
+	globalCfg, err := puda.LoadGlobalConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
+	}
+
 	// if natsServers is not provided, use nats_servers from the global config
 	finalNatsServers := natsServers
 	if finalNatsServers == "" {
-		globalCfg, err := puda.LoadGlobalConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
-		}
 		finalNatsServers = globalCfg.NATSServers
 	}
 	if finalNatsServers == "" {
 		return fmt.Errorf("NATS servers not configured; run 'puda config set nats_servers <url>'")
 	}
 
-	// user_id and username must be provided in the protocol file
-	if protocolFile.UserID == "" {
-		return fmt.Errorf("user_id is required in the protocol file")
+	// Fetch user identity from config
+	finalUserID := globalCfg.User.UserID
+	finalUsername := globalCfg.User.Username
+	if finalUserID == "" || finalUsername == "" {
+		return fmt.Errorf("user not logged in. Please run 'puda login' first")
 	}
-	if protocolFile.Username == "" {
-		return fmt.Errorf("username is required in the protocol file")
-	}
-
-	finalUserID := protocolFile.UserID
-	finalUsername := protocolFile.Username
 
 	// Insert run into database
 	runID := uuid.New().String()
