@@ -49,6 +49,14 @@ class ImmediateCommand(str, Enum):
     RESET = 'reset'
 
 
+class MachineState(str, Enum):
+    """Machine state values persisted to the machine state KV store."""
+    IDLE = 'idle'
+    BUSY = 'busy'
+    ERROR = 'error'
+    OFFLINE = 'offline'
+
+
 def _get_current_timestamp() -> str:
     """Get current timestamp in ISO 8601 UTC format."""
     return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')

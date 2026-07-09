@@ -19,6 +19,7 @@ from .models import (
     CommandResponse,
     CommandResponseStatus,
     CommandResponseCode,
+    MachineState,
     NATSMessage,
 )
 
@@ -134,6 +135,8 @@ class EdgeRunner:
         await self._setup_subscriptions()
         # publish commands to KV store (only need to do this once on startup)
         await self._publish_commands()
+        # publish initial state so CLI state lookups work before the first command
+        await self._publish_state(MachineState.IDLE)
         try:
             await self._run_main_loop()
         finally:
@@ -143,7 +146,7 @@ class EdgeRunner:
         """Publish offline state, release driver resources, and close NATS."""
         logger.info("Shutting down edge runner...")
         try:
-            await self._publish_state("offline")
+            await self._publish_state(MachineState.OFFLINE)
         except Exception as e:
             logger.warning("Failed to publish offline state: %s", e)
         await self._driver_shutdown()
@@ -188,7 +191,7 @@ class EdgeRunner:
             if await self.nats_client.connect():
                 await self._setup_subscriptions()
                 logger.info("Reconnected and re-subscribed")
-                await self._publish_state("idle")
+                await self._publish_state(MachineState.IDLE)
                 return True
             logger.error("Reconnection failed, retrying in 5 seconds...")
             await asyncio.sleep(5)
@@ -219,7 +222,7 @@ class EdgeRunner:
                 command_name,
                 run_id,
             )
-            await self._publish_state("error")
+            await self._publish_state(MachineState.ERROR)
             await self.nats_client.publish_log(
                 "ERROR", f"Cannot execute {command_name}: another command is running"
             )
@@ -230,11 +233,11 @@ class EdgeRunner:
             )
 
         try:
-            await self._publish_state("busy", run_id)
+            await self._publish_state(MachineState.BUSY, run_id)
 
             handler, error_response = _validate_handler(self.machine_driver, command_name)
             if error_response is not None:
-                await self._publish_state("error", run_id)
+                await self._publish_state(MachineState.ERROR, run_id)
                 return error_response
 
             task = asyncio.create_task(_execute_handler(handler, params, kwargs))
@@ -250,7 +253,7 @@ class EdgeRunner:
                     message="Command was cancelled",
                 )
 
-            await self._publish_state("idle", run_id)
+            await self._publish_state(MachineState.IDLE, run_id)
             await self.nats_client.publish_log("INFO", f"Command {command_name} completed")
             return CommandResponse(
                 status=CommandResponseStatus.SUCCESS,
@@ -258,7 +261,7 @@ class EdgeRunner:
             )
         except Exception as e:
             logger.error("Execute handler error (recoverable): %s", e, exc_info=True)
-            await self._publish_state("error", run_id)
+            await self._publish_state(MachineState.ERROR, run_id)
             return CommandResponse(
                 status=CommandResponseStatus.ERROR,
                 code=CommandResponseCode.EXECUTION_ERROR,
@@ -302,8 +305,8 @@ class EdgeRunner:
 
     # -- helpers -------------------------------------------------------------
 
-    async def _publish_state(self, state: str, run_id: str | None = None) -> None:
-        payload: dict[str, Any] = {"state": state, "run_id": run_id}
+    async def _publish_state(self, state: MachineState, run_id: str | None = None) -> None:
+        payload: dict[str, Any] = {"state": state.value, "run_id": run_id}
         if self.state_handler is not None:
             payload.update(self.state_handler())
         await self.nats_client.publish_state(payload)
