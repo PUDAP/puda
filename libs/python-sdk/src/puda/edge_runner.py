@@ -111,6 +111,7 @@ class EdgeRunner:
         self.machine_driver = machine_driver
         self.telemetry_handler = telemetry_handler
         self.state_handler = state_handler
+        self.nats_client.set_state_handler(state_handler)
         # Manage command execution state
         self.exec_state = ExecutionState()
         # Self-update service; release driver resources before process exit
@@ -306,9 +307,8 @@ class EdgeRunner:
     # -- helpers -------------------------------------------------------------
 
     async def _publish_state(self, state: MachineState, run_id: str | None = None) -> None:
-        payload: dict[str, Any] = {"state": state.value, "run_id": run_id}
-        if self.state_handler is not None:
-            payload.update(self.state_handler())
+        # only default values here. EdgeNatsClient.publish_state() adds the registered state_handler fields.
+        payload: dict[str, Any] = {"state": state, "run_id": run_id}
         await self.nats_client.publish_state(payload)
         
     async def _publish_commands(self) -> None:

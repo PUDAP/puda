@@ -26,6 +26,7 @@ from .models import (
     CommandRequest,
     MessageType,
     ImmediateCommand,
+    MachineState,
 )
 from .run_manager import RunManager
 
@@ -70,6 +71,7 @@ class EdgeNatsClient:
         self.js: Optional[JetStreamContext] = None
         self.kv_state: Optional[KeyValue] = None
         self.kv_commands: Optional[KeyValue] = None
+        self.state_handler: Optional[Callable[[], Dict[str, Any]]] = None
         
         # Generate subject and stream names
         self._init_subjects()
@@ -90,6 +92,10 @@ class EdgeNatsClient:
         
         # Run state management
         self.run_manager = RunManager(machine_id=machine_id)
+
+    def set_state_handler(self, state_handler: Callable[[], Dict[str, Any]] | None) -> None:
+        """Set optional machine-specific state fields to include in KV state updates."""
+        self.state_handler = state_handler
     
     def _init_subjects(self):
         """Initialize all subject and stream names."""
@@ -366,6 +372,10 @@ class EdgeNatsClient:
         
         try:
             message = {'timestamp': self._format_timestamp(), **data}
+            if self.state_handler is not None:
+                message.update(self.state_handler())
+            if isinstance(message.get('state'), MachineState):
+                message['state'] = message['state'].value
             await self.kv_state.put(self.machine_id, json.dumps(message).encode())
             logger.info("Updated state in KV store: %s", message)
         except Exception as e:
@@ -642,7 +652,7 @@ class EdgeNatsClient:
                                 message=f'cannot start, {self.run_manager.get_active_run_id()} is currently running'
                             )
                         else:
-                            await self.publish_state({'state': 'active', 'run_id': run_id})
+                            await self.publish_state({'state': MachineState.IDLE, 'run_id': run_id})
                             response = CommandResponse(status=CommandResponseStatus.SUCCESS)
                     else:
                         response = CommandResponse(
@@ -661,7 +671,7 @@ class EdgeNatsClient:
                     else:
                         success = await self.run_manager.complete_run(run_id)
                         if success:
-                            await self.publish_state({'state': 'idle', 'run_id': None})
+                            await self.publish_state({'state': MachineState.IDLE, 'run_id': None})
                             response = CommandResponse(status=CommandResponseStatus.SUCCESS)
                         else:
                             response = CommandResponse(
@@ -675,7 +685,7 @@ class EdgeNatsClient:
                         if not self._is_paused:
                             self._is_paused = True
                             logger.info("Queue paused")
-                            await self.publish_state({'state': 'paused', 'run_id': message.header.run_id})
+                            await self.publish_state({'state': MachineState.PAUSED, 'run_id': message.header.run_id})
                     # Call handler and use its response
                     response = await handler(message)
                 
@@ -684,7 +694,7 @@ class EdgeNatsClient:
                         if self._is_paused:
                             self._is_paused = False
                             logger.info("Queue resumed")
-                            await self.publish_state({'state': 'idle', 'run_id': None})
+                            await self.publish_state({'state': MachineState.IDLE, 'run_id': None})
                     # Call handler and use its response
                     response = await handler(message)
                 
@@ -693,10 +703,10 @@ class EdgeNatsClient:
                     logger.info("Resetting machine")
                     response = await handler(message)
                     if response.status == CommandResponseStatus.SUCCESS:
-                        await self.publish_state({'state': 'idle', 'run_id': None})
+                        await self.publish_state({'state': MachineState.IDLE, 'run_id': None})
                         logger.info("Machine reset")
                     else:
-                        await self.publish_state({'state': 'error', 'run_id': None})
+                        await self.publish_state({'state': MachineState.ERROR, 'run_id': None})
                         logger.error("Machine reset failed: %s", response.message)
                 
                 case ImmediateCommand.CANCEL:
@@ -710,7 +720,7 @@ class EdgeNatsClient:
                         logger.info("Cancelling all commands with run_id: %s", run_id)
                         # Clear the active run_id when cancelling (try to complete, but clear anyway)
                         await self.run_manager.complete_run(run_id)
-                        await self.publish_state({'state': 'idle', 'run_id': None})
+                        await self.publish_state({'state': MachineState.IDLE, 'run_id': None})
                         # Call handler and use its response
                         response = await handler(message)
                 
@@ -740,7 +750,7 @@ class EdgeNatsClient:
                     ),
                 subject=self.response_immediate
             )
-            await self.publish_state({'state': 'error', 'run_id': None})
+            await self.publish_state({'state': MachineState.ERROR, 'run_id': None})
         
         except Exception as e:
             # msg.ack() was already called, so we just publish error response
@@ -754,7 +764,7 @@ class EdgeNatsClient:
                 ),
                 subject=self.response_immediate
             )
-            await self.publish_state({'state': 'error', 'run_id': None})
+            await self.publish_state({'state': MachineState.ERROR, 'run_id': None})
     
     async def _verify_or_recreate_consumer(self, durable_name: str):
         """

@@ -51,9 +51,15 @@ class ImmediateCommand(str, Enum):
 
 class MachineState(str, Enum):
     """Machine state values persisted to the machine state KV store."""
+    # No queued command is executing; run_id may be set when a run has started.
     IDLE = 'idle'
+    # A queued command is currently executing.
     BUSY = 'busy'
+    # The queue is paused and will not start queued commands until resumed.
+    PAUSED = 'paused'
+    # The last state transition or command failed.
     ERROR = 'error'
+    # The edge is shutting down or disconnected cleanly.
     OFFLINE = 'offline'
 
 
