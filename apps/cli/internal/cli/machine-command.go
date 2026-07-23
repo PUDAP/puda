@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +22,9 @@ var errMachineOffline = errors.New("offline or does not exist")
 
 var machineStartRunID string
 var machineCompleteRunID string
+var machineRunID string
+var machineRunParams string
+var machineRunKwargs string
 
 var machinePauseCmd = newImmediateMachineCommand(immediateMachineCommandConfig{
 	name:   "pause",
@@ -59,14 +63,55 @@ var machineCompleteCmd = newImmediateMachineCommand(immediateMachineCommandConfi
 	runIDFlag: &machineCompleteRunID,
 })
 
+var machineRunCmd = &cobra.Command{
+	Use:   "run <machine_id> <command_name> [params_json]",
+	Short: "Run a single machine command",
+	Long: `Run one command through the machine queue without sending START or COMPLETE.
+Use --run-id to associate the command with an existing run; if it is omitted, a
+new UUIDv4 run ID is generated.
+
+Pass command parameters as a JSON object, either as the optional argument or
+with --params. Use --kwargs for protocol kwargs when required.
+
+Examples:
+  puda machine run first move_electrode '{"deck_slot":"A2","well_name":"A1"}'
+  puda machine run biologic CV --params '{"voltage_min":-0.1,"voltage_max":0.1,"cycles":1}' --kwargs '{"channels":[0]}'`,
+	Args: cobra.RangeArgs(2, 3),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		paramsJSON := machineRunParams
+		if len(args) == 3 {
+			if strings.TrimSpace(paramsJSON) != "" {
+				return fmt.Errorf("provide parameters as either [params_json] or --params, not both")
+			}
+			paramsJSON = args[2]
+		}
+
+		params, err := parseMachineRunObject("params", paramsJSON)
+		if err != nil {
+			return err
+		}
+		kwargs, err := parseMachineRunObject("kwargs", machineRunKwargs)
+		if err != nil {
+			return err
+		}
+
+		runID := resolveRunID(machineRunID)
+		return runSingleMachineCommand(args[0], args[1], params, kwargs, runID)
+	},
+}
+
 func init() {
 	machineStartCmd.Flags().StringVar(&machineStartRunID, "run-id", "", "Run ID (default: random UUIDv4)")
 	machineCompleteCmd.Flags().StringVar(&machineCompleteRunID, "run-id", "", "Run ID (default: random UUIDv4)")
+	machineRunCmd.Flags().StringVar(&machineRunID, "run-id", "", "Optional run ID (default: random UUIDv4)")
+	machineRunCmd.Flags().StringVar(&machineRunParams, "params", "", "Command parameters as a JSON object")
+	machineRunCmd.Flags().StringVar(&machineRunKwargs, "kwargs", "", "Command keyword arguments as a JSON object")
 	machineCmd.AddCommand(machinePauseCmd)
 	machineCmd.AddCommand(machineResumeCmd)
 	machineCmd.AddCommand(machineResetCmd)
 	machineCmd.AddCommand(machineStartCmd)
 	machineCmd.AddCommand(machineCompleteCmd)
+	machineCmd.AddCommand(machineRunCmd)
 }
 
 func resolveRunID(runID string) string {
@@ -97,6 +142,79 @@ func parseMachineIDs(args []string) []string {
 		}
 	}
 	return ids
+}
+
+func parseMachineRunObject(field, value string) (map[string]interface{}, error) {
+	if strings.TrimSpace(value) == "" {
+		return make(map[string]interface{}), nil
+	}
+
+	var object map[string]interface{}
+	if err := json.Unmarshal([]byte(value), &object); err != nil {
+		return nil, fmt.Errorf("%s must be a valid JSON object: %w", field, err)
+	}
+	if object == nil {
+		return nil, fmt.Errorf("%s must be a JSON object, not null", field)
+	}
+	return object, nil
+}
+
+func runSingleMachineCommand(machineID, commandName string, params, kwargs map[string]interface{}, runID string) error {
+	globalConfig, err := puda.LoadGlobalConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
+	}
+	userID := globalConfig.User.UserID
+	username := globalConfig.User.Username
+	if userID == "" || username == "" {
+		return fmt.Errorf("user not logged in. Please run 'puda login' first")
+	}
+
+	nc, err := connectMachineNATS()
+	if err != nil {
+		return err
+	}
+	defer nc.Close()
+
+	store, err := db.Connect()
+	if err != nil {
+		store = nil
+	} else {
+		defer store.Disconnect()
+		if err := store.InsertRun(runID, nil); err != nil {
+			return fmt.Errorf("failed to create run for command: %w", err)
+		}
+	}
+
+	js, err := nc.JetStream()
+	if err != nil {
+		return fmt.Errorf("failed to get JetStream context: %w", err)
+	}
+
+	dispatcher := pudanats.NewResponseDispatcher(js, userID)
+	if err := dispatcher.Start(); err != nil {
+		return fmt.Errorf("failed to start response dispatcher: %w", err)
+	}
+	defer dispatcher.Close()
+
+	request := puda.CommandRequest{
+		Name:       commandName,
+		Params:     params,
+		Kwargs:     kwargs,
+		StepNumber: 1,
+		Version:    "1.0",
+		MachineID:  machineID,
+	}
+	response, err := pudanats.SendQueueCommand(js, dispatcher, request, runID, userID, username, store)
+	if err != nil {
+		return fmt.Errorf("%s command failed: %w", commandName, err)
+	}
+	if err := queueCommandResponseError(response); err != nil {
+		return fmt.Errorf("%s command failed: %w", commandName, err)
+	}
+
+	fmt.Fprintf(os.Stdout, "%s: %s command completed successfully\n", machineID, commandName)
+	return nil
 }
 
 func newImmediateMachineCommand(config immediateMachineCommandConfig) *cobra.Command {
@@ -265,6 +383,13 @@ func immediateCommandResponseError(response *puda.NATSMessage) error {
 		return errors.New("unknown error")
 	}
 	return errors.New(*response.Response.Message)
+}
+
+func queueCommandResponseError(response *puda.NATSMessage) error {
+	if response == nil || response.Response == nil {
+		return errors.New("command returned no response data")
+	}
+	return immediateCommandResponseError(response)
 }
 
 func splitImmediateCommandTargets(machineIDs []string, onlineMachines map[string]struct{}) ([]string, []string) {

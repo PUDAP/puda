@@ -65,6 +65,58 @@ func TestResolveRunIDGeneratesUUID(t *testing.T) {
 	}
 }
 
+func TestParseMachineRunObject(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  map[string]interface{}
+		err   string
+	}{
+		{
+			name: "empty value produces an empty object",
+			want: map[string]interface{}{},
+		},
+		{
+			name:  "parses JSON values without converting their types",
+			value: `{"slot":"A2","volume":12.5,"enabled":true,"channels":[0,1]}`,
+			want: map[string]interface{}{
+				"slot":     "A2",
+				"volume":   12.5,
+				"enabled":  true,
+				"channels": []interface{}{float64(0), float64(1)},
+			},
+		},
+		{
+			name:  "rejects non objects",
+			value: `["A2"]`,
+			err:   "params must be a valid JSON object",
+		},
+		{
+			name:  "rejects null",
+			value: `null`,
+			err:   "params must be a JSON object, not null",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseMachineRunObject("params", tt.value)
+			if tt.err != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.err) {
+					t.Fatalf("parseMachineRunObject() error = %v, want containing %q", err, tt.err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseMachineRunObject() error = %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("parseMachineRunObject() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNewImmediateMachineCommand(t *testing.T) {
 	runID := ""
 	cmd := newImmediateMachineCommand(immediateMachineCommandConfig{
@@ -82,6 +134,21 @@ func TestNewImmediateMachineCommand(t *testing.T) {
 	}
 	if !strings.Contains(cmd.Long, "Use --run-id") {
 		t.Fatalf("Long = %q, want run ID documentation", cmd.Long)
+	}
+}
+
+func TestMachineRunCommand(t *testing.T) {
+	if got, want := machineRunCmd.Use, "run <machine_id> <command_name> [params_json]"; got != want {
+		t.Fatalf("Use = %q, want %q", got, want)
+	}
+	if !strings.Contains(machineRunCmd.Long, "without sending START or COMPLETE") {
+		t.Fatalf("Long = %q, want direct queue documentation", machineRunCmd.Long)
+	}
+	if machineRunCmd.Flags().Lookup("params") == nil {
+		t.Fatal("expected --params flag")
+	}
+	if machineRunCmd.Flags().Lookup("kwargs") == nil {
+		t.Fatal("expected --kwargs flag")
 	}
 }
 
@@ -126,5 +193,16 @@ func TestImmediateCommandResponseError(t *testing.T) {
 				t.Fatalf("immediateCommandResponseError() = %v, want %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestQueueCommandResponseError(t *testing.T) {
+	if err := queueCommandResponseError(nil); err == nil || err.Error() != "command returned no response data" {
+		t.Fatalf("queueCommandResponseError(nil) = %v, want missing response error", err)
+	}
+
+	response := &puda.NATSMessage{Response: &puda.CommandResponse{Status: puda.StatusSuccess}}
+	if err := queueCommandResponseError(response); err != nil {
+		t.Fatalf("queueCommandResponseError(success) = %v, want nil", err)
 	}
 }
