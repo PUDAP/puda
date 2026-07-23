@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/PUDAP/puda/apps/cli/internal/puda"
 )
 
 func TestSplitImmediateCommandTargets(t *testing.T) {
@@ -59,5 +62,69 @@ func TestResolveRunIDGeneratesUUID(t *testing.T) {
 	}
 	if len(got) != 36 {
 		t.Fatalf("resolveRunID = %q, want uuidv4 length 36", got)
+	}
+}
+
+func TestNewImmediateMachineCommand(t *testing.T) {
+	runID := ""
+	cmd := newImmediateMachineCommand(immediateMachineCommandConfig{
+		name:      "start",
+		short:     "Start a run on one or more machines",
+		label:     "Start",
+		runIDFlag: &runID,
+	})
+
+	if got, want := cmd.Use, "start <machine_ids>"; got != want {
+		t.Fatalf("Use = %q, want %q", got, want)
+	}
+	if !strings.Contains(cmd.Long, "puda machine start biologic,first") {
+		t.Fatalf("Long = %q, want machine ID example", cmd.Long)
+	}
+	if !strings.Contains(cmd.Long, "Use --run-id") {
+		t.Fatalf("Long = %q, want run ID documentation", cmd.Long)
+	}
+}
+
+func TestImmediateCommandResponseError(t *testing.T) {
+	message := "machine is busy"
+	tests := []struct {
+		name     string
+		response *puda.NATSMessage
+		want     string
+	}{
+		{name: "no response"},
+		{
+			name: "successful response",
+			response: &puda.NATSMessage{Response: &puda.CommandResponse{
+				Status: puda.StatusSuccess,
+			}},
+		},
+		{
+			name: "error response without message",
+			response: &puda.NATSMessage{Response: &puda.CommandResponse{
+				Status: puda.StatusError,
+			}},
+			want: "unknown error",
+		},
+		{
+			name: "error response with message",
+			response: &puda.NATSMessage{Response: &puda.CommandResponse{
+				Status:  puda.StatusError,
+				Message: &message,
+			}},
+			want: message,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := immediateCommandResponseError(tt.response)
+			if tt.want == "" && err != nil {
+				t.Fatalf("immediateCommandResponseError() = %v, want nil", err)
+			}
+			if tt.want != "" && (err == nil || err.Error() != tt.want) {
+				t.Fatalf("immediateCommandResponseError() = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }

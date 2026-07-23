@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,71 +17,47 @@ import (
 
 const immediateCommandTimeoutSeconds = 5
 
+var errMachineOffline = errors.New("offline or does not exist")
+
 var machineStartRunID string
 var machineCompleteRunID string
 
-var machinePauseCmd = &cobra.Command{
-	Use:   "pause <machine_ids>",
-	Short: "Pause one or more machines",
-	Long: `Send pause immediate command to one or more machines.
-Machine IDs can be comma-separated, e.g. puda machine pause biologic,first`,
-	Args: cobra.MinimumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return runImmediateCommandForMachines(parseMachineIDs(args), "Pause", "", pudanats.SendPauseCommand)
-	},
-}
+var machinePauseCmd = newImmediateMachineCommand(immediateMachineCommandConfig{
+	name:   "pause",
+	short:  "Pause one or more machines",
+	label:  "Pause",
+	sender: pudanats.SendPauseCommand,
+})
 
-var machineResumeCmd = &cobra.Command{
-	Use:   "resume <machine_ids>",
-	Short: "Resume one or more machines",
-	Long: `Send resume immediate command to one or more machines.
-Machine IDs can be comma-separated, e.g. puda machine resume biologic,first`,
-	Args: cobra.MinimumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return runImmediateCommandForMachines(parseMachineIDs(args), "Resume", "", pudanats.SendResumeCommand)
-	},
-}
+var machineResumeCmd = newImmediateMachineCommand(immediateMachineCommandConfig{
+	name:   "resume",
+	short:  "Resume one or more machines",
+	label:  "Resume",
+	sender: pudanats.SendResumeCommand,
+})
 
-var machineResetCmd = &cobra.Command{
-	Use:   "reset <machine_ids>",
-	Short: "Reset one or more machines",
-	Long: `Send reset immediate command to one or more machines.
-Machine IDs can be comma-separated, e.g. puda machine reset biologic,first`,
-	Args: cobra.MinimumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return runImmediateCommandForMachines(parseMachineIDs(args), "Reset", "", pudanats.SendResetCommand)
-	},
-}
+var machineResetCmd = newImmediateMachineCommand(immediateMachineCommandConfig{
+	name:   "reset",
+	short:  "Reset one or more machines",
+	label:  "Reset",
+	sender: pudanats.SendResetCommand,
+})
 
-var machineStartCmd = &cobra.Command{
-	Use:   "start <machine_ids>",
-	Short: "Start a run on one or more machines",
-	Long: `Send start immediate command to one or more machines.
-Machine IDs can be comma-separated, e.g. puda machine start biologic,first
+var machineStartCmd = newImmediateMachineCommand(immediateMachineCommandConfig{
+	name:      "start",
+	short:     "Start a run on one or more machines",
+	label:     "Start",
+	sender:    pudanats.SendStartCommand,
+	runIDFlag: &machineStartRunID,
+})
 
-Use --run-id to set the run ID. If omitted, a random UUIDv4 is generated.`,
-	Args: cobra.MinimumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		runID := resolveRunID(machineStartRunID)
-		fmt.Printf("Run ID: %s\n", runID)
-		return runImmediateCommandForMachines(parseMachineIDs(args), "Start", runID, pudanats.SendStartCommand)
-	},
-}
-
-var machineCompleteCmd = &cobra.Command{
-	Use:   "complete <machine_ids>",
-	Short: "Complete a run on one or more machines",
-	Long: `Send complete immediate command to one or more machines.
-Machine IDs can be comma-separated, e.g. puda machine complete biologic,first
-
-Use --run-id to set the run ID. If omitted, a random UUIDv4 is generated.`,
-	Args: cobra.MinimumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		runID := resolveRunID(machineCompleteRunID)
-		fmt.Printf("Run ID: %s\n", runID)
-		return runImmediateCommandForMachines(parseMachineIDs(args), "Complete", runID, sendCompleteCommand)
-	},
-}
+var machineCompleteCmd = newImmediateMachineCommand(immediateMachineCommandConfig{
+	name:      "complete",
+	short:     "Complete a run on one or more machines",
+	label:     "Complete",
+	sender:    sendCompleteCommand,
+	runIDFlag: &machineCompleteRunID,
+})
 
 func init() {
 	machineStartCmd.Flags().StringVar(&machineStartRunID, "run-id", "", "Run ID (default: random UUIDv4)")
@@ -122,13 +99,29 @@ func parseMachineIDs(args []string) []string {
 	return ids
 }
 
-type immediateCommandSender func(
-	js nats.JetStreamContext,
-	dispatcher *pudanats.ResponseDispatcher,
-	machineID, runID, userID, username string,
-	timeoutSeconds int,
-	store *db.Store,
-) (*puda.NATSMessage, error)
+func newImmediateMachineCommand(config immediateMachineCommandConfig) *cobra.Command {
+	commandName := strings.ToLower(config.label)
+	long := fmt.Sprintf(`Send %s immediate command to one or more machines.
+Machine IDs can be comma-separated, e.g. puda machine %s biologic,first`, commandName, config.name)
+	if config.runIDFlag != nil {
+		long += "\n\nUse --run-id to set the run ID. If omitted, a random UUIDv4 is generated."
+	}
+
+	return &cobra.Command{
+		Use:   config.name + " <machine_ids>",
+		Short: config.short,
+		Long:  long,
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runID := ""
+			if config.runIDFlag != nil {
+				runID = resolveRunID(*config.runIDFlag)
+				fmt.Printf("Run ID: %s\n", runID)
+			}
+			return runImmediateCommandForMachines(parseMachineIDs(args), config.label, runID, config.sender)
+		},
+	}
+}
 
 func runImmediateCommandForMachines(
 	machineIDs []string,
@@ -146,43 +139,43 @@ func runImmediateCommandForMachines(
 	}
 	defer nc.Close()
 
-	onlineMachines, err := pudanats.ListMachines(nc, heartbeatTimeout)
+	listedMachines, err := pudanats.ListMachines(nc, heartbeatTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to list online machines: %w", err)
 	}
+	onlineMachines := machineIDSet(listedMachines)
 
-	onlineMachineSet := machineIDSet(onlineMachines)
-	onlineMachineIDs, offlineMachineIDs := splitImmediateCommandTargets(machineIDs, onlineMachineSet)
+	onlineMachineIDs, offlineMachineIDs := splitImmediateCommandTargets(machineIDs, onlineMachines)
 	if len(onlineMachineIDs) == 0 {
 		for _, machineID := range machineIDs {
-			writeImmediateCommandResult(os.Stdout, commandLabel, machineID, fmt.Errorf("offline or does not exist"))
+			writeImmediateCommandResult(os.Stdout, commandLabel, machineID, errMachineOffline)
 		}
-		return fmt.Errorf("%s command failed for %d machine(s)", strings.ToLower(commandLabel), len(machineIDs))
+		return immediateCommandFailure(commandLabel, len(machineIDs))
 	}
 
 	pendingOnlineMachineIDs := make([]string, 0, len(onlineMachineIDs))
 	for _, machineID := range machineIDs {
-		if _, found := onlineMachineSet[machineID]; found {
+		if _, found := onlineMachines[machineID]; found {
 			pendingOnlineMachineIDs = append(pendingOnlineMachineIDs, machineID)
 			continue
 		}
-		if err := flushImmediateCommandTargets(pendingOnlineMachineIDs, commandLabel, runID, send); err != nil {
+		if err := sendImmediateCommandBatch(pendingOnlineMachineIDs, commandLabel, runID, send); err != nil {
 			return err
 		}
 		pendingOnlineMachineIDs = pendingOnlineMachineIDs[:0]
-		writeImmediateCommandResult(os.Stdout, commandLabel, machineID, fmt.Errorf("offline or does not exist"))
+		writeImmediateCommandResult(os.Stdout, commandLabel, machineID, errMachineOffline)
 	}
-	if err := flushImmediateCommandTargets(pendingOnlineMachineIDs, commandLabel, runID, send); err != nil {
+	if err := sendImmediateCommandBatch(pendingOnlineMachineIDs, commandLabel, runID, send); err != nil {
 		return err
 	}
 
 	if len(offlineMachineIDs) > 0 {
-		return fmt.Errorf("%s command failed for %d machine(s)", strings.ToLower(commandLabel), len(offlineMachineIDs))
+		return immediateCommandFailure(commandLabel, len(offlineMachineIDs))
 	}
 	return nil
 }
 
-func flushImmediateCommandTargets(
+func sendImmediateCommandBatch(
 	machineIDs []string,
 	commandLabel string,
 	runID string,
@@ -192,6 +185,10 @@ func flushImmediateCommandTargets(
 		return nil
 	}
 	return sendImmediateCommandToMachines(machineIDs, commandLabel, runID, send)
+}
+
+func immediateCommandFailure(commandLabel string, failedCount int) error {
+	return fmt.Errorf("%s command failed for %d machine(s)", strings.ToLower(commandLabel), failedCount)
 }
 
 func sendImmediateCommandToMachines(
@@ -246,22 +243,28 @@ func sendImmediateCommandToMachines(
 			writeImmediateCommandResult(os.Stdout, commandLabel, machineID, err)
 			continue
 		}
-		if response.Response != nil && response.Response.Status == puda.StatusError {
-			msg := "unknown error"
-			if response.Response.Message != nil {
-				msg = *response.Response.Message
-			}
+		if err := immediateCommandResponseError(response); err != nil {
 			failedCount++
-			writeImmediateCommandResult(os.Stdout, commandLabel, machineID, fmt.Errorf("%s", msg))
+			writeImmediateCommandResult(os.Stdout, commandLabel, machineID, err)
 			continue
 		}
 		writeImmediateCommandResult(os.Stdout, commandLabel, machineID, nil)
 	}
 
 	if failedCount > 0 {
-		return fmt.Errorf("%s command failed for %d machine(s)", strings.ToLower(commandLabel), failedCount)
+		return immediateCommandFailure(commandLabel, failedCount)
 	}
 	return nil
+}
+
+func immediateCommandResponseError(response *puda.NATSMessage) error {
+	if response == nil || response.Response == nil || response.Response.Status != puda.StatusError {
+		return nil
+	}
+	if response.Response.Message == nil {
+		return errors.New("unknown error")
+	}
+	return errors.New(*response.Response.Message)
 }
 
 func splitImmediateCommandTargets(machineIDs []string, onlineMachines map[string]struct{}) ([]string, []string) {
