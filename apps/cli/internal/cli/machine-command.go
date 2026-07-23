@@ -9,11 +9,15 @@ import (
 	"github.com/PUDAP/puda/apps/cli/internal/db"
 	pudanats "github.com/PUDAP/puda/apps/cli/internal/nats"
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
+	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/spf13/cobra"
 )
 
 const immediateCommandTimeoutSeconds = 5
+
+var machineStartRunID string
+var machineCompleteRunID string
 
 var machinePauseCmd = &cobra.Command{
 	Use:   "pause <machine_ids>",
@@ -22,7 +26,7 @@ var machinePauseCmd = &cobra.Command{
 Machine IDs can be comma-separated, e.g. puda machine pause biologic,first`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runImmediateCommandForMachines(parseMachineIDs(args), "Pause", pudanats.SendPauseCommand)
+		return runImmediateCommandForMachines(parseMachineIDs(args), "Pause", "", pudanats.SendPauseCommand)
 	},
 }
 
@@ -33,7 +37,7 @@ var machineResumeCmd = &cobra.Command{
 Machine IDs can be comma-separated, e.g. puda machine resume biologic,first`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runImmediateCommandForMachines(parseMachineIDs(args), "Resume", pudanats.SendResumeCommand)
+		return runImmediateCommandForMachines(parseMachineIDs(args), "Resume", "", pudanats.SendResumeCommand)
 	},
 }
 
@@ -44,14 +48,65 @@ var machineResetCmd = &cobra.Command{
 Machine IDs can be comma-separated, e.g. puda machine reset biologic,first`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runImmediateCommandForMachines(parseMachineIDs(args), "Reset", pudanats.SendResetCommand)
+		return runImmediateCommandForMachines(parseMachineIDs(args), "Reset", "", pudanats.SendResetCommand)
+	},
+}
+
+var machineStartCmd = &cobra.Command{
+	Use:   "start <machine_ids>",
+	Short: "Start a run on one or more machines",
+	Long: `Send start immediate command to one or more machines.
+Machine IDs can be comma-separated, e.g. puda machine start biologic,first
+
+Use --run-id to set the run ID. If omitted, a random UUIDv4 is generated.`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		runID := resolveRunID(machineStartRunID)
+		fmt.Printf("Run ID: %s\n", runID)
+		return runImmediateCommandForMachines(parseMachineIDs(args), "Start", runID, pudanats.SendStartCommand)
+	},
+}
+
+var machineCompleteCmd = &cobra.Command{
+	Use:   "complete <machine_ids>",
+	Short: "Complete a run on one or more machines",
+	Long: `Send complete immediate command to one or more machines.
+Machine IDs can be comma-separated, e.g. puda machine complete biologic,first
+
+Use --run-id to set the run ID. If omitted, a random UUIDv4 is generated.`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		runID := resolveRunID(machineCompleteRunID)
+		fmt.Printf("Run ID: %s\n", runID)
+		return runImmediateCommandForMachines(parseMachineIDs(args), "Complete", runID, sendCompleteCommand)
 	},
 }
 
 func init() {
+	machineStartCmd.Flags().StringVar(&machineStartRunID, "run-id", "", "Run ID (default: random UUIDv4)")
+	machineCompleteCmd.Flags().StringVar(&machineCompleteRunID, "run-id", "", "Run ID (default: random UUIDv4)")
 	machineCmd.AddCommand(machinePauseCmd)
 	machineCmd.AddCommand(machineResumeCmd)
 	machineCmd.AddCommand(machineResetCmd)
+	machineCmd.AddCommand(machineStartCmd)
+	machineCmd.AddCommand(machineCompleteCmd)
+}
+
+func resolveRunID(runID string) string {
+	if runID != "" {
+		return runID
+	}
+	return uuid.New().String()
+}
+
+func sendCompleteCommand(
+	js nats.JetStreamContext,
+	dispatcher *pudanats.ResponseDispatcher,
+	machineID, runID, userID, username string,
+	timeoutSeconds int,
+	store *db.Store,
+) (*puda.NATSMessage, error) {
+	return pudanats.SendCompleteCommand(js, dispatcher, machineID, runID, userID, username, timeoutSeconds, 0, store)
 }
 
 func parseMachineIDs(args []string) []string {
@@ -78,6 +133,7 @@ type immediateCommandSender func(
 func runImmediateCommandForMachines(
 	machineIDs []string,
 	commandLabel string,
+	runID string,
 	send immediateCommandSender,
 ) error {
 	if len(machineIDs) == 0 {
@@ -110,13 +166,13 @@ func runImmediateCommandForMachines(
 			pendingOnlineMachineIDs = append(pendingOnlineMachineIDs, machineID)
 			continue
 		}
-		if err := flushImmediateCommandTargets(pendingOnlineMachineIDs, commandLabel, send); err != nil {
+		if err := flushImmediateCommandTargets(pendingOnlineMachineIDs, commandLabel, runID, send); err != nil {
 			return err
 		}
 		pendingOnlineMachineIDs = pendingOnlineMachineIDs[:0]
 		writeImmediateCommandResult(os.Stdout, commandLabel, machineID, fmt.Errorf("offline or does not exist"))
 	}
-	if err := flushImmediateCommandTargets(pendingOnlineMachineIDs, commandLabel, send); err != nil {
+	if err := flushImmediateCommandTargets(pendingOnlineMachineIDs, commandLabel, runID, send); err != nil {
 		return err
 	}
 
@@ -129,17 +185,19 @@ func runImmediateCommandForMachines(
 func flushImmediateCommandTargets(
 	machineIDs []string,
 	commandLabel string,
+	runID string,
 	send immediateCommandSender,
 ) error {
 	if len(machineIDs) == 0 {
 		return nil
 	}
-	return sendImmediateCommandToMachines(machineIDs, commandLabel, send)
+	return sendImmediateCommandToMachines(machineIDs, commandLabel, runID, send)
 }
 
 func sendImmediateCommandToMachines(
 	machineIDs []string,
 	commandLabel string,
+	runID string,
 	send immediateCommandSender,
 ) error {
 	if len(machineIDs) == 0 {
@@ -182,7 +240,7 @@ func sendImmediateCommandToMachines(
 
 	failedCount := 0
 	for _, machineID := range machineIDs {
-		response, err := send(js, dispatcher, machineID, "", userID, username, immediateCommandTimeoutSeconds, store)
+		response, err := send(js, dispatcher, machineID, runID, userID, username, immediateCommandTimeoutSeconds, store)
 		if err != nil {
 			failedCount++
 			writeImmediateCommandResult(os.Stdout, commandLabel, machineID, err)

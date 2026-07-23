@@ -44,3 +44,20 @@ func TestWriteImmediateCommandResultFailure(t *testing.T) {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
 }
+
+func TestResolveRunIDUsesProvided(t *testing.T) {
+	got := resolveRunID("custom-run-id")
+	if got != "custom-run-id" {
+		t.Fatalf("resolveRunID = %q, want %q", got, "custom-run-id")
+	}
+}
+
+func TestResolveRunIDGeneratesUUID(t *testing.T) {
+	got := resolveRunID("")
+	if got == "" {
+		t.Fatal("resolveRunID returned empty string")
+	}
+	if len(got) != 36 {
+		t.Fatalf("resolveRunID = %q, want uuidv4 length 36", got)
+	}
+}
