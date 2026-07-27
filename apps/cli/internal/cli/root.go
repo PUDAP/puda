@@ -101,6 +101,13 @@ var rootCmd = &cobra.Command{
 	SilenceErrors: true,
 	SilenceUsage:  true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// The `update` command already performs its own fresh version check
+		// and prints its own result, so skip the background notifier to
+		// avoid printing a stale "update available" notice right after the
+		// update has just been applied.
+		if cmd.Name() == "update" {
+			return
+		}
 		update.CheckForUpdateInBackground(Version, &notifyWg, &noticeOutput)
 	},
 	Run: func(cmd *cobra.Command, args []string) {
