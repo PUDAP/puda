@@ -1,0 +1,7 @@
+{
+  "name": "RESPONSE_QUEUE",
+  "subjects": ["puda.*.cmd.response.queue"],
+  "retention": "interest",
+  "storage": "file",
+  "description": "Responses to queued commands (Interest retention)"
+}

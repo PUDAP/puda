@@ -1,0 +1,7 @@
+{
+  "name": "RESPONSE_IMMEDIATE",
+  "subjects": ["puda.*.cmd.response.immediate"],
+  "retention": "interest",
+  "storage": "file",
+  "description": "Responses to immediate commands (Interest retention)"
+}

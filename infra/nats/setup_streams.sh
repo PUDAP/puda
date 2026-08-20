@@ -1,56 +1,67 @@
 #!/bin/bash
-set -e
+# Apply JetStream streams from streams/*.json (single declarative source of truth).
+#
+# Must stay aligned with:
+#   - libs/python-sdk EdgeNatsClient / CommandService (lowercase puda.* subjects)
+#   - apps/cli ResponseDispatcher (RESPONSE_QUEUE / RESPONSE_IMMEDIATE)
+#
+# Events and telemetry use core NATS only — do not add JetStream streams for them.
+set -euo pipefail
 
-# Configuration
 NATS_URL=${NATS_URL:-"nats://localhost:4222"}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STREAMS_DIR="${STREAMS_DIR:-$SCRIPT_DIR/streams}"
+
+# Legacy streams from an older setup (uppercase PUDA.* / COMMANDS+EVENTS).
+# Safe to remove: they never matched SDK subjects and would only hold dead traffic.
+OBSOLETE_STREAMS=(COMMANDS EVENTS)
+
+if [[ ! -d "$STREAMS_DIR" ]]; then
+  echo "ERROR: streams directory not found: $STREAMS_DIR" >&2
+  exit 1
+fi
+
+shopt -s nullglob
+STREAM_CONFIGS=("$STREAMS_DIR"/*.json)
+if [[ ${#STREAM_CONFIGS[@]} -eq 0 ]]; then
+  echo "ERROR: no stream configs in $STREAMS_DIR" >&2
+  exit 1
+fi
 
 echo "Connecting to NATS at $NATS_URL..."
+echo "Using stream configs in $STREAMS_DIR"
 
-# Function to create or update a stream
-# Usage: ensure_stream NAME "FLAGS"
 ensure_stream() {
-    local NAME=$1
-    local FLAGS=$2
+  local CONFIG=$1
+  local NAME
+  NAME="$(basename "$CONFIG" .json)"
 
-    echo "Configuring stream '$NAME'..."
-
-    # Try to get stream info.
-    # If it fails (exit code 1), the stream doesn't exist -> Create it (add).
-    # If it succeeds (exit code 0), the stream exists -> Update it (edit).
-    if nats stream info "$NAME" -s "$NATS_URL" > /dev/null 2>&1; then
-        echo "  - Stream exists. Updating..."
-        # We use 'eval' to properly expand the quoted string of flags
-        eval nats stream edit "$NAME" $FLAGS -s "$NATS_URL" --force
-    else
-        echo "  - Stream missing. Creating..."
-        eval nats stream add "$NAME" $FLAGS -s "$NATS_URL"
-    fi
-    echo "✅ $NAME configured."
+  echo "Configuring stream '$NAME' from $(basename "$CONFIG")..."
+  if nats stream info "$NAME" -s "$NATS_URL" >/dev/null 2>&1; then
+    echo "  - Stream exists. Updating..."
+    nats stream edit --config "$CONFIG" -s "$NATS_URL" --force
+  else
+    echo "  - Stream missing. Creating..."
+    nats stream add --config "$CONFIG" -s "$NATS_URL"
+  fi
+  echo "✅ $NAME configured."
 }
 
-# 1. COMMANDS Stream (Work Queue)
-# Handles: PUDA.*.cmd.>
-# Retention: WorkQueue (deleted when processed)
-CMD_FLAGS='--subjects "PUDA.*.cmd.>" \
---retention work \
---discard new \
---max-msgs-per-subject 100 \
---storage file \
---description "Global Job Queue for all PUDA machines"'
+remove_obsolete_stream() {
+  local NAME=$1
+  if nats stream info "$NAME" -s "$NATS_URL" >/dev/null 2>&1; then
+    echo "Removing obsolete stream '$NAME' (wrong subjects / superseded)..."
+    nats stream rm "$NAME" -s "$NATS_URL" --force
+    echo "✅ $NAME removed."
+  fi
+}
 
-ensure_stream "COMMANDS" "$CMD_FLAGS"
+for config in "${STREAM_CONFIGS[@]}"; do
+  ensure_stream "$config"
+done
 
-
-# 2. EVENTS Stream (Logs/History)
-# Handles: PUDA.*.evt.>, PUDA.*.cmd.response
-# Retention: Limits (7 days)
-EVT_FLAGS='--subjects "PUDA.*.evt.>" \
---subjects "PUDA.*.cmd.response" \
---retention limits \
---max-age 7d \
---storage file \
---description "Central Event Log for all PUDA machines"'
-
-ensure_stream "EVENTS" "$EVT_FLAGS"
+for name in "${OBSOLETE_STREAMS[@]}"; do
+  remove_obsolete_stream "$name"
+done
 
 echo "🎉 All streams setup successfully."

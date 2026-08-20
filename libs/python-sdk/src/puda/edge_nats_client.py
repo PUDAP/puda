@@ -18,6 +18,13 @@ from nats.js.api import StreamConfig, ConsumerConfig
 from nats.js.errors import NotFoundError, Error as NATSError
 from nats.js.kv import KeyValue
 from nats.aio.msg import Msg
+from .constants import (
+    NAMESPACE,
+    STREAM_COMMAND_QUEUE,
+    STREAM_COMMAND_IMMEDIATE,
+    STREAM_RESPONSE_QUEUE,
+    STREAM_RESPONSE_IMMEDIATE,
+)
 from .models import (
     CommandResponseStatus,
     CommandResponse,
@@ -47,13 +54,7 @@ class EdgeNatsClient:
     - Events: Core NATS (fire-and-forget, no JetStream)
     """
     
-    # Constants
-    NAMESPACE = "puda"
     KEEP_ALIVE_INTERVAL = 25  # seconds
-    STREAM_COMMAND_QUEUE = "COMMAND_QUEUE"
-    STREAM_COMMAND_IMMEDIATE = "COMMAND_IMMEDIATE"
-    STREAM_RESPONSE_QUEUE = "RESPONSE_QUEUE"
-    STREAM_RESPONSE_IMMEDIATE = "RESPONSE_IMMEDIATE"
     
     def __init__(self, servers: list[str], machine_id: str):
         """
@@ -99,30 +100,29 @@ class EdgeNatsClient:
     
     def _init_subjects(self):
         """Initialize all subject and stream names."""
-        namespace = self.NAMESPACE
         machine_id_safe = self.machine_id.replace('.', '-')
         
         # Telemetry subjects (core NATS, no JetStream)
-        self.tlm_heartbeat = f"{namespace}.{machine_id_safe}.tlm.heartbeat"
-        self.tlm_pos = f"{namespace}.{machine_id_safe}.tlm.pos"
-        self.tlm_health = f"{namespace}.{machine_id_safe}.tlm.health"
+        self.tlm_heartbeat = f"{NAMESPACE}.{machine_id_safe}.tlm.heartbeat"
+        self.tlm_pos = f"{NAMESPACE}.{machine_id_safe}.tlm.pos"
+        self.tlm_health = f"{NAMESPACE}.{machine_id_safe}.tlm.health"
         
         # Command subjects (JetStream, exactly-once)
-        self.cmd_queue = f"{namespace}.{machine_id_safe}.cmd.queue" # should be pull consumer
-        self.cmd_immediate = f"{namespace}.{machine_id_safe}.cmd.immediate" # push consumer
+        self.cmd_queue = f"{NAMESPACE}.{machine_id_safe}.cmd.queue" # should be pull consumer
+        self.cmd_immediate = f"{NAMESPACE}.{machine_id_safe}.cmd.immediate" # push consumer
         
         # Response subjects (JetStream streams)
-        self.response_queue = f"{namespace}.{machine_id_safe}.cmd.response.queue"
-        self.response_immediate = f"{namespace}.{machine_id_safe}.cmd.response.immediate"
+        self.response_queue = f"{NAMESPACE}.{machine_id_safe}.cmd.response.queue"
+        self.response_immediate = f"{NAMESPACE}.{machine_id_safe}.cmd.response.immediate"
         
         # Event subjects (Core NATS, no JetStream)
-        self.evt_log = f"{namespace}.{machine_id_safe}.evt.log"
-        self.evt_alert = f"{namespace}.{machine_id_safe}.evt.alert"
-        self.evt_media = f"{namespace}.{machine_id_safe}.evt.media"
+        self.evt_log = f"{NAMESPACE}.{machine_id_safe}.evt.log"
+        self.evt_alert = f"{NAMESPACE}.{machine_id_safe}.evt.alert"
+        self.evt_media = f"{NAMESPACE}.{machine_id_safe}.evt.media"
         
         # Update subjects (Core NATS, handled by EdgeUpdater)
-        self.update = f"{namespace}.{machine_id_safe}.update"
-        self.update_response = f"{namespace}.{machine_id_safe}.update.response"
+        self.update = f"{NAMESPACE}.{machine_id_safe}.update"
+        self.update_response = f"{NAMESPACE}.{machine_id_safe}.update.response"
         
         # KV bucket name for status
         self.kv_bucket_state = f"MACHINE_STATE_{machine_id_safe}"
@@ -208,24 +208,28 @@ class EdgeNatsClient:
             raise
     
     async def _ensure_all_streams(self):
-        """Ensure all required streams exist with correct retention policies."""
+        """Ensure all required streams exist with correct retention policies.
+
+        Subject patterns and retention must match infra/nats/streams/*.json.
+        Namespace is always lowercase ``puda`` (NATS subjects are case-sensitive).
+        """
         await self._ensure_stream(
-            self.STREAM_COMMAND_QUEUE,
-            f"{self.NAMESPACE}.*.cmd.queue",
+            STREAM_COMMAND_QUEUE,
+            f"{NAMESPACE}.*.cmd.queue",
             retention='workqueue'
         )
         await self._ensure_stream(
-            self.STREAM_COMMAND_IMMEDIATE,
-            f"{self.NAMESPACE}.*.cmd.immediate"
+            STREAM_COMMAND_IMMEDIATE,
+            f"{NAMESPACE}.*.cmd.immediate"
         )
         await self._ensure_stream(
-            self.STREAM_RESPONSE_QUEUE,
-            f"{self.NAMESPACE}.*.cmd.response.queue",
+            STREAM_RESPONSE_QUEUE,
+            f"{NAMESPACE}.*.cmd.response.queue",
             retention='interest'
         )
         await self._ensure_stream(
-            self.STREAM_RESPONSE_IMMEDIATE,
-            f"{self.NAMESPACE}.*.cmd.response.immediate",
+            STREAM_RESPONSE_IMMEDIATE,
+            f"{NAMESPACE}.*.cmd.response.immediate",
             retention='interest'
         )
     
@@ -776,7 +780,7 @@ class EdgeNatsClient:
         """
         # Check if consumer exists and verify/update its configuration
         try:
-            consumer_info = await self.js.consumer_info(self.STREAM_COMMAND_QUEUE, durable_name)
+            consumer_info = await self.js.consumer_info(STREAM_COMMAND_QUEUE, durable_name)
             logger.debug("Durable consumer %s already exists", durable_name)
             
             # Check if consumer config matches what we need
@@ -799,7 +803,7 @@ class EdgeNatsClient:
                 # Consumer exists but config doesn't match - delete and recreate
                 logger.info("Consumer config mismatch, deleting and recreating: %s", durable_name)
                 try:
-                    await self.js.delete_consumer(self.STREAM_COMMAND_QUEUE, durable_name)
+                    await self.js.delete_consumer(STREAM_COMMAND_QUEUE, durable_name)
                 except Exception as e:
                     logger.warning("Error deleting consumer: %s", e)
             else:
@@ -845,20 +849,20 @@ class EdgeNatsClient:
             self._cmd_queue_sub = await self.js.pull_subscribe(
                 subject=self.cmd_queue,
                 durable=durable_name,
-                stream=self.STREAM_COMMAND_QUEUE,
+                stream=STREAM_COMMAND_QUEUE,
                 config=consumer_config
             )
             
             # Log final consumer info for diagnostics
             try:
-                consumer_info = await self.js.consumer_info(self.STREAM_COMMAND_QUEUE, durable_name)
+                consumer_info = await self.js.consumer_info(STREAM_COMMAND_QUEUE, durable_name)
                 logger.info("Pull subscription created - subject: %s, durable: %s, stream: %s, pending: %d, ack_pending: %d",
-                           self.cmd_queue, durable_name, self.STREAM_COMMAND_QUEUE,
+                           self.cmd_queue, durable_name, STREAM_COMMAND_QUEUE,
                            consumer_info.num_pending, consumer_info.num_ack_pending)
             except Exception as e:
                 logger.warning("Could not get consumer info after subscription: %s", e)
                 logger.info("Pull subscription created - subject: %s, durable: %s, stream: %s",
-                           self.cmd_queue, durable_name, self.STREAM_COMMAND_QUEUE)
+                           self.cmd_queue, durable_name, STREAM_COMMAND_QUEUE)
             
             # Start background task to pull and process messages
             async def pull_messages():
@@ -888,21 +892,21 @@ class EdgeNatsClient:
             # Stream still not found after ensuring it exists - this shouldn't happen
             # but handle it gracefully with detailed diagnostics
             logger.error("Stream %s not found when subscribing to %s. This may indicate:", 
-                       self.STREAM_COMMAND_QUEUE, self.cmd_queue)
+                       STREAM_COMMAND_QUEUE, self.cmd_queue)
             logger.error("  1. Stream creation failed silently")
             logger.error("  2. Subject pattern mismatch (stream pattern: %s.*.cmd.queue, subject: %s)", 
-                       self.NAMESPACE, self.cmd_queue)
+                       NAMESPACE, self.cmd_queue)
             logger.error("  3. NATS cluster propagation delay")
             # Try to get stream info one more time for diagnostics
             try:
-                stream_info = await self.js.stream_info(self.STREAM_COMMAND_QUEUE)
+                stream_info = await self.js.stream_info(STREAM_COMMAND_QUEUE)
                 logger.error("  Stream actually exists with subjects: %s", stream_info.config.subjects)
             except Exception as stream_check_error:
                 logger.error("  Stream verification failed: %s", stream_check_error)
             raise
         
         logger.info("Subscribed to queue commands: %s (durable: cmd_queue_%s, stream: %s, pull consumer)", 
-                   self.cmd_queue, self.machine_id, self.STREAM_COMMAND_QUEUE)
+                   self.cmd_queue, self.machine_id, STREAM_COMMAND_QUEUE)
     
     async def subscribe_immediate(self, handler: Callable[[NATSMessage], Awaitable[CommandResponse]]):
         """
@@ -924,8 +928,8 @@ class EdgeNatsClient:
         
         # Ensure stream exists before attempting to subscribe
         await self._ensure_stream(
-            self.STREAM_COMMAND_IMMEDIATE,
-            f"{self.NAMESPACE}.*.cmd.immediate",
+            STREAM_COMMAND_IMMEDIATE,
+            f"{NAMESPACE}.*.cmd.immediate",
             retention='workqueue'
         )
         
@@ -942,7 +946,7 @@ class EdgeNatsClient:
         
         # Try to delete existing consumer if it's bound (from previous run)
         try:
-            await self.js.delete_consumer(self.STREAM_COMMAND_IMMEDIATE, durable_name)
+            await self.js.delete_consumer(STREAM_COMMAND_IMMEDIATE, durable_name)
             logger.info("Deleted existing immediate consumer: %s", durable_name)
         except NotFoundError:
             # Consumer doesn't exist, which is fine
@@ -955,7 +959,7 @@ class EdgeNatsClient:
                 # Wait a moment for any pending operations to complete
                 await asyncio.sleep(0.5)
                 try:
-                    await self.js.delete_consumer(self.STREAM_COMMAND_IMMEDIATE, durable_name)
+                    await self.js.delete_consumer(STREAM_COMMAND_IMMEDIATE, durable_name)
                     logger.info("Successfully deleted bound consumer: %s", durable_name)
                 except Exception as delete_error:
                     logger.warning("Could not delete bound consumer %s: %s. Will attempt to subscribe anyway.", 
@@ -966,7 +970,7 @@ class EdgeNatsClient:
         try:
             self._cmd_immediate_sub = await self.js.subscribe(
                 subject=self.cmd_immediate,
-                stream=self.STREAM_COMMAND_IMMEDIATE,
+                stream=STREAM_COMMAND_IMMEDIATE,
                 durable=durable_name,
                 cb=message_handler  # required for push consumer to handle messages
             )
@@ -976,12 +980,12 @@ class EdgeNatsClient:
                 # Consumer is still bound - try to delete it and retry
                 logger.warning("Consumer %s is still bound. Attempting to delete and retry...", durable_name)
                 try:
-                    await self.js.delete_consumer(self.STREAM_COMMAND_IMMEDIATE, durable_name)
+                    await self.js.delete_consumer(STREAM_COMMAND_IMMEDIATE, durable_name)
                     await asyncio.sleep(0.5)  # Brief wait for cleanup
                     # Retry subscription
                     self._cmd_immediate_sub = await self.js.subscribe(
                         subject=self.cmd_immediate,
-                        stream=self.STREAM_COMMAND_IMMEDIATE,
+                        stream=STREAM_COMMAND_IMMEDIATE,
                         durable=durable_name,
                         cb=message_handler
                     )
@@ -995,11 +999,11 @@ class EdgeNatsClient:
             # Stream still not found after ensuring it exists - this shouldn't happen
             # but handle it gracefully
             logger.error("Stream %s not found even after creation attempt. Check NATS server configuration.",
-                       self.STREAM_COMMAND_IMMEDIATE)
+                       STREAM_COMMAND_IMMEDIATE)
             raise
         
         logger.info("Subscribed to immediate commands: %s (durable: cmd_immed_%s, stream: %s, push consumer)",
-                   self.cmd_immediate, self.machine_id, self.STREAM_COMMAND_IMMEDIATE)
+                   self.cmd_immediate, self.machine_id, STREAM_COMMAND_IMMEDIATE)
     
     
     # ==================== EVENTS (Core NATS, no JetStream) ====================

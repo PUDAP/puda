@@ -1,0 +1,9 @@
+{
+  "name": "COMMAND_QUEUE",
+  "subjects": ["puda.*.cmd.queue"],
+  "retention": "workqueue",
+  "storage": "file",
+  "discard": "new",
+  "max_msgs_per_subject": 100,
+  "description": "Queued machine commands (WorkQueue, pull consumer)"
+}

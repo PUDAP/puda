@@ -16,6 +16,11 @@ from typing import Dict, Any, Optional
 import nats
 from nats.js.client import JetStreamContext
 from nats.aio.msg import Msg
+from .constants import (
+    NAMESPACE,
+    STREAM_RESPONSE_QUEUE,
+    STREAM_RESPONSE_IMMEDIATE,
+)
 from .models import (
     CommandRequest,
     CommandResponseStatus,
@@ -25,13 +30,6 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Constants
-NAMESPACE = "puda"
-STREAM_COMMAND_QUEUE = "COMMAND_QUEUE"
-STREAM_COMMAND_IMMEDIATE = "COMMAND_IMMEDIATE"
-STREAM_RESPONSE_QUEUE = "RESPONSE_QUEUE"
-STREAM_RESPONSE_IMMEDIATE = "RESPONSE_IMMEDIATE"
 
 
 class ResponseHandler:

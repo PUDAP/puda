@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	// Bind to streams defined in infra/nats/streams/*.json (lowercase puda.* subjects).
 	streamResponseImmediate = "RESPONSE_IMMEDIATE"
 	streamResponseQueue     = "RESPONSE_QUEUE"
 	responseConsumerTTL     = 5 * time.Minute

@@ -1,0 +1,9 @@
+{
+  "name": "COMMAND_IMMEDIATE",
+  "subjects": ["puda.*.cmd.immediate"],
+  "retention": "workqueue",
+  "storage": "file",
+  "discard": "new",
+  "max_msgs_per_subject": 100,
+  "description": "Immediate machine commands (WorkQueue, push consumer)"
+}
