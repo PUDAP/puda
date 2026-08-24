@@ -45,6 +45,18 @@ archives:
 
 changelog:
   sort: asc
+  groups:
+    - title: '💥 Breaking Changes'
+      regexp: '^.*?(BREAKING CHANGE|!:) *.*$'
+      order: 0
+    - title: '✨ Features'
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: '🐛 Bug Fixes'
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: 'Other Changes'
+      order: 999
   filters:
     exclude:
       - "^docs:"
