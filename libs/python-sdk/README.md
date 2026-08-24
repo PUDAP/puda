@@ -193,7 +193,17 @@ Basic default NATS client for generic machines. Handles commands, telemetry, and
 
 **Note:** This is a generic client. Machine-specific methods should be implemented in the machine-edge client.
 
-### 4. ExecutionState (`execution_state.py`)
+### 4. EdgeRunner (`edge_runner.py`)
+
+Dispatches incoming NATS commands onto the machine driver. Only methods marked with `@command` are advertised and executed.
+
+**Failure semantics:** Command handlers must raise an exception to indicate failure. Returning `False` (or any other value) is still a successful PUDA response. A `False` return is serialized as:
+
+```json
+{"result": false}
+```
+
+### 5. ExecutionState (`execution_state.py`)
 
 Thread-safe state management for command execution. Provides:
 - Execution lock to prevent concurrent commands

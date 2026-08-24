@@ -12,6 +12,11 @@ import inspect
 import logging
 from typing import Any, Callable, Awaitable
 
+from .command import (
+    SDK_UPDATE_ERROR,
+    iter_command_methods,
+    require_command_names,
+)
 from .edge_nats_client import EdgeNatsClient
 from .edge_updater import EdgeUpdater
 from .execution_state import ExecutionState
@@ -32,7 +37,9 @@ def _normalize_handler_result(result: Any) -> dict | None:
 
     Handlers sometimes return enums or other non-dict types, so we normalize
     everything to a dict for JSON. Supports dict, Pydantic model (model_dump),
-    objects with to_dict(), or __dict__.
+    objects with to_dict(), or __dict__. Scalar values including ``False``
+    become ``{"result": ...}`` and remain a successful command response.
+    Drivers must raise to indicate failure.
     """
     if result is None:
         return None
@@ -47,20 +54,41 @@ def _normalize_handler_result(result: Any) -> dict | None:
     return {"result": result}
 
 
-def _validate_handler(driver: Any, command_name: str) -> tuple[Any, CommandResponse | None]:
+def _unknown_command(command_name: str) -> CommandResponse:
+    logger.error("Unknown or restricted command: %s", command_name)
+    return CommandResponse(
+        status=CommandResponseStatus.ERROR,
+        code=CommandResponseCode.UNKNOWN_COMMAND,
+        message=f"Unknown or restricted command: {command_name}",
+    )
+
+
+def _sdk_update_required() -> CommandResponse:
+    logger.error(SDK_UPDATE_ERROR)
+    return CommandResponse(
+        status=CommandResponseStatus.ERROR,
+        code=CommandResponseCode.UNKNOWN_COMMAND,
+        message=SDK_UPDATE_ERROR,
+    )
+
+
+def _validate_handler(
+    driver: Any,
+    command_name: str,
+    allowed_commands: frozenset[str],
+) -> tuple[Any, CommandResponse | None]:
     """
-    Validate that a command handler exists and is callable on the driver.
+    Validate that a command is decorated with ``@command`` and callable on the driver.
 
     Returns (handler, error_response). handler is callable or None; error_response is None if valid.
     """
+    if not allowed_commands:
+        return None, _sdk_update_required()
+    if command_name.startswith("_") or command_name not in allowed_commands:
+        return None, _unknown_command(command_name)
     handler = getattr(driver, command_name, None)
-    if not callable(handler) or command_name.startswith("_"):
-        logger.error("Unknown or restricted command: %s", command_name)
-        return None, CommandResponse(
-            status=CommandResponseStatus.ERROR,
-            code=CommandResponseCode.UNKNOWN_COMMAND,
-            message=f"Unknown or restricted command: {command_name}",
-        )
+    if not callable(handler):
+        return None, _unknown_command(command_name)
     return handler, None
 
 
@@ -99,8 +127,10 @@ class EdgeRunner:
         Args:
             nats_client: NATS client used to subscribe to commands and publish
                 state, logs, and telemetry.
-            machine_driver: Driver instance exposing command handlers (methods
-                invoked by name from incoming NATS commands).
+            machine_driver: Driver instance exposing command handlers. Only
+                methods marked with ``@command`` are advertised and executed.
+                Handlers must raise to indicate failure; a ``False`` return is
+                still a successful response (``{"result": false}``).
             telemetry_handler: Async callable run every second to publish
                 heartbeat, position, health, etc.; no arguments.
             state_handler: Optional callable returning a dict to merge into
@@ -112,6 +142,12 @@ class EdgeRunner:
         self.telemetry_handler = telemetry_handler
         self.state_handler = state_handler
         self.nats_client.set_state_handler(state_handler)
+        self.allowed_commands = require_command_names(machine_driver)
+        logger.info(
+            "Remote commands for %s: %s",
+            type(machine_driver).__name__,
+            ", ".join(sorted(self.allowed_commands)) or "(none)",
+        )
         # Manage command execution state
         self.exec_state = ExecutionState()
         # Self-update service; release driver resources before process exit
@@ -236,7 +272,9 @@ class EdgeRunner:
         try:
             await self._publish_state(MachineState.BUSY, run_id)
 
-            handler, error_response = _validate_handler(self.machine_driver, command_name)
+            handler, error_response = _validate_handler(
+                self.machine_driver, command_name, self.allowed_commands
+            )
             if error_response is not None:
                 await self._publish_state(MachineState.ERROR, run_id)
                 return error_response
@@ -287,7 +325,9 @@ class EdgeRunner:
 
         try:
             logger.info("Executing immediate command: %s (run_id: %s)", command_name, run_id)
-            handler, error_response = _validate_handler(self.machine_driver, command_name)
+            handler, error_response = _validate_handler(
+                self.machine_driver, command_name, self.allowed_commands
+            )
             if error_response is not None:
                 return error_response
             handler_result = await _execute_handler(handler, params, kwargs)
@@ -312,12 +352,7 @@ class EdgeRunner:
         await self.nats_client.publish_state(payload)
         
     async def _publish_commands(self) -> None:
-        cls = type(self.machine_driver)
-        methods = [
-            (name, func)
-            for name, func in inspect.getmembers(cls, predicate=inspect.isfunction)
-            if not name.startswith("_")
-        ]
+        methods = iter_command_methods(self.machine_driver)
         lines: list[str] = []
         for i, (name, func) in enumerate(methods):
             lines.append(f"{name}{inspect.signature(func)}")

@@ -84,7 +84,7 @@ wheels = [
 
 [[package]]
 name = "puda"
-version = "0.0.16"
+version = "0.0.17"
 source = { editable = "libs/python-sdk" }
 dependencies = [
     { name = "nats-py" },
