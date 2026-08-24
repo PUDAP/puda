@@ -20,6 +20,8 @@ from .constants import (
     NAMESPACE,
     STREAM_RESPONSE_QUEUE,
     STREAM_RESPONSE_IMMEDIATE,
+    QUEUE_COMMAND_TIMEOUT,
+    IMMEDIATE_COMMAND_TIMEOUT,
 )
 from .models import (
     CommandRequest,
@@ -348,7 +350,7 @@ class CommandService:
         run_id: str,
         user_id: str,
         username: str,
-        timeout: int = 120
+        timeout: int = QUEUE_COMMAND_TIMEOUT
     ) -> Optional[NATSMessage]:
         """
         Send a queue command to the machine and wait for response.
@@ -416,7 +418,7 @@ class CommandService:
         run_id: str,
         user_id: str,
         username: str,
-        timeout: int = 120
+        timeout: int = IMMEDIATE_COMMAND_TIMEOUT
     ) -> Optional[NATSMessage]:
         """
         Send START immediate command to begin a run.
@@ -451,7 +453,7 @@ class CommandService:
         run_id: str,
         user_id: str,
         username: str,
-        timeout: int = 120
+        timeout: int = IMMEDIATE_COMMAND_TIMEOUT
     ) -> Optional[NATSMessage]:
         """
         Send COMPLETE immediate command to end a run.
@@ -487,7 +489,7 @@ class CommandService:
         run_id: str,
         user_id: str,
         username: str,
-        timeout: int = 120
+        timeout: int = QUEUE_COMMAND_TIMEOUT
     ) -> Optional[NATSMessage]:
         """
         Send multiple queue commands sequentially and wait for responses.
@@ -547,7 +549,7 @@ class CommandService:
                 run_id=run_id,
                 user_id=user_id,
                 username=username,
-                timeout=timeout
+                timeout=IMMEDIATE_COMMAND_TIMEOUT
             )
             if start_response is None:
                 logger.error("START command timed out for machine: %s, aborting", machine_id)
@@ -616,7 +618,7 @@ class CommandService:
                                     run_id=run_id,
                                     user_id=user_id,
                                     username=username,
-                                    timeout=timeout
+                                    timeout=IMMEDIATE_COMMAND_TIMEOUT
                                 )
                             except Exception as e:
                                 logger.error("Failed to complete run for machine %s during error cleanup: %s", machine_id_to_complete, e)
@@ -649,7 +651,7 @@ class CommandService:
                                 run_id=run_id,
                                 user_id=user_id,
                                 username=username,
-                                timeout=timeout
+                                timeout=IMMEDIATE_COMMAND_TIMEOUT
                             )
                         except Exception as e:
                             logger.error("Failed to complete run for machine %s during error cleanup: %s", machine_id_to_complete, e)
@@ -668,7 +670,7 @@ class CommandService:
                     run_id=run_id,
                     user_id=user_id,
                     username=username,
-                    timeout=timeout
+                    timeout=IMMEDIATE_COMMAND_TIMEOUT
                 )
                 if complete_response is None:
                     logger.error("COMPLETE command timed out for machine: %s, aborting", machine_id_to_complete)
@@ -690,7 +692,7 @@ class CommandService:
                         run_id=run_id,
                         user_id=user_id,
                         username=username,
-                        timeout=timeout
+                        timeout=IMMEDIATE_COMMAND_TIMEOUT
                     )
                 except Exception as cleanup_error:
                     logger.error("Failed to complete run for machine %s during error cleanup: %s", machine_id_to_complete, cleanup_error)
@@ -703,7 +705,7 @@ class CommandService:
         run_id: str,
         user_id: str,
         username: str,
-        timeout: int = 120
+        timeout: int = IMMEDIATE_COMMAND_TIMEOUT
     ) -> Optional[NATSMessage]:
         """
         Send an immediate command (pause, resume, cancel) to the machine.
