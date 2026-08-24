@@ -566,9 +566,14 @@ sequenceDiagram
                 <th>Description</th>
             </tr>
             <tr>
-                <td><code>MACHINE_STATE_{machine_id}</code></td>
+                <td><code>MACHINE_STATE</code></td>
                 <td><code>{machine_id}</code></td>
                 <td>Current state (idle/active/paused/error), run_id, timestamp</td>
+            </tr>
+            <tr>
+                <td><code>MACHINE_COMMANDS</code></td>
+                <td><code>{machine_id}</code></td>
+                <td>Advertised command catalog for the machine</td>
             </tr>
         </table>
 

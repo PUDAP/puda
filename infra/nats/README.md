@@ -23,6 +23,13 @@ These match the Python SDK / Go CLI:
 | `RESPONSE_QUEUE` | `puda.*.cmd.response.queue` | interest |
 | `RESPONSE_IMMEDIATE` | `puda.*.cmd.response.immediate` | interest |
 
+Shared JetStream KV buckets (key = `machine_id`, not one bucket per machine):
+
+| Bucket | Key | Value |
+|--------|-----|-------|
+| `MACHINE_STATE` | `{machine_id}` | current state JSON |
+| `MACHINE_COMMANDS` | `{machine_id}` | advertised command catalog |
+
 Subjects are lowercase `puda.*` (case-sensitive). Events/telemetry stay on core NATS — no JetStream streams.
 
 Optional compose one-shot (mount both the script and `streams/`):

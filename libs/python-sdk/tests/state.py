@@ -17,7 +17,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 MACHINE_ID = "first"
-KV_BUCKET_NAME = f"MACHINE_STATE_{MACHINE_ID.replace('.', '-')}"
+KV_BUCKET_NAME = "MACHINE_STATE"
 
 
 async def read_status(js: JetStreamContext, machine_id: str) -> dict:

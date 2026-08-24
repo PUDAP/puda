@@ -24,6 +24,8 @@ from .constants import (
     STREAM_COMMAND_IMMEDIATE,
     STREAM_RESPONSE_QUEUE,
     STREAM_RESPONSE_IMMEDIATE,
+    KV_BUCKET_STATE,
+    KV_BUCKET_COMMANDS,
 )
 from .models import (
     CommandResponseStatus,
@@ -124,10 +126,9 @@ class EdgeNatsClient:
         self.update = f"{NAMESPACE}.{machine_id_safe}.update"
         self.update_response = f"{NAMESPACE}.{machine_id_safe}.update.response"
         
-        # KV bucket name for status
-        self.kv_bucket_state = f"MACHINE_STATE_{machine_id_safe}"
-        # KV bucket name for commands
-        self.kv_bucket_commands = f"MACHINE_COMMANDS_{machine_id_safe}"
+        # Shared KV buckets (key = machine_id). Not one bucket per machine.
+        self.kv_bucket_state = KV_BUCKET_STATE
+        self.kv_bucket_commands = KV_BUCKET_COMMANDS
     
     # ==================== HELPER METHODS ====================
     

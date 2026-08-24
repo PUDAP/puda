@@ -3,11 +3,17 @@ package nats
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	natsio "github.com/nats-io/nats.go"
+)
+
+const (
+	kvBucketMachineState    = "MACHINE_STATE"
+	kvBucketMachineCommands = "MACHINE_COMMANDS"
 )
 
 // WatchEvent represents a single message from a machine (telemetry, event, or command).
@@ -144,30 +150,27 @@ func ListMachines(nc *natsio.Conn, timeout time.Duration) ([]string, error) {
 	return machines, nil
 }
 
-// ListMachineStateMachines returns machine IDs that have persisted state KV buckets.
+// ListMachineStateMachines returns machine IDs that have a key in MACHINE_STATE.
 func ListMachineStateMachines(nc *natsio.Conn) ([]string, error) {
 	js, err := nc.JetStream()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get JetStream context: %w", err)
 	}
 
-	const streamPrefix = "KV_MACHINE_STATE_"
-	seen := make(map[string]struct{})
-	for streamName := range js.StreamNames() {
-		if !strings.HasPrefix(streamName, streamPrefix) {
-			continue
-		}
-		machineID := strings.TrimPrefix(streamName, streamPrefix)
-		if machineID != "" {
-			seen[machineID] = struct{}{}
-		}
+	kv, err := js.KeyValue(kvBucketMachineState)
+	if err != nil {
+		// Bucket not created yet — no persisted state.
+		return []string{}, nil
 	}
 
-	machines := make([]string, 0, len(seen))
-	for id := range seen {
-		machines = append(machines, id)
+	keys, err := kv.Keys()
+	if err != nil {
+		if errors.Is(err, natsio.ErrNoKeysFound) {
+			return []string{}, nil
+		}
+		return nil, fmt.Errorf("failed to list MACHINE_STATE keys: %w", err)
 	}
-	return machines, nil
+	return keys, nil
 }
 
 // GetMachineCommands retrieves the commands of a specific machine from KV store
@@ -176,8 +179,7 @@ func GetMachineCommands(nc *natsio.Conn, machineID string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get JetStream context: %w", err)
 	}
-	kvBucketName := fmt.Sprintf("MACHINE_COMMANDS_%s", strings.ReplaceAll(machineID, ".", "-"))
-	kv, err := js.KeyValue(kvBucketName)
+	kv, err := js.KeyValue(kvBucketMachineCommands)
 	if err != nil {
 		return fmt.Errorf("failed to get KV bucket: %w", err)
 	}
@@ -204,9 +206,7 @@ func GetMachineState(nc *natsio.Conn, machineID string) (json.RawMessage, error)
 		return nil, fmt.Errorf("failed to get JetStream context: %w", err)
 	}
 
-	kvBucketName := fmt.Sprintf("MACHINE_STATE_%s", strings.ReplaceAll(machineID, ".", "-"))
-
-	kv, err := js.KeyValue(kvBucketName)
+	kv, err := js.KeyValue(kvBucketMachineState)
 	if err != nil {
 		return nil, fmt.Errorf("KV bucket not found: %w", err)
 	}

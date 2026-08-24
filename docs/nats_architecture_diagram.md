@@ -527,8 +527,8 @@ graph TB
 - **Simple** - Just key-value pairs, no complex queries needed
 
 **Storage**:
-- Bucket: `MACHINE_STATE_{machine_id}` (one bucket per machine)
-- Key: `{machine_id}`
+- Bucket: `MACHINE_STATE` (one shared bucket; key = `{machine_id}`)
+- Commands catalog: `MACHINE_COMMANDS` (one shared bucket; key = `{machine_id}`)
 - Value: JSON with current state (idle/active/paused/error), run_id, timestamp
 
 **Example**:

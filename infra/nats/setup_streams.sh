@@ -16,6 +16,9 @@ STREAMS_DIR="${STREAMS_DIR:-$SCRIPT_DIR/streams}"
 # Safe to remove: they never matched SDK subjects and would only hold dead traffic.
 OBSOLETE_STREAMS=(COMMANDS EVENTS)
 
+# Shared KV buckets (key = machine_id). Edges also create these on connect if missing.
+KV_BUCKETS=(MACHINE_STATE MACHINE_COMMANDS)
+
 if [[ ! -d "$STREAMS_DIR" ]]; then
   echo "ERROR: streams directory not found: $STREAMS_DIR" >&2
   exit 1
@@ -64,4 +67,20 @@ for name in "${OBSOLETE_STREAMS[@]}"; do
   remove_obsolete_stream "$name"
 done
 
-echo "🎉 All streams setup successfully."
+ensure_kv_bucket() {
+  local NAME=$1
+  echo "Configuring KV bucket '$NAME'..."
+  if nats kv info "$NAME" -s "$NATS_URL" >/dev/null 2>&1; then
+    echo "  - Bucket exists."
+  else
+    echo "  - Bucket missing. Creating..."
+    nats kv add "$NAME" -s "$NATS_URL" --history 1
+  fi
+  echo "✅ $NAME configured."
+}
+
+for bucket in "${KV_BUCKETS[@]}"; do
+  ensure_kv_bucket "$bucket"
+done
+
+echo "🎉 All streams and KV buckets setup successfully."

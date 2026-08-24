@@ -37,9 +37,7 @@ def _normalize_handler_result(result: Any) -> dict | None:
 
     Handlers sometimes return enums or other non-dict types, so we normalize
     everything to a dict for JSON. Supports dict, Pydantic model (model_dump),
-    objects with to_dict(), or __dict__. Scalar values including ``False``
-    become ``{"result": ...}`` and remain a successful command response.
-    Drivers must raise to indicate failure.
+    objects with to_dict(), or __dict__.
     """
     if result is None:
         return None
