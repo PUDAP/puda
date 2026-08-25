@@ -11,5 +11,6 @@ dependencies = [
 members = [
     "libs/*",
     "services/*",
+    "test-edge",
 ]
 

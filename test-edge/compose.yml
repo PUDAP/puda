@@ -1,0 +1,25 @@
+services:
+  edge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: test-edge:local
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
+    environment:
+      MACHINE_ID: ${MACHINE_ID:-}
+      MACHINE_IDS: ${MACHINE_IDS:-}
+      MACHINE_PREFIX: ${MACHINE_PREFIX:-test}
+      COUNT: ${COUNT:-}
+      NATS_SERVERS: ${NATS_SERVERS:-nats://host.docker.internal:4222}
+    volumes:
+      - ./.env:/app/.env:ro
+    healthcheck:
+      test: ["CMD", "uv", "run", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

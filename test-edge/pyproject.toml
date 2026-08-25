@@ -1,0 +1,16 @@
+[project]
+name = "test-edge"
+version = "0.1.0"
+description = "Software-only PUDA edge for local testing (no hardware)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "puda",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.12.0",
+    "python-dotenv>=1.2.1",
+    "psutil>=6.1.1",
+]
+
+[tool.uv.sources]
+puda = { workspace = true }
