@@ -1,0 +1,15 @@
+set shell := ["bash", "-cu"]
+
+image := "puda-loadgen:dev"
+
+# Run tests in the pinned Go container.
+test:
+    docker run --rm -u "$(id -u):$(id -g)" -e GOCACHE=/tmp/go-cache -e GOMODCACHE=/tmp/go-mod -v "$PWD:/src" -w /src golang:1.24 go test ./...
+
+# Build the production container.
+build:
+    docker build -t {{image}} .
+
+# Run a short local heartbeat smoke test.
+smoke:
+    docker run --rm --network host {{image}} --edges 10 --mode multiplexed --connections 2 --scenario heartbeat --heartbeat-interval 1s --duration 5s --metrics-address ""
