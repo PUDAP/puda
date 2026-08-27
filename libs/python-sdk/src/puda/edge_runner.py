@@ -194,6 +194,7 @@ class EdgeRunner:
     # -- subscription / connection -------------------------------------------
 
     async def _setup_subscriptions(self) -> None:
+        await self.nats_client.subscribe_ping()
         await self.nats_client.subscribe_queue(self._handle_execute)
         await self.nats_client.subscribe_immediate(self._handle_immediate)
         await self.updater.subscribe()
