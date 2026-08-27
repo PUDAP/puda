@@ -10,6 +10,7 @@ import asyncio
 from contextlib import asynccontextmanager
 import json
 import logging
+import time
 from typing import Dict, Any, Optional, Callable, Awaitable
 from datetime import datetime, timezone
 import nats
@@ -57,6 +58,8 @@ class EdgeNatsClient:
     """
     
     KEEP_ALIVE_INTERVAL = 25  # seconds
+    HEARTBEAT_INTERVAL = 5.0  # seconds
+    POSITION_INTERVAL = 3.0  # seconds
     
     def __init__(self, servers: list[str], machine_id: str):
         """
@@ -92,6 +95,12 @@ class EdgeNatsClient:
         # Queue control state
         self._pause_lock = asyncio.Lock()
         self._is_paused = False
+
+        # Heartbeats are throttled independently from position and health telemetry.
+        self._heartbeat_lock = asyncio.Lock()
+        self._last_heartbeat_at: float | None = None
+        self._position_lock = asyncio.Lock()
+        self._last_position_at: float | None = None
         
         # Run state management
         self.run_manager = RunManager(machine_id=machine_id)
@@ -281,6 +290,9 @@ class EdgeNatsClient:
         self._cmd_queue_sub = None
         self._cmd_queue_task = None
         self._cmd_immediate_sub = None
+        # Publish immediately after the next successful connection.
+        self._last_heartbeat_at = None
+        self._last_position_at = None
     
     # ==================== CONNECTION MANAGEMENT ====================
     
@@ -352,13 +364,41 @@ class EdgeNatsClient:
     
     # ==================== TELEMETRY (Core NATS, no JetStream) ====================
     
-    async def publish_heartbeat(self):
-        """Publish heartbeat telemetry (timestamp only)."""
-        await self._publish_telemetry(self.tlm_heartbeat, {})
+    async def publish_heartbeat(self) -> bool:
+        """Publish at most one heartbeat every five seconds.
+
+        The first call and the first call after a connection reset publish
+        immediately. Position and health telemetry may run more frequently.
+        """
+        async with self._heartbeat_lock:
+            now = time.monotonic()
+            if (
+                self._last_heartbeat_at is not None
+                and now - self._last_heartbeat_at < self.HEARTBEAT_INTERVAL
+            ):
+                return False
+            published = await self._publish_telemetry(self.tlm_heartbeat, {})
+            if published:
+                self._last_heartbeat_at = now
+            return published
     
-    async def publish_position(self, coords: Dict[str, float]):
-        """Publish real-time position coordinates."""
-        await self._publish_telemetry(self.tlm_pos, coords)
+    async def publish_position(self, coords: Dict[str, float]) -> bool:
+        """Publish position telemetry at most once every three seconds.
+
+        The first call and the first call after a connection reset publish
+        immediately. The next eligible call publishes its latest coordinates.
+        """
+        async with self._position_lock:
+            now = time.monotonic()
+            if (
+                self._last_position_at is not None
+                and now - self._last_position_at < self.POSITION_INTERVAL
+            ):
+                return False
+            published = await self._publish_telemetry(self.tlm_pos, coords)
+            if published:
+                self._last_position_at = now
+            return published
     
     async def publish_health(self, vitals: Dict[str, Any]):
         """Publish system health vitals (CPU, memory, temperature, etc.)."""
