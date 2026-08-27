@@ -23,11 +23,15 @@ Fill in reachable Tailscale/LAN addresses:
 | Variable | nats1 | nats2 | nats3 |
 |---|---|---|---|
 | `HOST_IP` | nats1 IP | nats2 IP | nats3 IP |
+| `NATS_PORT` | client port, default `4222` | client port, default `4222` | client port, default `4222` |
 | `NATS1_HOST` | derived from `HOST_IP` | nats1 IP | nats1 IP |
 | `NATS2_HOST` | nats2 IP | derived from `HOST_IP` | nats2 IP |
 | `NATS3_HOST` | nats3 IP | nats3 IP | derived from `HOST_IP` |
 
-Ports `4222`, `6222`, `8222`, and `1883` must be reachable as appropriate.
+`NATS_PORT` controls the host port exposed for client connections and the port
+advertised to clients. NATS still listens on `4222` inside each container.
+The configured client port, plus `6222`, `8222`, and `1883`, must be reachable
+as appropriate.
 Route port `6222` must be reachable between all three hosts.
 
 ## 2. Start all nodes
@@ -56,7 +60,7 @@ repository's `infra/nats/jetstream/` directory, run this once after all three
 nodes are healthy:
 
 ```bash
-NATS_URL=nats://<nats1-ip>:4222 REPLICAS=3 ./setup_streams.sh
+NATS_URL=nats://<nats1-ip>:<nats1-port> REPLICAS=3 ./setup_streams.sh
 ```
 
 The shared stream JSON contains no topology-specific replica count. The setup
@@ -70,10 +74,10 @@ provisioning and future schema updates.
 ## 4. Verify R3
 
 ```bash
-nats stream info COMMAND_QUEUE -s nats://<nats1-ip>:4222
-nats stream info COMMAND_IMMEDIATE -s nats://<nats1-ip>:4222
-nats kv info MACHINE_STATE -s nats://<nats1-ip>:4222
-nats kv info MACHINE_COMMANDS -s nats://<nats1-ip>:4222
+nats stream info COMMAND_QUEUE -s nats://<nats1-ip>:<nats1-port>
+nats stream info COMMAND_IMMEDIATE -s nats://<nats1-ip>:<nats1-port>
+nats kv info MACHINE_STATE -s nats://<nats1-ip>:<nats1-port>
+nats kv info MACHINE_COMMANDS -s nats://<nats1-ip>:<nats1-port>
 ```
 
 Each asset should report three replicas and current followers before it is
@@ -84,7 +88,7 @@ considered highly available.
 Configure PUDA clients with all three seed URLs:
 
 ```text
-nats://<nats1-ip>:4222,nats://<nats2-ip>:4222,nats://<nats3-ip>:4222
+nats://<nats1-ip>:<nats1-port>,nats://<nats2-ip>:<nats2-port>,nats://<nats3-ip>:<nats3-port>
 ```
 
 ## Capacity settings per node

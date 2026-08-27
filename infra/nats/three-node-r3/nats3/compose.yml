@@ -8,7 +8,7 @@ services:
         soft: 524288
         hard: 524288
     ports:
-      - "4222:4222"
+      - "${NATS_PORT:-4222}:4222"
       - "6222:6222"
       - "8222:8222"
       - "1883:1883"
@@ -17,10 +17,11 @@ services:
       - ./nats.conf:/etc/nats/nats.conf:ro
     environment:
       - SERVER_NAME=nats3
+      - NATS_PORT=${NATS_PORT:-4222}
       - NATS1_ROUTE=nats-route://${NATS1_HOST}:6222
       - NATS2_ROUTE=nats-route://${NATS2_HOST}:6222
       - NATS3_ROUTE=nats-route://${HOST_IP}:6222
-    command: "-c /etc/nats/nats.conf --client_advertise ${HOST_IP}:4222"
+    command: "-c /etc/nats/nats.conf --client_advertise ${HOST_IP}:${NATS_PORT:-4222}"
     healthcheck:
       test:
         [
