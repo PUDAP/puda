@@ -325,29 +325,3 @@ func GetMachineState(nc *natsio.Conn, machineID string) (json.RawMessage, error)
 
 	return state, nil
 }
-
-// GetSingleMachineState retrieves and prints the state of a specific machine from KV store.
-func GetSingleMachineState(nc *natsio.Conn, machineID string) error {
-	state, err := GetMachineState(nc, machineID)
-	if err != nil {
-		errorResponse := map[string]string{
-			"error": fmt.Sprintf("Could not get state for %s: %v", machineID, err),
-		}
-		jsonBytes, _ := json.MarshalIndent(errorResponse, "", "  ")
-		fmt.Println(string(jsonBytes))
-		return err
-	}
-
-	var prettyState interface{}
-	if err := json.Unmarshal(state, &prettyState); err != nil {
-		return fmt.Errorf("failed to parse state JSON: %w", err)
-	}
-
-	jsonBytes, err := json.MarshalIndent(prettyState, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal state: %w", err)
-	}
-	fmt.Println(string(jsonBytes))
-
-	return nil
-}
