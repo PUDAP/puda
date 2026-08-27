@@ -73,6 +73,31 @@ func TestMachineStateResultOmitsOfflineStatus(t *testing.T) {
 	}
 }
 
+func TestWriteMachineStateHuman(t *testing.T) {
+	snapshot := machineStateSnapshot{
+		Machines: map[string]machineStateResult{
+			"first": {
+				OK:    true,
+				State: json.RawMessage(`{"state":"idle"}`),
+			},
+			"offline": {
+				OK:    false,
+				Error: "timeout",
+			},
+		},
+	}
+	var buf bytes.Buffer
+	if err := writeMachineStateHuman(&buf, snapshot, []string{"first", "offline"}); err != nil {
+		t.Fatal(err)
+	}
+	output := buf.String()
+	for _, want := range []string{"first:", `"state": "idle"`, "offline: failed: timeout"} {
+		if !bytes.Contains(buf.Bytes(), []byte(want)) {
+			t.Fatalf("output missing %q: %s", want, output)
+		}
+	}
+}
+
 func TestOfflineMachineIDsExcludesOnlineMachines(t *testing.T) {
 	got := offlineMachineIDs(
 		[]string{"first", "biologic", "xarm"},

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"sort"
@@ -31,11 +32,12 @@ var machineStateOffline bool
 var machineStateCmd = &cobra.Command{
 	Use:   "state [machine_id...]",
 	Short: "Get machine state as JSON",
-	Long: `Get machine state as a single JSON snapshot and exit.
+	Long: `Get machine state as a JSON snapshot and exit.
 
 When no machine IDs are provided, state is fetched for all online machines.
 Provide one or more machine IDs to get specific machine state.
-Machine IDs can be comma-separated, e.g. puda machine state first,biologic`,
+Machine IDs can be comma-separated, e.g. puda machine state first,biologic
+Use --human for a text summary.`,
 	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(parseMachineIDs(args)) == 0 && !machineStateAll && !machineStateOffline {
@@ -92,10 +94,10 @@ func resolveMachineStateIDs(nc *natsio.Conn, args []string) ([]string, map[strin
 }
 
 func writeMachineStateSnapshot(nc *natsio.Conn, machineIDs []string, onlineMachines map[string]struct{}) error {
-	return writeMachineStateOutput(os.Stdout, nc, machineIDs, onlineMachines)
+	return writeMachineStateOutput(os.Stdout, nc, machineIDs, onlineMachines, machineHuman)
 }
 
-func writeMachineStateOutput(w io.Writer, nc *natsio.Conn, machineIDs []string, onlineMachines map[string]struct{}) error {
+func writeMachineStateOutput(w io.Writer, nc *natsio.Conn, machineIDs []string, onlineMachines map[string]struct{}, human bool) error {
 	snapshot := machineStateSnapshot{
 		Machines:  make(map[string]machineStateResult, len(machineIDs)),
 		Count:     len(machineIDs),
@@ -120,8 +122,33 @@ func writeMachineStateOutput(w io.Writer, nc *natsio.Conn, machineIDs []string, 
 		}
 	}
 
+	if human {
+		return writeMachineStateHuman(w, snapshot, machineIDs)
+	}
+
 	enc := json.NewEncoder(w)
 	return enc.Encode(machineStateOutput(snapshot, machineIDs))
+}
+
+func writeMachineStateHuman(w io.Writer, snapshot machineStateSnapshot, machineIDs []string) error {
+	for _, machineID := range machineIDs {
+		result := snapshot.Machines[machineID]
+		if !result.OK {
+			fmt.Fprintf(w, "%s: failed: %s\n", machineID, result.Error)
+			continue
+		}
+		var pretty any
+		if err := json.Unmarshal(result.State, &pretty); err != nil {
+			fmt.Fprintf(w, "%s:\n%s\n", machineID, string(result.State))
+			continue
+		}
+		encoded, err := json.MarshalIndent(pretty, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to encode %s state: %w", machineID, err)
+		}
+		fmt.Fprintf(w, "%s:\n%s\n", machineID, encoded)
+	}
+	return nil
 }
 
 func machineStateOutput(snapshot machineStateSnapshot, machineIDs []string) any {

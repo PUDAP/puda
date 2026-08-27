@@ -1,9 +1,8 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
+	"io"
 	"strings"
 	"time"
 
@@ -61,7 +60,7 @@ Examples:
       --ref ghcr.io/pudap/machine-template:latest`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runMachineUpdate(args[0])
+		return runMachineUpdate(cmd.OutOrStdout(), args[0])
 	},
 }
 
@@ -87,7 +86,7 @@ func parseGitRef(raw string) (repoURL, checkout string) {
 	return strings.TrimRight(trimmed[:idx], "/"), strings.Trim(trimmed[idx+len(sep):], "/")
 }
 
-func runMachineUpdate(machineID string) error {
+func runMachineUpdate(w io.Writer, machineID string) error {
 	globalConfig, err := puda.LoadGlobalConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
@@ -124,23 +123,27 @@ func runMachineUpdate(machineID string) error {
 	defer nc.Close()
 
 	aliveTimeout := time.Duration(updateAliveTimeout) * time.Second
-	fmt.Fprintf(os.Stdout, "Waiting up to %s for heartbeat from %s ...\n", aliveTimeout, machineID)
+	if machineHuman {
+		fmt.Fprintf(w, "Waiting up to %s for heartbeat from %s ...\n", aliveTimeout, machineID)
+	}
 	if err := pudanats.WaitForHeartbeat(nc, machineID, aliveTimeout); err != nil {
 		return err
 	}
 
-	if updateSourceType == "git" {
-		refDesc := params.Ref
-		if refDesc == "" {
-			refDesc = "<edge origin>"
-		}
-		if params.Checkout != "" {
-			fmt.Fprintf(os.Stdout, "Publishing update to %s (source_type=git, ref=%s, checkout=%s)\n", machineID, refDesc, params.Checkout)
+	if machineHuman {
+		if updateSourceType == "git" {
+			refDesc := params.Ref
+			if refDesc == "" {
+				refDesc = "<edge origin>"
+			}
+			if params.Checkout != "" {
+				fmt.Fprintf(w, "Publishing update to %s (source_type=git, ref=%s, checkout=%s)\n", machineID, refDesc, params.Checkout)
+			} else {
+				fmt.Fprintf(w, "Publishing update to %s (source_type=git, ref=%s)\n", machineID, refDesc)
+			}
 		} else {
-			fmt.Fprintf(os.Stdout, "Publishing update to %s (source_type=git, ref=%s)\n", machineID, refDesc)
+			fmt.Fprintf(w, "Publishing update to %s (source_type=%s, ref=%s)\n", machineID, updateSourceType, params.Ref)
 		}
-	} else {
-		fmt.Fprintf(os.Stdout, "Publishing update to %s (source_type=%s, ref=%s)\n", machineID, updateSourceType, params.Ref)
 	}
 	reply, err := pudanats.SendUpdateCommand(
 		nc, machineID, userID, username, params, time.Duration(updateTimeout)*time.Second,
@@ -154,18 +157,23 @@ func runMachineUpdate(machineID string) error {
 	}
 
 	summary := map[string]interface{}{
-		"status":  string(reply.Response.Status),
-		"message": reply.Response.Message,
-		"data":    reply.Response.Data,
+		"machine_id": machineID,
+		"status":     string(reply.Response.Status),
+		"message":    reply.Response.Message,
+		"data":       reply.Response.Data,
 	}
 	if reply.Response.Code != nil {
 		summary["code"] = *reply.Response.Code
 	}
-	encoded, err := json.MarshalIndent(summary, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to encode update summary: %w", err)
+
+	if machineHuman {
+		fmt.Fprintf(w, "%s: update %s\n", machineID, reply.Response.Status)
+		if reply.Response.Message != nil && *reply.Response.Message != "" {
+			fmt.Fprintln(w, *reply.Response.Message)
+		}
+	} else if err := writeJSON(w, summary); err != nil {
+		return err
 	}
-	fmt.Println(string(encoded))
 
 	if reply.Response.Status != puda.StatusSuccess {
 		msg := "unknown error"

@@ -277,30 +277,28 @@ func ListMachineStateMachines(nc *natsio.Conn) ([]string, error) {
 	return keys, nil
 }
 
-// GetMachineCommands retrieves the commands of a specific machine from KV store
-func GetMachineCommands(nc *natsio.Conn, machineID string) error {
+// GetMachineCommands retrieves the advertised command text for a machine from KV.
+func GetMachineCommands(nc *natsio.Conn, machineID string) (string, error) {
 	js, err := nc.JetStream()
 	if err != nil {
-		return fmt.Errorf("failed to get JetStream context: %w", err)
+		return "", fmt.Errorf("failed to get JetStream context: %w", err)
 	}
 	kv, err := js.KeyValue(kvBucketMachineCommands)
 	if err != nil {
-		return fmt.Errorf("failed to get KV bucket: %w", err)
+		return "", fmt.Errorf("failed to get KV bucket: %w", err)
 	}
 
 	entry, err := kv.Get(machineID)
 	if err != nil {
-		return fmt.Errorf("failed to get %s commands: %w", machineID, err)
+		return "", fmt.Errorf("failed to get %s commands: %w", machineID, err)
 	}
 
 	var commands map[string]string
 	if err := json.Unmarshal(entry.Value(), &commands); err != nil {
-		return fmt.Errorf("failed to parse commands JSON: %w", err)
+		return "", fmt.Errorf("failed to parse commands JSON: %w", err)
 	}
 
-	fmt.Println(commands["commands"])
-
-	return nil
+	return commands["commands"], nil
 }
 
 // GetMachineState retrieves the state of a specific machine from KV store.

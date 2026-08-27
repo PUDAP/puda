@@ -23,10 +23,9 @@ const (
 )
 
 var machineNatsServers string
-var machineListJSON bool
+var machineHuman bool
 var machineListTimeout time.Duration
 var machinePingTimeout time.Duration
-var machinePingHuman bool
 var watchMachines []string
 var watchTimeout int
 var watchSubjects []string
@@ -35,7 +34,9 @@ var watchIncludeHeartbeat bool
 var machineCmd = &cobra.Command{
 	Use:   "machine",
 	Short: "Machine operations",
-	Long:  `Commands for machine operations.`,
+	Long: `Commands for machine operations.
+
+Output is a JSON object by default. Use --human for a text summary.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		cmd.Help()
 	},
@@ -44,7 +45,7 @@ var machineCmd = &cobra.Command{
 var machineListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Discover responsive machines via Core NATS ping",
-	Long:  `Broadcast ping on puda.cmd.ping and list machines that reply with pong.`,
+	Long:  `Broadcast ping on puda.cmd.ping and list machines that reply with pong as JSON.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		nc, err := connectMachineNATS()
 		if err != nil {
@@ -57,29 +58,7 @@ var machineListCmd = &cobra.Command{
 			return err
 		}
 		sort.Strings(machines)
-		if machineListJSON {
-			encoded, err := json.MarshalIndent(struct {
-				Machines []string `json:"machines"`
-				Count    int      `json:"count"`
-			}{
-				Machines: machines,
-				Count:    len(machines),
-			}, "", "  ")
-			if err != nil {
-				return fmt.Errorf("failed to encode machine list: %w", err)
-			}
-			fmt.Println(string(encoded))
-			return nil
-		}
-		if len(machines) == 0 {
-			fmt.Println("No machines found.")
-			return nil
-		}
-		fmt.Printf("%d machines found:\n", len(machines))
-		for _, id := range machines {
-			fmt.Printf("  %s\n", id)
-		}
-		return nil
+		return writeListResults(cmd.OutOrStdout(), machines, machineHuman)
 	},
 }
 
@@ -102,7 +81,7 @@ Use --human for a text summary.`,
 		defer nc.Close()
 
 		results := pudanats.PingMachines(nc, machineIDs, machinePingTimeout)
-		if err := writePingResults(cmd.OutOrStdout(), results, machinePingHuman); err != nil {
+		if err := writePingResults(cmd.OutOrStdout(), results, machineHuman); err != nil {
 			return err
 		}
 		failed := 0
@@ -126,18 +105,12 @@ func writePingResults(w io.Writer, results []pudanats.PingResult, human bool) er
 				responded++
 			}
 		}
-		payload := struct {
+		return writeJSON(w, struct {
 			Results   []pudanats.PingResult `json:"results"`
 			Count     int                   `json:"count"`
 			Responded int                   `json:"responded"`
 			Failed    int                   `json:"failed"`
-		}{results, len(results), responded, len(results) - responded}
-		encoded, err := json.MarshalIndent(payload, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to encode ping results: %w", err)
-		}
-		_, err = fmt.Fprintln(w, string(encoded))
-		return err
+		}{results, len(results), responded, len(results) - responded})
 	}
 	for _, result := range results {
 		if result.Status != "pong" {
@@ -157,6 +130,36 @@ func writePingResults(w io.Writer, results []pudanats.PingResult, human bool) er
 	return nil
 }
 
+func writeListResults(w io.Writer, machines []string, human bool) error {
+	if machines == nil {
+		machines = []string{}
+	}
+	if !human {
+		return writeJSON(w, struct {
+			Machines []string `json:"machines"`
+			Count    int      `json:"count"`
+		}{machines, len(machines)})
+	}
+	if len(machines) == 0 {
+		fmt.Fprintln(w, "No machines found.")
+		return nil
+	}
+	fmt.Fprintf(w, "%d machines found:\n", len(machines))
+	for _, id := range machines {
+		fmt.Fprintf(w, "  %s\n", id)
+	}
+	return nil
+}
+
+func writeJSON(w io.Writer, v any) error {
+	encoded, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to encode JSON: %w", err)
+	}
+	_, err = fmt.Fprintln(w, string(encoded))
+	return err
+}
+
 var machineCommandsCmd = &cobra.Command{
 	Use:   "commands <machine_id>",
 	Short: "Show available commands for a machine",
@@ -167,7 +170,18 @@ var machineCommandsCmd = &cobra.Command{
 			return err
 		}
 		defer nc.Close()
-		return pudanats.GetMachineCommands(nc, args[0])
+		commands, err := pudanats.GetMachineCommands(nc, args[0])
+		if err != nil {
+			return err
+		}
+		if machineHuman {
+			fmt.Fprintln(cmd.OutOrStdout(), commands)
+			return nil
+		}
+		return writeJSON(cmd.OutOrStdout(), struct {
+			MachineID string `json:"machine_id"`
+			Commands  string `json:"commands"`
+		}{args[0], commands})
 	},
 }
 
@@ -199,7 +213,8 @@ Available subject filters:
   update            update messages
   update.response   update responses
 
-Use --timeout to auto-stop after N seconds, or Ctrl-C to stop.`,
+Use --timeout to auto-stop after N seconds, or Ctrl-C to stop.
+Use --human for a text line per event instead of NDJSON.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		nc, err := connectMachineNATS()
@@ -241,6 +256,18 @@ Use --timeout to auto-stop after N seconds, or Ctrl-C to stop.`,
 
 		enc := json.NewEncoder(os.Stdout)
 		for evt := range events {
+			if machineHuman {
+				fmt.Fprintf(
+					os.Stdout,
+					"%s %s %s.%s %s\n",
+					evt.Timestamp.UTC().Format(time.RFC3339Nano),
+					evt.MachineID,
+					evt.Category,
+					evt.Topic,
+					string(evt.Data),
+				)
+				continue
+			}
 			if err := enc.Encode(evt); err != nil {
 				return fmt.Errorf("failed to write event: %w", err)
 			}
@@ -251,10 +278,9 @@ Use --timeout to auto-stop after N seconds, or Ctrl-C to stop.`,
 
 func init() {
 	machineCmd.PersistentFlags().StringVar(&machineNatsServers, "nats-servers", "", "Comma-separated NATS server URLs (overrides active env)")
-	machineListCmd.Flags().BoolVar(&machineListJSON, "json", false, "Output machine list as JSON")
+	machineCmd.PersistentFlags().BoolVar(&machineHuman, "human", false, "Output as human-readable text instead of JSON")
 	machineListCmd.Flags().DurationVar(&machineListTimeout, "timeout", defaultPingDiscoveryTimeout, "How long to collect pong replies")
 	machinePingCmd.Flags().DurationVar(&machinePingTimeout, "timeout", 2*time.Second, "Timeout for each ping request")
-	machinePingCmd.Flags().BoolVar(&machinePingHuman, "human", false, "Output ping results as human-readable text instead of JSON")
 	machineWatchCmd.Flags().StringSliceVarP(&watchMachines, "machines", "m", nil, "Comma-separated list of machine IDs to watch (default: all machines)")
 	machineWatchCmd.Flags().StringSliceVar(&watchMachines, "targets", nil, "Deprecated alias for --machines")
 	machineWatchCmd.Flags().MarkHidden("targets")

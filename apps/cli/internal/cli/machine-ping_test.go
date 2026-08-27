@@ -16,8 +16,11 @@ func TestMachinePingCommandMetadata(t *testing.T) {
 	if !strings.Contains(machinePingCmd.Long, "comma-separated") {
 		t.Fatalf("Long=%q", machinePingCmd.Long)
 	}
-	if machinePingCmd.Flags().Lookup("timeout") == nil || machinePingCmd.Flags().Lookup("human") == nil {
-		t.Fatal("ping command must expose --timeout and --human")
+	if machinePingCmd.Flags().Lookup("timeout") == nil {
+		t.Fatal("ping command must expose --timeout")
+	}
+	if machineCmd.PersistentFlags().Lookup("human") == nil {
+		t.Fatal("machine command must expose --human")
 	}
 }
 
@@ -67,5 +70,32 @@ func TestWritePingResultsJSONIsDefault(t *testing.T) {
 	}
 	if payload.Results[0].MachineID != "first" || payload.Results[1].Error != "timeout" {
 		t.Fatalf("unexpected results: %+v", payload.Results)
+	}
+}
+
+func TestWriteListResultsJSONIsDefault(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeListResults(&buf, []string{"biologic", "first"}, false); err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Machines []string `json:"machines"`
+		Count    int      `json:"count"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("default output is not JSON: %v\n%s", err, buf.String())
+	}
+	if payload.Count != 2 || strings.Join(payload.Machines, ",") != "biologic,first" {
+		t.Fatalf("got %+v", payload)
+	}
+}
+
+func TestWriteListResultsHuman(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeListResults(&buf, []string{"first"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := buf.String(), "1 machines found:\n  first\n"; got != want {
+		t.Fatalf("got %q want %q", got, want)
 	}
 }

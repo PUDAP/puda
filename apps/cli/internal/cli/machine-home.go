@@ -2,7 +2,7 @@ package cli
 
 import (
 	"fmt"
-	"os"
+	"io"
 
 	"github.com/PUDAP/puda/apps/cli/internal/db"
 	pudanats "github.com/PUDAP/puda/apps/cli/internal/nats"
@@ -16,7 +16,7 @@ var machineHomeCmd = &cobra.Command{
 	Short: "Home machine(s)",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return homeMachines(args)
+		return homeMachines(cmd.OutOrStdout(), args)
 	},
 }
 
@@ -24,7 +24,7 @@ func init() {
 	machineCmd.AddCommand(machineHomeCmd)
 }
 
-func homeMachines(machineIDs []string) error {
+func homeMachines(w io.Writer, machineIDs []string) error {
 	globalConfig, err := puda.LoadGlobalConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
@@ -81,6 +81,15 @@ func homeMachines(machineIDs []string) error {
 		return fmt.Errorf("home command failed: %w", err)
 	}
 
-	fmt.Fprintf(os.Stdout, "Home commands sent successfully to %d machine(s)\n", len(machineIDs))
-	return nil
+	if machineHuman {
+		fmt.Fprintf(w, "Home commands sent successfully to %d machine(s)\n", len(machineIDs))
+		return nil
+	}
+	return writeJSON(w, struct {
+		Command  string   `json:"command"`
+		RunID    string   `json:"run_id"`
+		Machines []string `json:"machines"`
+		Count    int      `json:"count"`
+		Status   string   `json:"status"`
+	}{"home", runID, machineIDs, len(machineIDs), "ok"})
 }

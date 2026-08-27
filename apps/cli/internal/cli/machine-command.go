@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/PUDAP/puda/apps/cli/internal/db"
@@ -72,6 +71,7 @@ new UUIDv4 run ID is generated.
 
 Pass command parameters as a JSON object, either as the optional argument or
 with --params. Use --kwargs for protocol kwargs when required.
+Results are a JSON object by default; use --human for a text summary.
 
 Examples:
   puda machine run first move_electrode '{"deck_slot":"A2","well_name":"A1"}'
@@ -96,7 +96,7 @@ Examples:
 		}
 
 		runID := resolveRunID(machineRunID)
-		return runSingleMachineCommand(args[0], args[1], params, kwargs, runID)
+		return runSingleMachineCommand(cmd.OutOrStdout(), args[0], args[1], params, kwargs, runID)
 	},
 }
 
@@ -159,7 +159,7 @@ func parseMachineRunObject(field, value string) (map[string]interface{}, error) 
 	return object, nil
 }
 
-func runSingleMachineCommand(machineID, commandName string, params, kwargs map[string]interface{}, runID string) error {
+func runSingleMachineCommand(w io.Writer, machineID, commandName string, params, kwargs map[string]interface{}, runID string) error {
 	globalConfig, err := puda.LoadGlobalConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
@@ -206,21 +206,28 @@ func runSingleMachineCommand(machineID, commandName string, params, kwargs map[s
 		MachineID:  machineID,
 	}
 	response, err := pudanats.SendQueueCommand(js, dispatcher, request, runID, userID, username, store)
+	if err == nil {
+		err = queueCommandResponseError(response)
+	}
+	result := machineCommandResult{MachineID: machineID, Status: "ok"}
+	if err != nil {
+		result.Status = "error"
+		result.Error = err.Error()
+	}
+	if writeErr := writeMachineCommandResults(w, commandName, runID, "completed", []machineCommandResult{result}, machineHuman); writeErr != nil {
+		return writeErr
+	}
 	if err != nil {
 		return fmt.Errorf("%s command failed: %w", commandName, err)
 	}
-	if err := queueCommandResponseError(response); err != nil {
-		return fmt.Errorf("%s command failed: %w", commandName, err)
-	}
-
-	fmt.Fprintf(os.Stdout, "%s: %s command completed successfully\n", machineID, commandName)
 	return nil
 }
 
 func newImmediateMachineCommand(config immediateMachineCommandConfig) *cobra.Command {
 	commandName := strings.ToLower(config.label)
-	long := fmt.Sprintf(`Send %s immediate command to machine(s).
-Machine IDs can be comma-separated, e.g. puda machine %s biologic,first`, commandName, config.name)
+	long := fmt.Sprintf(`Send %s immediate command to machine(s) and report results as JSON.
+Machine IDs can be comma-separated, e.g. puda machine %s biologic,first
+Use --human for a text summary.`, commandName, config.name)
 	if config.runIDFlag != nil {
 		long += "\n\nUse --run-id to set the run ID. If omitted, a random UUIDv4 is generated."
 	}
@@ -234,14 +241,14 @@ Machine IDs can be comma-separated, e.g. puda machine %s biologic,first`, comman
 			runID := ""
 			if config.runIDFlag != nil {
 				runID = resolveRunID(*config.runIDFlag)
-				fmt.Printf("Run ID: %s\n", runID)
 			}
-			return runImmediateCommandForMachines(parseMachineIDs(args), config.label, runID, config.sender)
+			return runImmediateCommandForMachines(cmd.OutOrStdout(), parseMachineIDs(args), config.label, runID, config.sender)
 		},
 	}
 }
 
 func runImmediateCommandForMachines(
+	w io.Writer,
 	machineIDs []string,
 	commandLabel string,
 	runID string,
@@ -265,27 +272,47 @@ func runImmediateCommandForMachines(
 		}
 	}
 
+	commandName := strings.ToLower(commandLabel)
+	write := func(results []machineCommandResult) error {
+		return writeMachineCommandResults(w, commandName, runID, "sent", results, machineHuman)
+	}
+
 	onlineMachineIDs, offlineMachineIDs := splitImmediateCommandTargets(machineIDs, onlineMachines)
 	if len(onlineMachineIDs) == 0 {
+		results := make([]machineCommandResult, 0, len(machineIDs))
 		for _, machineID := range machineIDs {
-			writeImmediateCommandResult(os.Stdout, commandLabel, machineID, errMachineOffline)
+			results = append(results, machineCommandResultFromError(machineID, errMachineOffline))
+		}
+		if err := write(results); err != nil {
+			return err
 		}
 		return immediateCommandFailure(commandLabel, len(machineIDs))
 	}
 
+	results := make([]machineCommandResult, 0, len(machineIDs))
 	pendingOnlineMachineIDs := make([]string, 0, len(onlineMachineIDs))
 	for _, machineID := range machineIDs {
 		if _, found := onlineMachines[machineID]; found {
 			pendingOnlineMachineIDs = append(pendingOnlineMachineIDs, machineID)
 			continue
 		}
-		if err := sendImmediateCommandBatch(pendingOnlineMachineIDs, commandLabel, runID, send); err != nil {
+		batchResults, err := sendImmediateCommandBatch(pendingOnlineMachineIDs, commandLabel, runID, send)
+		results = append(results, batchResults...)
+		if err != nil {
+			if writeErr := write(results); writeErr != nil {
+				return writeErr
+			}
 			return err
 		}
 		pendingOnlineMachineIDs = pendingOnlineMachineIDs[:0]
-		writeImmediateCommandResult(os.Stdout, commandLabel, machineID, errMachineOffline)
+		results = append(results, machineCommandResultFromError(machineID, errMachineOffline))
 	}
-	if err := sendImmediateCommandBatch(pendingOnlineMachineIDs, commandLabel, runID, send); err != nil {
+	batchResults, err := sendImmediateCommandBatch(pendingOnlineMachineIDs, commandLabel, runID, send)
+	results = append(results, batchResults...)
+	if writeErr := write(results); writeErr != nil {
+		return writeErr
+	}
+	if err != nil {
 		return err
 	}
 
@@ -300,9 +327,9 @@ func sendImmediateCommandBatch(
 	commandLabel string,
 	runID string,
 	send immediateCommandSender,
-) error {
+) ([]machineCommandResult, error) {
 	if len(machineIDs) == 0 {
-		return nil
+		return nil, nil
 	}
 	return sendImmediateCommandToMachines(machineIDs, commandLabel, runID, send)
 }
@@ -316,24 +343,24 @@ func sendImmediateCommandToMachines(
 	commandLabel string,
 	runID string,
 	send immediateCommandSender,
-) error {
+) ([]machineCommandResult, error) {
 	if len(machineIDs) == 0 {
-		return fmt.Errorf("at least one machine ID is required")
+		return nil, fmt.Errorf("at least one machine ID is required")
 	}
 
 	globalConfig, err := puda.LoadGlobalConfig()
 	if err != nil {
-		return fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
+		return nil, fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
 	}
 	userID := globalConfig.User.UserID
 	username := globalConfig.User.Username
 	if userID == "" || username == "" {
-		return fmt.Errorf("user not logged in. Please run 'puda login' first")
+		return nil, fmt.Errorf("user not logged in. Please run 'puda login' first")
 	}
 
 	nc, err := connectMachineNATS()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer nc.Close()
 
@@ -346,35 +373,32 @@ func sendImmediateCommandToMachines(
 
 	js, err := nc.JetStream()
 	if err != nil {
-		return fmt.Errorf("failed to get JetStream context: %w", err)
+		return nil, fmt.Errorf("failed to get JetStream context: %w", err)
 	}
 
 	dispatcher := pudanats.NewResponseDispatcher(js, userID)
 	if err := dispatcher.Start(); err != nil {
-		return fmt.Errorf("failed to start response dispatcher: %w", err)
+		return nil, fmt.Errorf("failed to start response dispatcher: %w", err)
 	}
 	defer dispatcher.Close()
 
+	results := make([]machineCommandResult, 0, len(machineIDs))
 	failedCount := 0
 	for _, machineID := range machineIDs {
 		response, err := send(js, dispatcher, machineID, runID, userID, username, immediateCommandTimeoutSeconds, store)
+		if err == nil {
+			err = immediateCommandResponseError(response)
+		}
+		results = append(results, machineCommandResultFromError(machineID, err))
 		if err != nil {
 			failedCount++
-			writeImmediateCommandResult(os.Stdout, commandLabel, machineID, err)
-			continue
 		}
-		if err := immediateCommandResponseError(response); err != nil {
-			failedCount++
-			writeImmediateCommandResult(os.Stdout, commandLabel, machineID, err)
-			continue
-		}
-		writeImmediateCommandResult(os.Stdout, commandLabel, machineID, nil)
 	}
 
 	if failedCount > 0 {
-		return immediateCommandFailure(commandLabel, failedCount)
+		return results, immediateCommandFailure(commandLabel, failedCount)
 	}
-	return nil
+	return results, nil
 }
 
 func immediateCommandResponseError(response *puda.NATSMessage) error {
@@ -408,10 +432,48 @@ func splitImmediateCommandTargets(machineIDs []string, onlineMachines map[string
 }
 
 func writeImmediateCommandResult(w io.Writer, commandLabel, machineID string, err error) {
-	commandName := strings.ToLower(commandLabel)
+	_ = writeMachineCommandResults(w, strings.ToLower(commandLabel), "", "sent", []machineCommandResult{machineCommandResultFromError(machineID, err)}, true)
+}
+
+type machineCommandResult struct {
+	MachineID string `json:"machine_id"`
+	Status    string `json:"status"`
+	Error     string `json:"error,omitempty"`
+}
+
+func machineCommandResultFromError(machineID string, err error) machineCommandResult {
 	if err != nil {
-		fmt.Fprintf(w, "%s: %s command failed: %v\n", machineID, commandName, err)
-		return
+		return machineCommandResult{MachineID: machineID, Status: "error", Error: err.Error()}
 	}
-	fmt.Fprintf(w, "%s: %s command sent successfully\n", machineID, commandName)
+	return machineCommandResult{MachineID: machineID, Status: "ok"}
+}
+
+func writeMachineCommandResults(w io.Writer, command, runID, successVerb string, results []machineCommandResult, human bool) error {
+	succeeded := 0
+	for _, result := range results {
+		if result.Status == "ok" {
+			succeeded++
+		}
+	}
+	if !human {
+		return writeJSON(w, struct {
+			Command   string                 `json:"command"`
+			RunID     string                 `json:"run_id,omitempty"`
+			Results   []machineCommandResult `json:"results"`
+			Count     int                    `json:"count"`
+			Succeeded int                    `json:"succeeded"`
+			Failed    int                    `json:"failed"`
+		}{command, runID, results, len(results), succeeded, len(results) - succeeded})
+	}
+	if runID != "" {
+		fmt.Fprintf(w, "Run ID: %s\n", runID)
+	}
+	for _, result := range results {
+		if result.Status != "ok" {
+			fmt.Fprintf(w, "%s: %s command failed: %s\n", result.MachineID, command, result.Error)
+			continue
+		}
+		fmt.Fprintf(w, "%s: %s command %s successfully\n", result.MachineID, command, successVerb)
+	}
+	return nil
 }

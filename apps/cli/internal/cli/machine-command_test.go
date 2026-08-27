@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -45,6 +46,31 @@ func TestWriteImmediateCommandResultFailure(t *testing.T) {
 	want := "second: reset command failed: offline or does not exist\n"
 	if got := buf.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+func TestWriteMachineCommandResultsJSONIsDefault(t *testing.T) {
+	results := []machineCommandResult{
+		{MachineID: "first", Status: "ok"},
+		{MachineID: "offline", Status: "error", Error: "offline or does not exist"},
+	}
+	var buf bytes.Buffer
+	if err := writeMachineCommandResults(&buf, "reset", "run-1", "sent", results, false); err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Command   string                 `json:"command"`
+		RunID     string                 `json:"run_id"`
+		Results   []machineCommandResult `json:"results"`
+		Count     int                    `json:"count"`
+		Succeeded int                    `json:"succeeded"`
+		Failed    int                    `json:"failed"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("default output is not JSON: %v\n%s", err, buf.String())
+	}
+	if payload.Command != "reset" || payload.RunID != "run-1" || payload.Count != 2 || payload.Succeeded != 1 || payload.Failed != 1 {
+		t.Fatalf("got %+v", payload)
 	}
 }
 
