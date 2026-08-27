@@ -23,7 +23,7 @@ puda
 │   └── switch <env>         Set the active env
 ├── machine                  Optional: --nats-servers (overrides active env)
 │   ├── commands <machine_id>  List commands the machine exposes
-│   ├── home <machine_id> [machine_id...]  Homes one or more machines
+│   ├── home <machine_id> [machine_id...]  Home machine(s)
 │   ├── list                 Broadcast puda.cmd.ping and list pong responders
 │   ├── ping <machine_ids>   Ping comma-separated machine IDs with timeout/JSON output
 │   ├── reset <machine_id>   Reset a machine

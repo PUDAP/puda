@@ -28,28 +28,28 @@ var machineRunKwargs string
 
 var machinePauseCmd = newImmediateMachineCommand(immediateMachineCommandConfig{
 	name:   "pause",
-	short:  "Pause one or more machines",
+	short:  "Pause machine(s)",
 	label:  "Pause",
 	sender: pudanats.SendPauseCommand,
 })
 
 var machineResumeCmd = newImmediateMachineCommand(immediateMachineCommandConfig{
 	name:   "resume",
-	short:  "Resume one or more machines",
+	short:  "Resume machine(s)",
 	label:  "Resume",
 	sender: pudanats.SendResumeCommand,
 })
 
 var machineResetCmd = newImmediateMachineCommand(immediateMachineCommandConfig{
 	name:   "reset",
-	short:  "Reset one or more machines",
+	short:  "Reset machine(s)",
 	label:  "Reset",
 	sender: pudanats.SendResetCommand,
 })
 
 var machineStartCmd = newImmediateMachineCommand(immediateMachineCommandConfig{
 	name:      "start",
-	short:     "Start a run on one or more machines",
+	short:     "Start a run on machine(s)",
 	label:     "Start",
 	sender:    pudanats.SendStartCommand,
 	runIDFlag: &machineStartRunID,
@@ -57,7 +57,7 @@ var machineStartCmd = newImmediateMachineCommand(immediateMachineCommandConfig{
 
 var machineCompleteCmd = newImmediateMachineCommand(immediateMachineCommandConfig{
 	name:      "complete",
-	short:     "Complete a run on one or more machines",
+	short:     "Complete a run on machine(s)",
 	label:     "Complete",
 	sender:    sendCompleteCommand,
 	runIDFlag: &machineCompleteRunID,
@@ -219,7 +219,7 @@ func runSingleMachineCommand(machineID, commandName string, params, kwargs map[s
 
 func newImmediateMachineCommand(config immediateMachineCommandConfig) *cobra.Command {
 	commandName := strings.ToLower(config.label)
-	long := fmt.Sprintf(`Send %s immediate command to one or more machines.
+	long := fmt.Sprintf(`Send %s immediate command to machine(s).
 Machine IDs can be comma-separated, e.g. puda machine %s biologic,first`, commandName, config.name)
 	if config.runIDFlag != nil {
 		long += "\n\nUse --run-id to set the run ID. If omitted, a random UUIDv4 is generated."

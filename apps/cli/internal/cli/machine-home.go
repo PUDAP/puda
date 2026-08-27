@@ -13,7 +13,7 @@ import (
 
 var machineHomeCmd = &cobra.Command{
 	Use:   "home <machine_id> [machine_id...]",
-	Short: "Send home commands to one or more machines",
+	Short: "Home machine(s)",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return homeMachines(args)

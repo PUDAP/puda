@@ -85,8 +85,8 @@ var machineListCmd = &cobra.Command{
 
 var machinePingCmd = &cobra.Command{
 	Use:   "ping <machine_ids>",
-	Short: "Ping one or more machines over Core NATS",
-	Long: `Send Core NATS ping requests to one or more machines and report pong details.
+	Short: "Check if machines are online",
+	Long: `Send Core NATS ping requests to machine(s) and report pong details.
 Machine IDs can be comma-separated, e.g. puda machine ping first,biologic.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

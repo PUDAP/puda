@@ -121,7 +121,7 @@ func TestNewImmediateMachineCommand(t *testing.T) {
 	runID := ""
 	cmd := newImmediateMachineCommand(immediateMachineCommandConfig{
 		name:      "start",
-		short:     "Start a run on one or more machines",
+		short:     "Start a run on machine(s)",
 		label:     "Start",
 		runIDFlag: &runID,
 	})
