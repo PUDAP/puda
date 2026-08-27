@@ -37,6 +37,14 @@ class Driver:
         """Current simulated cartesian position (telemetry only)."""
         return dict(self._position)
 
+    def snapshot(self) -> dict:
+        """Extra fields merged into MACHINE_STATE KV updates."""
+        return {
+            "homed": self._homed,
+            "position": self.get_position(),
+            "last_error": self._last_error,
+        }
+
     @command
     def home(self) -> dict:
         """

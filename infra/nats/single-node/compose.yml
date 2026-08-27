@@ -1,0 +1,52 @@
+services:
+  nats:
+    image: nats:2.14.5
+    container_name: nats
+    restart: always
+    ulimits:
+      nofile:
+        soft: 524288
+        hard: 524288
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+      - "1883:1883"
+    networks:
+      - puda
+    volumes:
+      - nats:/data
+      - ./nats.conf:/etc/nats/nats.conf:ro
+    environment:
+      - SERVER_NAME=nats
+      - EXTERNAL_PORT=4222
+    command: "-c /etc/nats/nats.conf --client_advertise ${HOST_IP}:4222"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "nats",
+          "server",
+          "check",
+          "jetstream",
+          "--server",
+          "localhost:4222",
+        ]
+      start_period: 10s
+
+  # for debugging
+  # nui:
+  #   image: ghcr.io/nats-nui/nui:latest
+  #   container_name: nui
+  #   ports:
+  #     - "31311:31311"
+  #   networks:
+  #     - puda
+  #   volumes:
+  #     - ./db:/db
+
+networks:
+  puda:
+    driver: bridge
+
+volumes:
+  nats:

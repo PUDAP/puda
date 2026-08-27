@@ -1,6 +1,8 @@
 {
   "name": "COMMAND_QUEUE",
-  "subjects": ["puda.*.cmd.queue"],
+  "subjects": [
+    "puda.*.cmd.queue"
+  ],
   "retention": "workqueue",
   "storage": "file",
   "discard": "new",

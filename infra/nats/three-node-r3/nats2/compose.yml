@@ -1,20 +1,25 @@
 services:
-  nats:
+  nats2:
     image: nats:2.14.5
-    container_name: nats
+    container_name: nats2
     restart: always
+    ulimits:
+      nofile:
+        soft: 524288
+        hard: 524288
     ports:
       - "4222:4222"
+      - "6222:6222"
       - "8222:8222"
       - "1883:1883"
-    networks:
-      - puda
     volumes:
-      - nats:/data
+      - nats2:/data
       - ./nats.conf:/etc/nats/nats.conf:ro
     environment:
-      - SERVER_NAME=nats
-      - EXTERNAL_PORT=4222
+      - SERVER_NAME=nats2
+      - NATS1_ROUTE=nats-route://${NATS1_HOST}:6222
+      - NATS2_ROUTE=nats-route://${HOST_IP}:6222
+      - NATS3_ROUTE=nats-route://${NATS3_HOST}:6222
     command: "-c /etc/nats/nats.conf --client_advertise ${HOST_IP}:4222"
     healthcheck:
       test:
@@ -29,19 +34,5 @@ services:
         ]
       start_period: 10s
 
-  nui:
-    image: ghcr.io/nats-nui/nui:latest
-    container_name: nui
-    ports:
-      - "31311:31311"
-    networks:
-      - puda
-    volumes:
-      - ./db:/db
-
-networks:
-  puda:
-    driver: bridge
-
 volumes:
-  nats:
+  nats2:

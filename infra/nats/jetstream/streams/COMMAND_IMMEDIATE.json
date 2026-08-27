@@ -1,6 +1,8 @@
 {
   "name": "COMMAND_IMMEDIATE",
-  "subjects": ["puda.*.cmd.immediate"],
+  "subjects": [
+    "puda.*.cmd.immediate"
+  ],
   "retention": "workqueue",
   "storage": "file",
   "discard": "new",

@@ -1,50 +1,62 @@
-# NATS Cluster setup
+# PUDA NATS infrastructure
 
-1. Copy the template: `cp .env.example .env`
+Server deployment topology and PUDA JetStream resources are maintained separately:
 
-2. Edit `.env` and fill in the real values specific to that machine.
-
-3. `docker compose up -d`
-
-## JetStream streams
-
-Declarative stream configs live in [`streams/`](./streams/). Apply them with:
-
-```bash
-NATS_URL=nats://localhost:4222 ./setup_streams.sh
+```text
+infra/nats/
+├── jetstream/        Canonical PUDA streams, KV buckets, and provisioning
+├── single-node/      One NATS server for local development and small tests
+└── three-node-r3/    Three physical NATS nodes for an R3 deployment
 ```
 
-These match the Python SDK / Go CLI:
+## JetStream resources
+
+[`jetstream/`](./jetstream/) is the single source of truth for the PUDA command
+and response streams. Apply it once per NATS account after the server or cluster
+is running, with replication selected explicitly:
+
+```bash
+# Single-node deployment
+cd jetstream
+NATS_URL=nats://localhost:4222 REPLICAS=1 ./setup_streams.sh
+
+# Three-node deployment
+cd jetstream
+NATS_URL=nats://<nats1-ip>:4222 REPLICAS=3 ./setup_streams.sh
+```
+
+## Single node
+
+```bash
+cd single-node
+cp .env.example .env
+# Set HOST_IP in .env
+docker compose up -d
+```
+
+See [`single-node/README.md`](./single-node/README.md).
+
+## Three-node R3 cluster
+
+Each `natsN/` directory maps to one host, following the layout of
+[`PUDAP/puda-nats-template`](https://github.com/PUDAP/puda-nats-template):
+
+```text
+three-node-r3/nats1/
+three-node-r3/nats2/
+three-node-r3/nats3/
+```
+
+See [`three-node-r3/README.md`](./three-node-r3/README.md).
+
+## PUDA subjects
 
 | Stream | Subjects | Retention |
-|--------|----------|-----------|
+|---|---|---|
 | `COMMAND_QUEUE` | `puda.*.cmd.queue` | workqueue |
 | `COMMAND_IMMEDIATE` | `puda.*.cmd.immediate` | workqueue |
 | `RESPONSE_QUEUE` | `puda.*.cmd.response.queue` | interest |
 | `RESPONSE_IMMEDIATE` | `puda.*.cmd.response.immediate` | interest |
 
-Shared JetStream KV buckets (key = `machine_id`, not one bucket per machine):
-
-| Bucket | Key | Value |
-|--------|-----|-------|
-| `MACHINE_STATE` | `{machine_id}` | current state JSON |
-| `MACHINE_COMMANDS` | `{machine_id}` | advertised command catalog |
-
-Subjects are lowercase `puda.*` (case-sensitive). Events/telemetry stay on core NATS — no JetStream streams.
-
-Optional compose one-shot (mount both the script and `streams/`):
-
-```yaml
-services:
-  nats-setup:
-    image: natsio/nats-box
-    depends_on:
-      - nats
-    volumes:
-      - ./setup_streams.sh:/setup_streams.sh:ro
-      - ./streams:/streams:ro
-    environment:
-      - NATS_URL=nats://nats:4222
-      - STREAMS_DIR=/streams
-    command: ["sh", "/setup_streams.sh"]
-```
+Telemetry and events remain on Core NATS. `MACHINE_STATE` and
+`MACHINE_COMMANDS` are shared KV buckets keyed by `machine_id`.
