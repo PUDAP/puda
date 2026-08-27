@@ -211,9 +211,14 @@ A Core NATS request with payload `ping` receives structured JSON:
   "machine_id": "first",
   "timestamp": "2026-08-27T07:23:56Z",
   "sdk_version": "0.0.17",
-  "uptime_seconds": 12.5
+  "uptime_seconds": 12.5,
+  "run_status": "idle"
 }
 ```
+
+`run_status` is derived from the SDK's in-memory execution lock: `busy` while
+a command is executing and `idle` otherwise. It is intentionally not read from
+or persisted to machine KV state.
 
 Ping is intentionally Core NATS request/reply, not a durable JetStream
 immediate command. It reports whether the edge is responsive now and does not

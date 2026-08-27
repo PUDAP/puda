@@ -18,30 +18,6 @@ const (
 	fleetPingSubject        = "puda.cmd.ping"
 )
 
-type pongResponse struct {
-	Status        string  `json:"status"`
-	MachineID     string  `json:"machine_id"`
-	Timestamp     string  `json:"timestamp"`
-	SDKVersion    string  `json:"sdk_version"`
-	UptimeSeconds float64 `json:"uptime_seconds"`
-}
-
-func parsePong(data []byte) (pongResponse, bool) {
-	var pong pongResponse
-	if err := json.Unmarshal(data, &pong); err != nil {
-		return pongResponse{}, false
-	}
-	if pong.Status != "pong" || pong.MachineID == "" {
-		return pongResponse{}, false
-	}
-	return pong, true
-}
-
-func machineIDFromPong(data []byte) (string, bool) {
-	pong, ok := parsePong(data)
-	return pong.MachineID, ok
-}
-
 // PingResult is the outcome of a direct Core NATS ping request.
 type PingResult struct {
 	MachineID     string  `json:"machine_id"`
@@ -49,49 +25,9 @@ type PingResult struct {
 	Timestamp     string  `json:"timestamp,omitempty"`
 	SDKVersion    string  `json:"sdk_version,omitempty"`
 	UptimeSeconds float64 `json:"uptime_seconds,omitempty"`
+	RunStatus     string  `json:"run_status,omitempty"`
 	LatencyMS     float64 `json:"latency_ms"`
 	Error         string  `json:"error,omitempty"`
-}
-
-// PingMachines sends direct Core NATS ping requests concurrently.
-func PingMachines(nc *natsio.Conn, machineIDs []string, timeout time.Duration) []PingResult {
-	unique := make([]string, 0, len(machineIDs))
-	seen := make(map[string]struct{}, len(machineIDs))
-	for _, machineID := range machineIDs {
-		if _, exists := seen[machineID]; exists {
-			continue
-		}
-		seen[machineID] = struct{}{}
-		unique = append(unique, machineID)
-	}
-
-	results := make([]PingResult, len(unique))
-	var wg sync.WaitGroup
-	for i, machineID := range unique {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			started := time.Now()
-			subject := fmt.Sprintf("puda.%s.cmd.ping", strings.ReplaceAll(machineID, ".", "-"))
-			msg, err := nc.Request(subject, []byte("ping"), timeout)
-			latencyMS := float64(time.Since(started)) / float64(time.Millisecond)
-			if err != nil {
-				results[i] = PingResult{MachineID: machineID, Status: "error", LatencyMS: latencyMS, Error: err.Error()}
-				return
-			}
-			pong, ok := parsePong(msg.Data)
-			if !ok {
-				results[i] = PingResult{MachineID: machineID, Status: "error", LatencyMS: latencyMS, Error: "invalid pong response"}
-				return
-			}
-			results[i] = PingResult{
-				MachineID: pong.MachineID, Status: pong.Status, Timestamp: pong.Timestamp,
-				SDKVersion: pong.SDKVersion, UptimeSeconds: pong.UptimeSeconds, LatencyMS: latencyMS,
-			}
-		}()
-	}
-	wg.Wait()
-	return results
 }
 
 // WatchEvent represents a single message from a machine (telemetry, event, or command).
@@ -116,6 +52,118 @@ type WatchOpts struct {
 	IncludeHeartbeat bool
 }
 
+func parsePong(data []byte) (PingResult, bool) {
+	var pong PingResult
+	if err := json.Unmarshal(data, &pong); err != nil {
+		return PingResult{}, false
+	}
+	if pong.Status != "pong" || pong.MachineID == "" {
+		return PingResult{}, false
+	}
+	return pong, true
+}
+
+func machineIDFromPong(data []byte) (string, bool) {
+	pong, ok := parsePong(data)
+	return pong.MachineID, ok
+}
+
+func uniqueMachineIDs(machineIDs []string) []string {
+	unique := make([]string, 0, len(machineIDs))
+	seen := make(map[string]struct{}, len(machineIDs))
+	for _, machineID := range machineIDs {
+		if _, exists := seen[machineID]; exists {
+			continue
+		}
+		seen[machineID] = struct{}{}
+		unique = append(unique, machineID)
+	}
+	return unique
+}
+
+func machinePingSubject(machineID string) string {
+	return fmt.Sprintf("puda.%s.cmd.ping", strings.ReplaceAll(machineID, ".", "-"))
+}
+
+func watchEventFromMsg(msg *natsio.Msg) (WatchEvent, bool) {
+	parts := strings.Split(msg.Subject, ".")
+	if len(parts) < 4 {
+		return WatchEvent{}, false
+	}
+
+	var data json.RawMessage
+	if json.Valid(msg.Data) {
+		data = msg.Data
+	} else {
+		data, _ = json.Marshal(string(msg.Data))
+	}
+
+	return WatchEvent{
+		Timestamp: time.Now().UTC(),
+		Subject:   msg.Subject,
+		MachineID: parts[1],
+		Category:  parts[2],
+		Topic:     strings.Join(parts[3:], "."),
+		Data:      data,
+	}, true
+}
+
+func shouldEmitWatchEvent(evt WatchEvent, opts WatchOpts) bool {
+	if !opts.IncludeHeartbeat && evt.Topic == "heartbeat" {
+		return false
+	}
+	if len(opts.Subjects) == 0 {
+		return true
+	}
+	catTopic := evt.Category + "." + evt.Topic
+	for filter := range opts.Subjects {
+		if catTopic == filter || strings.HasPrefix(catTopic, filter+".") {
+			return true
+		}
+	}
+	return false
+}
+
+func watchSubjects(machineIDs []string) []string {
+	if len(machineIDs) == 0 {
+		return []string{"puda.*.>"}
+	}
+	subjects := make([]string, 0, len(machineIDs))
+	for _, id := range machineIDs {
+		subjects = append(subjects, fmt.Sprintf("puda.%s.>", id))
+	}
+	return subjects
+}
+
+// PingMachines sends direct Core NATS ping requests concurrently.
+func PingMachines(nc *natsio.Conn, machineIDs []string, timeout time.Duration) []PingResult {
+	unique := uniqueMachineIDs(machineIDs)
+	results := make([]PingResult, len(unique))
+	var wg sync.WaitGroup
+	for i, machineID := range unique {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			started := time.Now()
+			msg, err := nc.Request(machinePingSubject(machineID), []byte("ping"), timeout)
+			latencyMS := float64(time.Since(started)) / float64(time.Millisecond)
+			if err != nil {
+				results[i] = PingResult{MachineID: machineID, Status: "error", LatencyMS: latencyMS, Error: err.Error()}
+				return
+			}
+			pong, ok := parsePong(msg.Data)
+			if !ok {
+				results[i] = PingResult{MachineID: machineID, Status: "error", LatencyMS: latencyMS, Error: "invalid pong response"}
+				return
+			}
+			pong.LatencyMS = latencyMS
+			results[i] = pong
+		}()
+	}
+	wg.Wait()
+	return results
+}
+
 // SubscribeMachineSubjects subscribes to puda.<id>.> for every machine ID in
 // the slice, or puda.*.> when machineIDs is empty. It captures machine traffic
 // and multiplexes all messages into a single channel.
@@ -123,45 +171,9 @@ func SubscribeMachineSubjects(ctx context.Context, nc *natsio.Conn, machineIDs [
 	ch := make(chan WatchEvent, 64)
 
 	handler := func(msg *natsio.Msg) {
-		parts := strings.Split(msg.Subject, ".")
-		if len(parts) < 4 {
+		evt, ok := watchEventFromMsg(msg)
+		if !ok || !shouldEmitWatchEvent(evt, opts) {
 			return
-		}
-		mid := parts[1]
-		category := parts[2]
-		topic := strings.Join(parts[3:], ".")
-
-		if !opts.IncludeHeartbeat && topic == "heartbeat" {
-			return
-		}
-		if len(opts.Subjects) > 0 {
-			catTopic := category + "." + topic
-			matched := false
-			for filter := range opts.Subjects {
-				if catTopic == filter || strings.HasPrefix(catTopic, filter+".") {
-					matched = true
-					break
-				}
-			}
-			if !matched {
-				return
-			}
-		}
-
-		var data json.RawMessage
-		if json.Valid(msg.Data) {
-			data = msg.Data
-		} else {
-			data, _ = json.Marshal(string(msg.Data))
-		}
-
-		evt := WatchEvent{
-			Timestamp: time.Now().UTC(),
-			Subject:   msg.Subject,
-			MachineID: mid,
-			Category:  category,
-			Topic:     topic,
-			Data:      data,
 		}
 		select {
 		case ch <- evt:
@@ -169,15 +181,7 @@ func SubscribeMachineSubjects(ctx context.Context, nc *natsio.Conn, machineIDs [
 		}
 	}
 
-	subjects := make([]string, 0, len(machineIDs))
-	if len(machineIDs) == 0 {
-		subjects = append(subjects, "puda.*.>")
-	} else {
-		for _, id := range machineIDs {
-			subjects = append(subjects, fmt.Sprintf("puda.%s.>", id))
-		}
-	}
-
+	subjects := watchSubjects(machineIDs)
 	subs := make([]*natsio.Subscription, 0, len(subjects))
 	for _, subject := range subjects {
 		sub, err := nc.Subscribe(subject, handler)

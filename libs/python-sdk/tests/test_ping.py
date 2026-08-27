@@ -30,6 +30,30 @@ class FakeMessage:
 
 
 class PingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ping_reports_idle_from_runtime_status_handler(self):
+        client = EdgeNatsClient(["nats://localhost:4222"], "test-1")
+        client.nc = FakeNATS()
+        client.set_runtime_status_handler(lambda: "idle")
+        await client.subscribe_ping()
+
+        msg = FakeMessage()
+        await client.nc.callbacks[client.ping](msg)
+
+        payload = json.loads(msg.respond.await_args.args[0])
+        self.assertEqual(payload["run_status"], "idle")
+
+    async def test_ping_reports_busy_from_runtime_status_handler(self):
+        client = EdgeNatsClient(["nats://localhost:4222"], "test-1")
+        client.nc = FakeNATS()
+        client.set_runtime_status_handler(lambda: "busy")
+        await client.subscribe_ping()
+
+        msg = FakeMessage()
+        await client.nc.callbacks[client.ping_broadcast](msg)
+
+        payload = json.loads(msg.respond.await_args.args[0])
+        self.assertEqual(payload["run_status"], "busy")
+
     async def test_direct_and_broadcast_ping_return_structured_pong(self):
         client = EdgeNatsClient(["nats://localhost:4222"], "test-1")
         client.nc = FakeNATS()

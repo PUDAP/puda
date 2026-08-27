@@ -59,6 +59,10 @@ class ExecutionState:
     def get_current_run_id(self) -> Optional[str]:
         """Get the current run_id."""
         return self._current_run_id
+
+    def get_runtime_status(self) -> str:
+        """Return transient execution status without persisting it to KV."""
+        return "busy" if self._lock.locked() else "idle"
     
     async def cancel_current_execution(self, run_id: Optional[str] = None) -> bool:
         """

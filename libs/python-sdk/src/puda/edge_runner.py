@@ -148,6 +148,7 @@ class EdgeRunner:
         )
         # Manage command execution state
         self.exec_state = ExecutionState()
+        self.nats_client.set_runtime_status_handler(self.exec_state.get_runtime_status)
         # Self-update service; release driver resources before process exit
         self.updater = EdgeUpdater(
             nats_client=nats_client,

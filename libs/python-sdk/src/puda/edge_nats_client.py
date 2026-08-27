@@ -88,6 +88,7 @@ class EdgeNatsClient:
         self.kv_state: Optional[KeyValue] = None
         self.kv_commands: Optional[KeyValue] = None
         self.state_handler: Optional[Callable[[], Dict[str, Any]]] = None
+        self.runtime_status_handler: Callable[[], str] = lambda: "idle"
         
         # Generate subject and stream names
         self._init_subjects()
@@ -120,6 +121,10 @@ class EdgeNatsClient:
     def set_state_handler(self, state_handler: Callable[[], Dict[str, Any]] | None) -> None:
         """Set optional machine-specific state fields to include in KV state updates."""
         self.state_handler = state_handler
+
+    def set_runtime_status_handler(self, handler: Callable[[], str]) -> None:
+        """Set the in-memory runtime status provider used by ping responses."""
+        self.runtime_status_handler = handler
     
     def _init_subjects(self):
         """Initialize all subject and stream names."""
@@ -425,6 +430,7 @@ class EdgeNatsClient:
                 "timestamp": self._format_timestamp(),
                 "sdk_version": self.sdk_version,
                 "uptime_seconds": round(max(0.0, time.monotonic() - self._started_at), 3),
+                "run_status": self.runtime_status_handler(),
             }
         else:
             payload = {

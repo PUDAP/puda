@@ -26,7 +26,7 @@ var machineNatsServers string
 var machineListJSON bool
 var machineListTimeout time.Duration
 var machinePingTimeout time.Duration
-var machinePingJSON bool
+var machinePingHuman bool
 var watchMachines []string
 var watchTimeout int
 var watchSubjects []string
@@ -86,8 +86,9 @@ var machineListCmd = &cobra.Command{
 var machinePingCmd = &cobra.Command{
 	Use:   "ping <machine_ids>",
 	Short: "Check if machines are online",
-	Long: `Send Core NATS ping requests to machine(s) and report pong details.
-Machine IDs can be comma-separated, e.g. puda machine ping first,biologic.`,
+	Long: `Send Core NATS ping requests to machine(s) and report pong details as JSON.
+Machine IDs can be comma-separated, e.g. puda machine ping first,biologic.
+Use --human for a text summary.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		machineIDs := parseMachineIDs(args)
@@ -101,7 +102,7 @@ Machine IDs can be comma-separated, e.g. puda machine ping first,biologic.`,
 		defer nc.Close()
 
 		results := pudanats.PingMachines(nc, machineIDs, machinePingTimeout)
-		if err := writePingResults(cmd.OutOrStdout(), results, machinePingJSON); err != nil {
+		if err := writePingResults(cmd.OutOrStdout(), results, machinePingHuman); err != nil {
 			return err
 		}
 		failed := 0
@@ -117,8 +118,8 @@ Machine IDs can be comma-separated, e.g. puda machine ping first,biologic.`,
 	},
 }
 
-func writePingResults(w io.Writer, results []pudanats.PingResult, jsonOutput bool) error {
-	if jsonOutput {
+func writePingResults(w io.Writer, results []pudanats.PingResult, human bool) error {
+	if !human {
 		responded := 0
 		for _, result := range results {
 			if result.Status == "pong" {
@@ -145,9 +146,10 @@ func writePingResults(w io.Writer, results []pudanats.PingResult, jsonOutput boo
 		}
 		fmt.Fprintf(
 			w,
-			"%s: pong %.3fms sdk=%s uptime=%.3fs\n",
+			"%s: pong %.3fms status=%s sdk=%s uptime=%.3fs\n",
 			result.MachineID,
 			result.LatencyMS,
+			result.RunStatus,
 			result.SDKVersion,
 			result.UptimeSeconds,
 		)
@@ -252,7 +254,7 @@ func init() {
 	machineListCmd.Flags().BoolVar(&machineListJSON, "json", false, "Output machine list as JSON")
 	machineListCmd.Flags().DurationVar(&machineListTimeout, "timeout", defaultPingDiscoveryTimeout, "How long to collect pong replies")
 	machinePingCmd.Flags().DurationVar(&machinePingTimeout, "timeout", 2*time.Second, "Timeout for each ping request")
-	machinePingCmd.Flags().BoolVar(&machinePingJSON, "json", false, "Output ping results as JSON")
+	machinePingCmd.Flags().BoolVar(&machinePingHuman, "human", false, "Output ping results as human-readable text instead of JSON")
 	machineWatchCmd.Flags().StringSliceVarP(&watchMachines, "machines", "m", nil, "Comma-separated list of machine IDs to watch (default: all machines)")
 	machineWatchCmd.Flags().StringSliceVar(&watchMachines, "targets", nil, "Deprecated alias for --machines")
 	machineWatchCmd.Flags().MarkHidden("targets")
