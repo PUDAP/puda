@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"sort"
@@ -16,10 +17,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const heartbeatTimeout = 1500 * time.Millisecond
+const (
+	heartbeatTimeout            = 1500 * time.Millisecond
+	defaultPingDiscoveryTimeout = 1 * time.Second
+)
 
 var machineNatsServers string
 var machineListJSON bool
+var machineListTimeout time.Duration
+var machinePingTimeout time.Duration
+var machinePingJSON bool
 var watchMachines []string
 var watchTimeout int
 var watchSubjects []string
@@ -36,8 +43,8 @@ var machineCmd = &cobra.Command{
 
 var machineListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "Discover machines via heartbeat",
-	Long:  `Listen for heartbeat messages on puda.*.tlm.heartbeat and list machines that respond.`,
+	Short: "Discover responsive machines via Core NATS ping",
+	Long:  `Broadcast ping on puda.cmd.ping and list machines that reply with pong.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		nc, err := connectMachineNATS()
 		if err != nil {
@@ -45,7 +52,7 @@ var machineListCmd = &cobra.Command{
 		}
 		defer nc.Close()
 
-		machines, err := pudanats.ListMachines(nc, heartbeatTimeout)
+		machines, err := pudanats.ListMachines(nc, machineListTimeout)
 		if err != nil {
 			return err
 		}
@@ -74,6 +81,78 @@ var machineListCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+var machinePingCmd = &cobra.Command{
+	Use:   "ping <machine_ids>",
+	Short: "Ping one or more machines over Core NATS",
+	Long: `Send Core NATS ping requests to one or more machines and report pong details.
+Machine IDs can be comma-separated, e.g. puda machine ping first,biologic.`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		machineIDs := parseMachineIDs(args)
+		if len(machineIDs) == 0 {
+			return fmt.Errorf("at least one machine ID is required")
+		}
+		nc, err := connectMachineNATS()
+		if err != nil {
+			return err
+		}
+		defer nc.Close()
+
+		results := pudanats.PingMachines(nc, machineIDs, machinePingTimeout)
+		if err := writePingResults(cmd.OutOrStdout(), results, machinePingJSON); err != nil {
+			return err
+		}
+		failed := 0
+		for _, result := range results {
+			if result.Status != "pong" {
+				failed++
+			}
+		}
+		if failed > 0 {
+			return fmt.Errorf("%d machine(s) failed to respond", failed)
+		}
+		return nil
+	},
+}
+
+func writePingResults(w io.Writer, results []pudanats.PingResult, jsonOutput bool) error {
+	if jsonOutput {
+		responded := 0
+		for _, result := range results {
+			if result.Status == "pong" {
+				responded++
+			}
+		}
+		payload := struct {
+			Results   []pudanats.PingResult `json:"results"`
+			Count     int                   `json:"count"`
+			Responded int                   `json:"responded"`
+			Failed    int                   `json:"failed"`
+		}{results, len(results), responded, len(results) - responded}
+		encoded, err := json.MarshalIndent(payload, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to encode ping results: %w", err)
+		}
+		_, err = fmt.Fprintln(w, string(encoded))
+		return err
+	}
+	for _, result := range results {
+		if result.Status != "pong" {
+			fmt.Fprintf(w, "%s: failed: %s\n", result.MachineID, result.Error)
+			continue
+		}
+		fmt.Fprintf(
+			w,
+			"%s: pong %.3fms sdk=%s uptime=%.3fs\n",
+			result.MachineID,
+			result.LatencyMS,
+			result.SDKVersion,
+			result.UptimeSeconds,
+		)
+	}
+	return nil
 }
 
 var machineCommandsCmd = &cobra.Command{
@@ -171,6 +250,9 @@ Use --timeout to auto-stop after N seconds, or Ctrl-C to stop.`,
 func init() {
 	machineCmd.PersistentFlags().StringVar(&machineNatsServers, "nats-servers", "", "Comma-separated NATS server URLs (overrides active env)")
 	machineListCmd.Flags().BoolVar(&machineListJSON, "json", false, "Output machine list as JSON")
+	machineListCmd.Flags().DurationVar(&machineListTimeout, "timeout", defaultPingDiscoveryTimeout, "How long to collect pong replies")
+	machinePingCmd.Flags().DurationVar(&machinePingTimeout, "timeout", 2*time.Second, "Timeout for each ping request")
+	machinePingCmd.Flags().BoolVar(&machinePingJSON, "json", false, "Output ping results as JSON")
 	machineWatchCmd.Flags().StringSliceVarP(&watchMachines, "machines", "m", nil, "Comma-separated list of machine IDs to watch (default: all machines)")
 	machineWatchCmd.Flags().StringSliceVar(&watchMachines, "targets", nil, "Deprecated alias for --machines")
 	machineWatchCmd.Flags().MarkHidden("targets")
@@ -178,6 +260,7 @@ func init() {
 	machineWatchCmd.Flags().StringSliceVarP(&watchSubjects, "subjects", "s", nil, "Comma-separated category.topic prefixes to include (default: all subjects)")
 	machineWatchCmd.Flags().BoolVar(&watchIncludeHeartbeat, "include-heartbeat", false, "Include heartbeat messages (excluded by default)")
 	machineCmd.AddCommand(machineListCmd)
+	machineCmd.AddCommand(machinePingCmd)
 	machineCmd.AddCommand(machineCommandsCmd)
 	machineCmd.AddCommand(machineWatchCmd)
 }

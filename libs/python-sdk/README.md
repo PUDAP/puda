@@ -189,17 +189,18 @@ Basic default NATS client for generic machines. Handles commands, telemetry, and
 - Processing incoming commands and sending command responses
 - Publishing telemetry (core NATS, no JetStream)
 - Publishing events (core NATS, fire-and-forget)
-- Responding to Core NATS ping requests on `puda.<machine_id>.cmd.ping`
+- Responding to direct and fleet-wide Core NATS ping requests
 - Connection management and reconnection handling
 
 **Note:** This is a generic client. Machine-specific methods should be implemented in the machine-edge client.
 
 #### Core NATS ping/pong
 
-`EdgeRunner` automatically subscribes each connected edge to:
+`EdgeRunner` automatically subscribes each connected edge to both:
 
 ```text
 puda.<machine_id>.cmd.ping
+puda.cmd.ping
 ```
 
 A Core NATS request with payload `ping` receives structured JSON:
@@ -217,6 +218,10 @@ A Core NATS request with payload `ping` receives structured JSON:
 Ping is intentionally Core NATS request/reply, not a durable JetStream
 immediate command. It reports whether the edge is responsive now and does not
 create an offline backlog.
+
+`puda machine list` sends one broadcast request to `puda.cmd.ping`, gathers all
+pong replies during its discovery window, deduplicates them by `machine_id`,
+and lists only edges that are responsive at that moment.
 
 ### 4. EdgeRunner (`edge_runner.py`)
 

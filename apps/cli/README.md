@@ -24,7 +24,8 @@ puda
 ├── machine                  Optional: --nats-servers (overrides active env)
 │   ├── commands <machine_id>  List commands the machine exposes
 │   ├── home <machine_id> [machine_id...]  Homes one or more machines
-│   ├── list                 List online machines from NATS heartbeat traffic
+│   ├── list                 Broadcast puda.cmd.ping and list pong responders
+│   ├── ping <machine_ids>   Ping comma-separated machine IDs with timeout/JSON output
 │   ├── reset <machine_id>   Reset a machine
 │   ├── state <machine_id>   Get the state of a machine
 │   ├── update <machine_id>  Tell a PUDA edge to pull (git/docker) and restart

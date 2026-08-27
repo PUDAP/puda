@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	natsio "github.com/nats-io/nats.go"
@@ -14,7 +15,84 @@ import (
 const (
 	kvBucketMachineState    = "MACHINE_STATE"
 	kvBucketMachineCommands = "MACHINE_COMMANDS"
+	fleetPingSubject        = "puda.cmd.ping"
 )
+
+type pongResponse struct {
+	Status        string  `json:"status"`
+	MachineID     string  `json:"machine_id"`
+	Timestamp     string  `json:"timestamp"`
+	SDKVersion    string  `json:"sdk_version"`
+	UptimeSeconds float64 `json:"uptime_seconds"`
+}
+
+func parsePong(data []byte) (pongResponse, bool) {
+	var pong pongResponse
+	if err := json.Unmarshal(data, &pong); err != nil {
+		return pongResponse{}, false
+	}
+	if pong.Status != "pong" || pong.MachineID == "" {
+		return pongResponse{}, false
+	}
+	return pong, true
+}
+
+func machineIDFromPong(data []byte) (string, bool) {
+	pong, ok := parsePong(data)
+	return pong.MachineID, ok
+}
+
+// PingResult is the outcome of a direct Core NATS ping request.
+type PingResult struct {
+	MachineID     string  `json:"machine_id"`
+	Status        string  `json:"status"`
+	Timestamp     string  `json:"timestamp,omitempty"`
+	SDKVersion    string  `json:"sdk_version,omitempty"`
+	UptimeSeconds float64 `json:"uptime_seconds,omitempty"`
+	LatencyMS     float64 `json:"latency_ms"`
+	Error         string  `json:"error,omitempty"`
+}
+
+// PingMachines sends direct Core NATS ping requests concurrently.
+func PingMachines(nc *natsio.Conn, machineIDs []string, timeout time.Duration) []PingResult {
+	unique := make([]string, 0, len(machineIDs))
+	seen := make(map[string]struct{}, len(machineIDs))
+	for _, machineID := range machineIDs {
+		if _, exists := seen[machineID]; exists {
+			continue
+		}
+		seen[machineID] = struct{}{}
+		unique = append(unique, machineID)
+	}
+
+	results := make([]PingResult, len(unique))
+	var wg sync.WaitGroup
+	for i, machineID := range unique {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			started := time.Now()
+			subject := fmt.Sprintf("puda.%s.cmd.ping", strings.ReplaceAll(machineID, ".", "-"))
+			msg, err := nc.Request(subject, []byte("ping"), timeout)
+			latencyMS := float64(time.Since(started)) / float64(time.Millisecond)
+			if err != nil {
+				results[i] = PingResult{MachineID: machineID, Status: "error", LatencyMS: latencyMS, Error: err.Error()}
+				return
+			}
+			pong, ok := parsePong(msg.Data)
+			if !ok {
+				results[i] = PingResult{MachineID: machineID, Status: "error", LatencyMS: latencyMS, Error: "invalid pong response"}
+				return
+			}
+			results[i] = PingResult{
+				MachineID: pong.MachineID, Status: pong.Status, Timestamp: pong.Timestamp,
+				SDKVersion: pong.SDKVersion, UptimeSeconds: pong.UptimeSeconds, LatencyMS: latencyMS,
+			}
+		}()
+	}
+	wg.Wait()
+	return results
+}
 
 // WatchEvent represents a single message from a machine (telemetry, event, or command).
 type WatchEvent struct {
@@ -125,23 +203,45 @@ func SubscribeMachineSubjects(ctx context.Context, nc *natsio.Conn, machineIDs [
 	return ch, nil
 }
 
-// ListMachines subscribes to puda.*.tlm.heartbeat for the given duration
-// and returns the unique machine IDs that were seen.
+// ListMachines broadcasts a Core NATS ping and gathers unique pong replies.
 func ListMachines(nc *natsio.Conn, timeout time.Duration) ([]string, error) {
 	seen := make(map[string]struct{})
-
-	sub, err := nc.Subscribe("puda.*.tlm.heartbeat", func(msg *natsio.Msg) {
-		parts := strings.Split(msg.Subject, ".")
-		if len(parts) >= 2 {
-			seen[parts[1]] = struct{}{}
-		}
-	})
+	inbox := natsio.NewInbox()
+	sub, err := nc.SubscribeSync(inbox)
 	if err != nil {
-		return nil, fmt.Errorf("failed to subscribe to heartbeat: %w", err)
+		return nil, fmt.Errorf("failed to subscribe to ping replies: %w", err)
 	}
 	defer sub.Unsubscribe()
+	if err := sub.SetPendingLimits(1_000_000, 256*1024*1024); err != nil {
+		return nil, fmt.Errorf("failed to set ping reply buffer limits: %w", err)
+	}
+	if err := nc.Flush(); err != nil {
+		return nil, fmt.Errorf("failed to activate ping reply inbox: %w", err)
+	}
+	if err := nc.PublishRequest(fleetPingSubject, inbox, []byte("ping")); err != nil {
+		return nil, fmt.Errorf("failed to publish fleet ping: %w", err)
+	}
+	if err := nc.Flush(); err != nil {
+		return nil, fmt.Errorf("failed to flush fleet ping: %w", err)
+	}
 
-	time.Sleep(timeout)
+	deadline := time.Now().Add(timeout)
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		msg, err := sub.NextMsg(remaining)
+		if errors.Is(err, natsio.ErrTimeout) || errors.Is(err, natsio.ErrNoResponders) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed while collecting ping replies: %w", err)
+		}
+		if machineID, ok := machineIDFromPong(msg.Data); ok {
+			seen[machineID] = struct{}{}
+		}
+	}
 
 	machines := make([]string, 0, len(seen))
 	for id := range seen {

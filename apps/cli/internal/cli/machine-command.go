@@ -257,11 +257,13 @@ func runImmediateCommandForMachines(
 	}
 	defer nc.Close()
 
-	listedMachines, err := pudanats.ListMachines(nc, heartbeatTimeout)
-	if err != nil {
-		return fmt.Errorf("failed to list online machines: %w", err)
+	pingResults := pudanats.PingMachines(nc, machineIDs, heartbeatTimeout)
+	onlineMachines := make(map[string]struct{}, len(pingResults))
+	for _, result := range pingResults {
+		if result.Status == "pong" {
+			onlineMachines[result.MachineID] = struct{}{}
+		}
 	}
-	onlineMachines := machineIDSet(listedMachines)
 
 	onlineMachineIDs, offlineMachineIDs := splitImmediateCommandTargets(machineIDs, onlineMachines)
 	if len(onlineMachineIDs) == 0 {

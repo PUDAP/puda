@@ -97,6 +97,7 @@ class EdgeNatsClient:
         self._cmd_queue_task = None  # Background task for pull consumer
         self._cmd_immediate_sub = None
         self._ping_sub: Any = None
+        self._ping_broadcast_sub: Any = None
         
         # Connection state
         self._is_connected = False
@@ -133,6 +134,7 @@ class EdgeNatsClient:
         self.cmd_queue = f"{NAMESPACE}.{machine_id_safe}.cmd.queue" # should be pull consumer
         self.cmd_immediate = f"{NAMESPACE}.{machine_id_safe}.cmd.immediate" # push consumer
         self.ping = f"{NAMESPACE}.{machine_id_safe}.cmd.ping"
+        self.ping_broadcast = f"{NAMESPACE}.cmd.ping"
         
         # Response subjects (JetStream streams)
         self.response_queue = f"{NAMESPACE}.{machine_id_safe}.cmd.response.queue"
@@ -298,6 +300,13 @@ class EdgeNatsClient:
             except Exception:
                 pass
             self._ping_sub = None
+
+        if self._ping_broadcast_sub:
+            try:
+                await self._ping_broadcast_sub.unsubscribe()
+            except Exception:
+                pass
+            self._ping_broadcast_sub = None
     
     def _reset_connection_state(self):
         """Reset connection-related state."""
@@ -310,6 +319,7 @@ class EdgeNatsClient:
         self._cmd_queue_task = None
         self._cmd_immediate_sub = None
         self._ping_sub = None
+        self._ping_broadcast_sub = None
         # Publish immediately after the next successful connection.
         self._last_heartbeat_at = None
         self._last_position_at = None
@@ -385,16 +395,26 @@ class EdgeNatsClient:
     # ==================== TELEMETRY (Core NATS, no JetStream) ====================
     
     async def subscribe_ping(self) -> None:
-        """Subscribe to the Core NATS ping request/reply subject."""
+        """Subscribe to direct and fleet-wide Core NATS ping subjects."""
         if self.nc is None:
             raise RuntimeError("NATS not connected")
-        if self._ping_sub is not None:
-            try:
-                await self._ping_sub.unsubscribe()
-            except Exception as e:
-                logger.debug("Error unsubscribing previous ping subscription: %s", e)
+        for subscription in (self._ping_sub, self._ping_broadcast_sub):
+            if subscription is not None:
+                try:
+                    await subscription.unsubscribe()
+                except Exception as e:
+                    logger.debug("Error unsubscribing previous ping subscription: %s", e)
         self._ping_sub = await self.nc.subscribe(subject=self.ping, cb=self._handle_ping)
-        logger.info("Subscribed to Core NATS ping requests: %s", self.ping)
+        self._ping_broadcast_sub = await self.nc.subscribe(
+            subject=self.ping_broadcast,
+            cb=self._handle_ping,
+        )
+        await self.nc.flush()
+        logger.info(
+            "Subscribed to Core NATS ping requests: direct=%s broadcast=%s",
+            self.ping,
+            self.ping_broadcast,
+        )
 
     async def _handle_ping(self, msg: Msg) -> None:
         """Reply to ``ping`` with a structured ``pong`` payload."""
