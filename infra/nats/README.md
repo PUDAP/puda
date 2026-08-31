@@ -55,8 +55,8 @@ See [`three-node-r3/README.md`](./three-node-r3/README.md).
 |---|---|---|
 | `COMMAND_QUEUE` | `puda.*.cmd.queue` | workqueue |
 | `COMMAND_IMMEDIATE` | `puda.*.cmd.immediate` | workqueue |
-| `RESPONSE_QUEUE` | `puda.*.cmd.response.queue` | interest |
-| `RESPONSE_IMMEDIATE` | `puda.*.cmd.response.immediate` | interest |
+| `RESPONSE_QUEUE` | `puda.*.cmd.response.queue` | interest (24h max-age) |
+| `RESPONSE_IMMEDIATE` | `puda.*.cmd.response.immediate` | interest (24h max-age) |
 
 Telemetry and events remain on Core NATS. `MACHINE_STATE` and
 `MACHINE_COMMANDS` are shared KV buckets keyed by `machine_id`.

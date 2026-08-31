@@ -4,6 +4,7 @@
     "puda.*.cmd.response.immediate"
   ],
   "retention": "interest",
+  "max_age": 86400000000000,
   "storage": "file",
-  "description": "Responses to immediate commands (Interest retention)"
+  "description": "Responses to immediate commands (interest retention, 24h max-age). Independent consumers each get a copy; the Influx durable keeps messages while the logger is down."
 }

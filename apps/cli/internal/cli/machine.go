@@ -7,7 +7,9 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"regexp"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,12 +26,15 @@ const (
 
 var machineNatsServers string
 var machineHuman bool
+var machineCommandName string
 var machineListTimeout time.Duration
 var machinePingTimeout time.Duration
 var watchMachines []string
 var watchTimeout int
 var watchSubjects []string
 var watchIncludeHeartbeat bool
+
+var machineCommandHeaderRe = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\(`)
 
 var machineCmd = &cobra.Command{
 	Use:   "machine",
@@ -160,10 +165,123 @@ func writeJSON(w io.Writer, v any) error {
 	return err
 }
 
+type machineCommandBlock struct {
+	Name string
+	Text string
+}
+
+func parseCommandNames(value string) []string {
+	parts := strings.Split(value, ",")
+	names := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		name := strings.TrimSpace(part)
+		if name == "" {
+			continue
+		}
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	return names
+}
+
+func extractMachineCommandText(commands, namesSpec string) (string, error) {
+	requested := parseCommandNames(namesSpec)
+	if len(requested) == 0 {
+		return "", fmt.Errorf("at least one command name is required")
+	}
+
+	blocks := splitMachineCommandBlocks(commands)
+	available := make([]string, 0, len(blocks))
+	byName := make(map[string]string, len(blocks))
+	for _, block := range blocks {
+		available = append(available, block.Name)
+		byName[block.Name] = block.Text
+	}
+
+	selected := make([]string, 0, len(requested))
+	missing := make([]string, 0)
+	for _, name := range requested {
+		text, ok := byName[name]
+		if !ok {
+			missing = append(missing, name)
+			continue
+		}
+		selected = append(selected, text)
+	}
+	if len(missing) > 0 {
+		label := "command"
+		if len(missing) > 1 {
+			label = "commands"
+		}
+		quoted := make([]string, len(missing))
+		for i, name := range missing {
+			quoted[i] = fmt.Sprintf("%q", name)
+		}
+		if len(available) == 0 {
+			return "", fmt.Errorf("%s %s not found", label, strings.Join(quoted, ", "))
+		}
+		return "", fmt.Errorf("%s %s not found; available: %s", label, strings.Join(quoted, ", "), strings.Join(available, ", "))
+	}
+	return strings.Join(selected, "\n\n"), nil
+}
+
+func splitMachineCommandBlocks(commands string) []machineCommandBlock {
+	normalized := strings.ReplaceAll(commands, "\r\n", "\n")
+	lines := strings.Split(strings.TrimSuffix(normalized, "\n"), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		return nil
+	}
+
+	var blocks []machineCommandBlock
+	var currentName string
+	var currentLines []string
+	flush := func() {
+		if currentName == "" {
+			return
+		}
+		for len(currentLines) > 0 && strings.TrimSpace(currentLines[len(currentLines)-1]) == "" {
+			currentLines = currentLines[:len(currentLines)-1]
+		}
+		blocks = append(blocks, machineCommandBlock{
+			Name: currentName,
+			Text: strings.Join(currentLines, "\n"),
+		})
+		currentName = ""
+		currentLines = nil
+	}
+
+	for _, line := range lines {
+		if matches := machineCommandHeaderRe.FindStringSubmatch(line); matches != nil {
+			flush()
+			currentName = matches[1]
+			currentLines = []string{line}
+			continue
+		}
+		if currentName != "" {
+			currentLines = append(currentLines, line)
+		}
+	}
+	flush()
+	return blocks
+}
+
 var machineCommandsCmd = &cobra.Command{
 	Use:   "commands <machine_id>",
 	Short: "Show available commands for a machine",
-	Args:  cobra.ExactArgs(1),
+	Long: `Show advertised commands for a machine.
+
+Use --command to show one or more commands by name. Command names can be
+comma-separated, e.g. puda machine commands first --command home,move_to
+
+Examples:
+  puda machine commands first
+  puda machine commands first --command move_to
+  puda machine commands first --command home,move_to`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		nc, err := connectMachineNATS()
 		if err != nil {
@@ -173,6 +291,12 @@ var machineCommandsCmd = &cobra.Command{
 		commands, err := pudanats.GetMachineCommands(nc, args[0])
 		if err != nil {
 			return err
+		}
+		if name := strings.TrimSpace(machineCommandName); name != "" {
+			commands, err = extractMachineCommandText(commands, name)
+			if err != nil {
+				return err
+			}
 		}
 		if machineHuman {
 			fmt.Fprintln(cmd.OutOrStdout(), commands)
@@ -281,6 +405,7 @@ func init() {
 	machineCmd.PersistentFlags().BoolVar(&machineHuman, "human", false, "Output as human-readable text instead of JSON")
 	machineListCmd.Flags().DurationVar(&machineListTimeout, "timeout", defaultPingDiscoveryTimeout, "How long to collect pong replies")
 	machinePingCmd.Flags().DurationVar(&machinePingTimeout, "timeout", 2*time.Second, "Timeout for each ping request")
+	machineCommandsCmd.Flags().StringVar(&machineCommandName, "command", "", "Show only these advertised commands (comma-separated)")
 	machineWatchCmd.Flags().StringSliceVarP(&watchMachines, "machines", "m", nil, "Comma-separated list of machine IDs to watch (default: all machines)")
 	machineWatchCmd.Flags().StringSliceVar(&watchMachines, "targets", nil, "Deprecated alias for --machines")
 	machineWatchCmd.Flags().MarkHidden("targets")

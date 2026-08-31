@@ -1,8 +1,8 @@
 """
 Main entry point for the test-edge machine service.
 
-Software-only simulator for local PUDA testing. One process can run a single
-machine or a fleet of instances, each with its own MACHINE_ID on NATS.
+Software-only simulator for local PUDA testing. One process runs one edge
+with a single MACHINE_ID on NATS.
 """
 
 from __future__ import annotations
@@ -11,7 +11,6 @@ import argparse
 import asyncio
 import contextvars
 import logging
-import os
 import sys
 from pathlib import Path
 
@@ -20,7 +19,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from puda import EdgeNatsClient, EdgeRunner
 
 from driver import Driver
-from ids import resolve_machine_ids
 
 machine_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("machine_id", default="-")
 
@@ -43,8 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 class Config(BaseSettings):
-    machine_id: str | None = None
-    machine_prefix: str = "test"
+    machine_id: str = "test-1"
     nats_servers: str = "nats://localhost:4222"
     fake_command_delay: float = 0.0
 
@@ -71,45 +68,19 @@ def load_config() -> Config:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run one or more software-only PUDA test edges",
+        description="Run a software-only PUDA test edge",
     )
     parser.add_argument(
         "--id",
         "--machine-id",
         dest="machine_id",
-        help="Single machine ID (overrides MACHINE_ID)",
-    )
-    parser.add_argument(
-        "--ids",
-        help="Comma-separated machine IDs, e.g. alpha,beta,gamma",
-    )
-    parser.add_argument(
-        "--count",
-        type=int,
-        help="Start N instances named {prefix}-1 .. {prefix}-N",
-    )
-    parser.add_argument(
-        "--prefix",
-        help="Prefix used with --count (default: test, or MACHINE_PREFIX)",
+        help="Machine ID (overrides MACHINE_ID)",
     )
     return parser.parse_args(argv)
 
 
-def instance_ids(args: argparse.Namespace, config: Config) -> list[str]:
-    count = args.count
-    if count is None:
-        count_env = os.getenv("COUNT", "").strip()
-        count = int(count_env) if count_env else None
-    return resolve_machine_ids(
-        ids=args.ids or os.getenv("MACHINE_IDS"),
-        count=count,
-        prefix=args.prefix or config.machine_prefix,
-        machine_id=args.machine_id or config.machine_id,
-    )
-
-
 async def run_edge(machine_id: str, config: Config) -> None:
-    """Initialize one driver and NATS client, then run until cancelled."""
+    """Initialize the driver and NATS client, then run until cancelled."""
     machine_id_var.set(machine_id)
     logger.info("Initializing driver for %s", machine_id)
     driver = Driver(command_delay=config.fake_command_delay)
@@ -168,26 +139,12 @@ async def _supervised(machine_id: str, config: Config) -> None:
             await asyncio.sleep(5)
 
 
-async def run_fleet(machine_ids: list[str], config: Config) -> None:
-    logger.info("Starting %d edge instance(s): %s", len(machine_ids), ", ".join(machine_ids))
-    tasks = [asyncio.create_task(_supervised(mid, config), name=mid) for mid in machine_ids]
-    try:
-        await asyncio.gather(*tasks)
-    finally:
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-
-
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     config = load_config()
-    ids = instance_ids(args, config)
-    if not ids:
-        logger.error("No machine IDs to start")
-        sys.exit(1)
+    machine_id = args.machine_id or config.machine_id
     try:
-        asyncio.run(run_fleet(ids, config))
+        asyncio.run(_supervised(machine_id, config))
     except KeyboardInterrupt:
         logger.warning("Gracefully stopping...")
         sys.exit(0)

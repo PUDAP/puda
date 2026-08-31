@@ -232,6 +232,20 @@ and lists only edges that are responsive at that moment.
 
 Dispatches incoming NATS commands onto the machine driver. Only methods marked with `@command` are advertised and executed.
 
+Optional `@safety` metadata is published with the command catalog so agents can prompt the operator before execution. It does not change dispatch.
+
+```python
+from puda import command, safety
+
+@command
+@safety("Collision risk. Confirm the deck is clear and the machine is homed.")
+def move(self, x: float, y: float, z: float) -> dict:
+    """Move to an absolute position."""
+    ...
+```
+
+`confirm` defaults to `true`. Agents must prompt the user before executing a tagged command unless the driver sets `confirm=False`. Optional fields: `hazards`, plus `requires` and `forbidden_when` as natural-language context.
+
 **Failure semantics:** Command handlers must raise an exception to indicate failure. Returning `False` (or any other value) is still a successful PUDA response. A `False` return is serialized as:
 
 ```json

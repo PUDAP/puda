@@ -14,7 +14,7 @@ from typing import Any, Callable, Awaitable
 
 from .command import (
     SDK_UPDATE_ERROR,
-    iter_command_methods,
+    build_command_catalog,
     require_command_names,
 )
 from .edge_nats_client import EdgeNatsClient
@@ -352,18 +352,8 @@ class EdgeRunner:
         await self.nats_client.publish_state(payload)
         
     async def _publish_commands(self) -> None:
-        methods = iter_command_methods(self.machine_driver)
-        lines: list[str] = []
-        for i, (name, func) in enumerate(methods):
-            lines.append(f"{name}{inspect.signature(func)}")
-            doc = inspect.getdoc(func)
-            if doc:
-                for line in doc.split("\n"):
-                    lines.append(f"    {line}")
-            if i < len(methods) - 1:
-                lines.append("")
-
-        payload: dict[str, Any] = {"commands": "\n".join(lines)}
+        text, catalog = build_command_catalog(self.machine_driver)
+        payload: dict[str, Any] = {"commands": text, "catalog": catalog}
         await self.nats_client.publish_commands(payload)
 
     async def _run_main_loop(self) -> None:

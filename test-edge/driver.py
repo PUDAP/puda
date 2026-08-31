@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import time
 
-from puda import command
+from puda import command, safety
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +61,33 @@ class Driver:
         return {"homed": True, "position": self.get_position()}
 
     @command
+    @safety(
+        "Confirm the workspace is clear before moving.",
+        hazards=["collision"],
+        requires="Machine must just have been homed and the workspace clear.",
+        forbidden_when="Do not move if the workspace is occupied, human movement is detected",
+    )
+    def move_to(self, x: float, y: float, z: float) -> dict:
+        """
+        Move to an absolute simulated position.
+
+        Args:
+            x: Target X
+            y: Target Y
+            z: Target Z
+
+        Returns:
+            dict: New position
+        """
+        self._simulate_work()
+        self._position = {"x": float(x), "y": float(y), "z": float(z)}
+        logger.info("Moved to %s", self._position)
+        return {"position": self.get_position()}
+
+    @command
     def reset(self) -> dict:
         """
-        Software reset. Used by ``puda machine reset fake``.
+        Software reset. Used by ``puda machine reset <machine-id>``.
 
         Returns:
             dict: Reset confirmation
@@ -89,24 +113,6 @@ class Driver:
     def cancel(self) -> dict:
         """Acknowledge cancel. Run teardown is handled by the edge client."""
         return {"cancelled": True}
-
-    @command
-    def move(self, x: float, y: float, z: float) -> dict:
-        """
-        Move to an absolute simulated position.
-
-        Args:
-            x: Target X
-            y: Target Y
-            z: Target Z
-
-        Returns:
-            dict: New position
-        """
-        self._simulate_work()
-        self._position = {"x": float(x), "y": float(y), "z": float(z)}
-        logger.info("Moved to %s", self._position)
-        return {"position": self.get_position()}
 
     @command
     def echo(self, message: str = "") -> dict:

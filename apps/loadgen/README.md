@@ -14,7 +14,7 @@ The host does not need Go installed:
 docker build -t puda-loadgen:dev .
 ```
 
-Or, with Go 1.24+:
+Or, with Go 1.25+:
 
 ```bash
 go build -o bin/puda-loadgen ./cmd/puda-loadgen

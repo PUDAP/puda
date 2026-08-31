@@ -3,8 +3,8 @@
 Software-only PUDA machine for local testing. There is no hardware: commands
 update in-memory state and publish telemetry over NATS.
 
-Each instance needs a unique `MACHINE_ID` because NATS routes by
-`puda.{machine_id}.*`. One process can run a single instance or a fleet.
+NATS routes by `puda.{machine_id}.*`, so this process runs one edge with one
+`MACHINE_ID` (default `test-1`).
 
 ## How to use
 
@@ -27,76 +27,46 @@ uv sync
 cp test-edge/.env.example test-edge/.env
 ```
 
-`.env` defaults to `NATS_SERVERS=nats://localhost:4222` and `MACHINE_PREFIX=test`.
-You do not need to set `MACHINE_ID` unless you want a single pinned name.
+`.env` defaults to `NATS_SERVERS=nats://localhost:4222` and `MACHINE_ID=test-1`.
 
-### 3. Start instances
+### 3. Start the edge
 
 ```bash
-# three machines: test-1, test-2, test-3
-uv run --package test-edge python test-edge/main.py --count 3
+uv run --package test-edge python test-edge/main.py
 ```
 
-Wait for `Edge Service Ready` on each ID. Other ways to choose IDs:
+Wait for `Edge Service Ready`. Override the ID with `--id` or `MACHINE_ID`:
 
 ```bash
-# custom prefix → pump-1, pump-2
-uv run --package test-edge python test-edge/main.py --count 2 --prefix pump
-
-# explicit names
-uv run --package test-edge python test-edge/main.py --ids alpha,beta,gamma
-
-# one machine
 uv run --package test-edge python test-edge/main.py --id test-7
 ```
 
-From `test-edge/` the same flags work with `uv run python main.py`.
-`COUNT`, `MACHINE_IDS`, `MACHINE_ID`, and `MACHINE_PREFIX` in `.env` apply when
-the matching flag is omitted.
+From `test-edge/` the same command is `uv run python main.py`.
 
-### 4. Drive the machines
+### 4. Drive the machine
 
 In another terminal.
-
-**Smoke test** (homes, moves, echoes, reads status):
-
-```bash
-uv run --package test-edge python test-edge/smoke_test.py --count 3
-uv run --package test-edge python test-edge/smoke_test.py --ids alpha,beta
-```
 
 **PUDA CLI** (pass `--nats-servers` or `puda config set nats_servers nats://localhost:4222`):
 
 ```bash
 puda machine list --nats-servers nats://localhost:4222
 puda machine commands test-1 --nats-servers nats://localhost:4222
-puda machine home test-1 test-2 test-3 --nats-servers nats://localhost:4222
-puda machine run test-2 move '{"x":10,"y":20,"z":5}' --nats-servers nats://localhost:4222
-puda machine run test-2 echo '{"message":"hello"}' --nats-servers nats://localhost:4222
-puda machine run test-2 get_status --nats-servers nats://localhost:4222
+puda machine home test-1 --nats-servers nats://localhost:4222
+puda machine run test-1 move '{"x":10,"y":20,"z":5}' --nats-servers nats://localhost:4222
+puda machine run test-1 echo '{"message":"hello"}' --nats-servers nats://localhost:4222
+puda machine run test-1 get_status --nats-servers nats://localhost:4222
 puda machine state --nats-servers nats://localhost:4222
 puda protocol run --file test-edge/protocol.json --nats-servers nats://localhost:4222
 ```
 
-`protocol.json` targets `test-1`. Copy its commands and change `machine_id` to
-hit other instances.
+`protocol.json` targets `test-1`.
 
-### 5. Scale with Docker (optional)
-
-One machine per container. Replica hostnames become `test-1` … `test-N`:
+### 5. Docker (optional)
 
 ```bash
-docker compose -f test-edge/compose.yml up -d --build --scale edge=5
+docker compose -f test-edge/compose.yml up -d --build
 ```
-
-Many IDs in **one** container:
-
-```bash
-COUNT=10 docker compose -f test-edge/compose.yml up -d --build
-```
-
-Do not combine a large `COUNT` with `--scale` unless you want `COUNT × replicas`
-machines.
 
 ## Remote commands
 

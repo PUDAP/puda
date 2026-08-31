@@ -293,12 +293,14 @@ func GetMachineCommands(nc *natsio.Conn, machineID string) (string, error) {
 		return "", fmt.Errorf("failed to get %s commands: %w", machineID, err)
 	}
 
-	var commands map[string]string
-	if err := json.Unmarshal(entry.Value(), &commands); err != nil {
+	var payload struct {
+		Commands string `json:"commands"`
+	}
+	if err := json.Unmarshal(entry.Value(), &payload); err != nil {
 		return "", fmt.Errorf("failed to parse commands JSON: %w", err)
 	}
 
-	return commands["commands"], nil
+	return payload.Commands, nil
 }
 
 // GetMachineState retrieves the state of a specific machine from KV store.

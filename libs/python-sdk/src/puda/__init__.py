@@ -1,7 +1,7 @@
 # Import models first to ensure they're initialized before other modules that depend on them
 from . import models
 
-from .command import command
+from .command import command, safety
 from .edge_nats_client import EdgeNatsClient
 from .edge_runner import EdgeRunner
 from .edge_updater import EdgeUpdater
@@ -11,6 +11,7 @@ from .stream_subscriber import StreamSubscriber
 
 __all__ = [
     "command",
+    "safety",
     "EdgeNatsClient",
     "EdgeRunner",
     "EdgeUpdater",

@@ -7,10 +7,13 @@ import unittest.mock
 
 from puda.command import (
     SDK_UPDATE_ERROR,
+    build_command_catalog,
     command,
+    get_safety,
     iter_command_methods,
     require_command_names,
     resolve_command_names,
+    safety,
 )
 from puda.edge_runner import EdgeRunner, _validate_handler
 from puda.models import CommandResponseCode, CommandResponseStatus
@@ -164,6 +167,126 @@ class CommandDecoratorTest(unittest.TestCase):
         self.assertIsNone(handler)
         self.assertIsNotNone(error)
         self.assertEqual(error.code, CommandResponseCode.UNKNOWN_COMMAND)
+
+
+class SafetyDriver(SerialDevice):
+    @command
+    @safety("Collision risk if the deck is occupied.")
+    def move(self, x: float) -> None:
+        """Move the gantry."""
+
+    @command
+    @safety(
+        "Heats the plate.",
+        hazards=["thermal"],
+        requires="Clamp must be closed before heating.",
+        forbidden_when="Do not heat if the lid is open.",
+        confirm=False,
+    )
+    def set_temp(self, temperature: int) -> None:
+        """Hold temperature."""
+
+    @safety("Not a remote command.")
+    def write(self, data: str) -> bool:
+        return True
+
+    @command
+    def home(self) -> None:
+        """No safety tag."""
+
+    @command
+    @safety("Collision risk.")
+    def move_to(self, x: float) -> dict:
+        """
+        Move to an absolute position.
+
+        Args:
+            x: Target X
+        """
+        return {}
+
+
+class SafetyDecoratorTest(unittest.TestCase):
+    def test_default_confirm_is_true(self) -> None:
+        meta = get_safety(SafetyDriver.move)
+        self.assertIsNotNone(meta)
+        self.assertEqual(meta.summary, "Collision risk if the deck is occupied.")
+        self.assertIsNone(meta.requires)
+        self.assertIsNone(meta.forbidden_when)
+        self.assertTrue(meta.confirm)
+
+    def test_prose_fields_and_confirm_override(self) -> None:
+        meta = get_safety(SafetyDriver.set_temp)
+        self.assertIsNotNone(meta)
+        self.assertEqual(meta.hazards, ("thermal",))
+        self.assertEqual(meta.requires, "Clamp must be closed before heating.")
+        self.assertEqual(meta.forbidden_when, "Do not heat if the lid is open.")
+        self.assertFalse(meta.confirm)
+
+    def test_safety_without_command_is_not_advertised(self) -> None:
+        names = resolve_command_names(SafetyDriver())
+        self.assertEqual(names, frozenset({"move", "set_temp", "home", "move_to"}))
+        self.assertNotIn("write", names)
+        self.assertIsNotNone(get_safety(SafetyDriver.write))
+
+    def test_either_decorator_order_works(self) -> None:
+        @safety("Home before jogging.")
+        @command
+        def jog(self) -> None:
+            pass
+
+        self.assertTrue(jog.__puda_command__)
+        self.assertEqual(get_safety(jog).summary, "Home before jogging.")
+        self.assertTrue(get_safety(jog).confirm)
+
+    def test_bare_safety_requires_summary(self) -> None:
+        with self.assertRaises(TypeError):
+
+            @safety
+            def broken(self) -> None:
+                pass
+
+        with self.assertRaises(ValueError):
+
+            @safety("   ")
+            def empty(self) -> None:
+                pass
+
+    def test_catalog_includes_safety_text_and_structured_entry(self) -> None:
+        text, catalog = build_command_catalog(SafetyDriver())
+        self.assertIn("move(self, x:", text)
+        self.assertIn("    Move the gantry.", text)
+        self.assertLess(
+            text.index("    Move the gantry."),
+            text.index("    safety:"),
+        )
+        self.assertIn("    safety:", text)
+        self.assertIn("        Collision risk if the deck is occupied.", text)
+        self.assertIn("        confirm: true", text)
+        self.assertNotIn("Safety-severity:", text)
+        self.assertIn("        Heats the plate.", text)
+        self.assertIn("        hazards: thermal", text)
+        self.assertIn("        requires: Clamp must be closed before heating.", text)
+        self.assertIn("        forbidden_when: Do not heat if the lid is open.", text)
+        self.assertIn("        confirm: false", text)
+        self.assertNotIn("write(", text)
+
+        by_name = {entry["name"]: entry for entry in catalog}
+        self.assertEqual(
+            by_name["move"]["safety"],
+            {
+                "summary": "Collision risk if the deck is occupied.",
+                "hazards": [],
+                "requires": None,
+                "forbidden_when": None,
+                "confirm": True,
+            },
+        )
+        self.assertIsNone(by_name["home"]["safety"])
+        self.assertFalse(by_name["set_temp"]["safety"]["confirm"])
+        move_to = text[text.index("move_to(") :]
+        self.assertLess(move_to.index("    Move to an absolute position."), move_to.index("    safety:"))
+        self.assertLess(move_to.index("        Collision risk."), move_to.index("    Args:"))
 
 
 if __name__ == "__main__":

@@ -10,10 +10,7 @@ services:
     env_file:
       - .env
     environment:
-      MACHINE_ID: ${MACHINE_ID:-}
-      MACHINE_IDS: ${MACHINE_IDS:-}
-      MACHINE_PREFIX: ${MACHINE_PREFIX:-test}
-      COUNT: ${COUNT:-}
+      MACHINE_ID: ${MACHINE_ID:-test-1}
       NATS_SERVERS: ${NATS_SERVERS:-nats://host.docker.internal:4222}
     volumes:
       - ./.env:/app/.env:ro
