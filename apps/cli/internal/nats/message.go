@@ -16,6 +16,9 @@ func BuildCommandPayload(request puda.CommandRequest, machineID, runID, userID, 
 	if request.Version == "" {
 		request.Version = "1.0"
 	}
+	// Safety is protocol orchestration metadata. Edge command payloads retain
+	// their existing wire schema and receive only executable command fields.
+	request.Safety = nil
 	runIDPtr := &runID
 	return puda.NATSMessage{
 		Header: puda.MessageHeader{

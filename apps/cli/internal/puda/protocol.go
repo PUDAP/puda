@@ -74,11 +74,17 @@ func ValidateCommandStructure(commands []CommandRequest) []ValidationError {
 		// Params is optional - if not provided, it will be nil which is acceptable
 		// Commands without parameters don't need a params field
 
-		if cmd.StepNumber < 0 {
+		if i == 0 && cmd.StepNumber != 1 {
 			errors = append(errors, ValidationError{
 				CommandIndex: i,
 				Field:        "step_number",
-				Message:      "must be a non-negative integer",
+				Message:      "must start at 1",
+			})
+		} else if cmd.StepNumber < 1 {
+			errors = append(errors, ValidationError{
+				CommandIndex: i,
+				Field:        "step_number",
+				Message:      "must be an integer greater than or equal to 1",
 			})
 		} else if previousStepNumber > cmd.StepNumber {
 			errors = append(errors, ValidationError{
@@ -87,11 +93,11 @@ func ValidateCommandStructure(commands []CommandRequest) []ValidationError {
 				Message:      fmt.Sprintf("must not decrease from previous step %d", previousStepNumber),
 			})
 		}
-		if cmd.StepNumber >= 0 {
+		if cmd.StepNumber >= 1 {
 			previousStepNumber = cmd.StepNumber
 		}
 
-		if cmd.MachineID != "" && cmd.StepNumber >= 0 {
+		if cmd.MachineID != "" && cmd.StepNumber >= 1 {
 			stepMachineKey := fmt.Sprintf("%s:%d", cmd.MachineID, cmd.StepNumber)
 			if previousIndex, ok := stepMachinePairs[stepMachineKey]; ok {
 				errors = append(errors, ValidationError{

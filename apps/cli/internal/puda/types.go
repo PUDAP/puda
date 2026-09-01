@@ -10,6 +10,17 @@ type CommandRequest struct {
 	StepNumber int                    `json:"step_number"`
 	Version    string                 `json:"version,omitempty"`
 	MachineID  string                 `json:"machine_id"`
+	Safety     *CommandSafety         `json:"safety,omitempty"`
+}
+
+// CommandSafety is protocol-level safety context copied from the live command
+// catalog. It is used by the CLI confirmation gate and is not sent to the edge.
+type CommandSafety struct {
+	Summary       string   `json:"summary"`
+	Hazards       []string `json:"hazards"`
+	Requires      string   `json:"requires"`
+	ForbiddenWhen string   `json:"forbidden_when"`
+	Confirm       bool     `json:"confirm"`
 }
 
 // ImmediateCommand is the command name for immediate commands (matches puda.models.ImmediateCommand).

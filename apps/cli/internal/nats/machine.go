@@ -30,6 +30,30 @@ type PingResult struct {
 	Error         string  `json:"error,omitempty"`
 }
 
+// MachineCommands is the complete MACHINE_COMMANDS payload. Commands is kept
+// for human display; Catalog is the machine-readable validation source.
+type MachineCommands struct {
+	Commands string           `json:"commands"`
+	Catalog  []MachineCommand `json:"catalog"`
+}
+
+type MachineCommand struct {
+	Name          string                `json:"name"`
+	Signature     string                `json:"signature"`
+	Doc           *string               `json:"doc"`
+	Safety        *MachineCommandSafety `json:"safety"`
+	DocPresent    bool                  `json:"-"`
+	SafetyPresent bool                  `json:"-"`
+}
+
+type MachineCommandSafety struct {
+	Summary       string   `json:"summary"`
+	Hazards       []string `json:"hazards"`
+	Requires      *string  `json:"requires"`
+	ForbiddenWhen *string  `json:"forbidden_when"`
+	Confirm       *bool    `json:"confirm"`
+}
+
 // WatchEvent represents a single message from a machine (telemetry, event, or command).
 type WatchEvent struct {
 	Timestamp time.Time       `json:"timestamp"`
@@ -277,30 +301,76 @@ func ListMachineStateMachines(nc *natsio.Conn) ([]string, error) {
 	return keys, nil
 }
 
-// GetMachineCommands retrieves the advertised command text for a machine from KV.
-func GetMachineCommands(nc *natsio.Conn, machineID string) (string, error) {
+// GetMachineCommands retrieves the human and structured command catalogs.
+func GetMachineCommands(nc *natsio.Conn, machineID string) (MachineCommands, error) {
 	js, err := nc.JetStream()
 	if err != nil {
-		return "", fmt.Errorf("failed to get JetStream context: %w", err)
+		return MachineCommands{}, fmt.Errorf("failed to get JetStream context: %w", err)
 	}
 	kv, err := js.KeyValue(kvBucketMachineCommands)
 	if err != nil {
-		return "", fmt.Errorf("failed to get KV bucket: %w", err)
+		return MachineCommands{}, fmt.Errorf("failed to get KV bucket: %w", err)
 	}
 
 	entry, err := kv.Get(machineID)
 	if err != nil {
-		return "", fmt.Errorf("failed to get %s commands: %w", machineID, err)
+		return MachineCommands{}, fmt.Errorf("failed to get %s commands: %w", machineID, err)
+	}
+	return parseMachineCommands(entry.Value())
+}
+
+func parseMachineCommands(data []byte) (MachineCommands, error) {
+	var raw struct {
+		Commands *string           `json:"commands"`
+		Catalog  []json.RawMessage `json:"catalog"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return MachineCommands{}, fmt.Errorf("failed to parse commands JSON: %w", err)
+	}
+	if raw.Commands == nil {
+		return MachineCommands{}, fmt.Errorf("failed to parse commands JSON: missing commands field")
+	}
+	if raw.Catalog == nil {
+		return MachineCommands{}, fmt.Errorf("failed to parse commands JSON: missing catalog field")
 	}
 
-	var payload struct {
-		Commands string `json:"commands"`
+	result := MachineCommands{Commands: *raw.Commands, Catalog: make([]MachineCommand, 0, len(raw.Catalog))}
+	for index, rawEntry := range raw.Catalog {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(rawEntry, &fields); err != nil {
+			return MachineCommands{}, fmt.Errorf("failed to parse catalog[%d]: %w", index, err)
+		}
+		for _, field := range []string{"name", "signature", "doc", "safety"} {
+			if _, ok := fields[field]; !ok {
+				return MachineCommands{}, fmt.Errorf("failed to parse catalog[%d]: missing %s field", index, field)
+			}
+		}
+		var entry MachineCommand
+		if err := json.Unmarshal(rawEntry, &entry); err != nil {
+			return MachineCommands{}, fmt.Errorf("failed to parse catalog[%d]: %w", index, err)
+		}
+		entry.DocPresent = true
+		entry.SafetyPresent = true
+		if entry.Name == "" || entry.Signature == "" {
+			return MachineCommands{}, fmt.Errorf("failed to parse catalog[%d]: name and signature must be non-empty", index)
+		}
+		if entry.Safety != nil {
+			var safetyFields map[string]json.RawMessage
+			if err := json.Unmarshal(fields["safety"], &safetyFields); err != nil {
+				return MachineCommands{}, fmt.Errorf("failed to parse catalog[%d] safety: %w", index, err)
+			}
+			for _, field := range []string{"summary", "hazards", "requires", "forbidden_when", "confirm"} {
+				if _, ok := safetyFields[field]; !ok {
+					return MachineCommands{}, fmt.Errorf("failed to parse catalog[%d] safety: missing %s field", index, field)
+				}
+			}
+			if entry.Safety.Summary == "" || entry.Safety.Hazards == nil || entry.Safety.Confirm == nil {
+				return MachineCommands{}, fmt.Errorf("failed to parse catalog[%d] safety: malformed required fields", index)
+			}
+		}
+		result.Catalog = append(result.Catalog, entry)
 	}
-	if err := json.Unmarshal(entry.Value(), &payload); err != nil {
-		return "", fmt.Errorf("failed to parse commands JSON: %w", err)
-	}
-
-	return payload.Commands, nil
+	return result, nil
 }
 
 // GetMachineState retrieves the state of a specific machine from KV store.

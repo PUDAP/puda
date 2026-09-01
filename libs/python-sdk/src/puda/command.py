@@ -46,7 +46,7 @@ class CommandSafety:
     hazards: tuple[str, ...] = ()
     requires: str | None = None
     forbidden_when: str | None = None
-    confirm: bool = True
+    confirm: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -80,21 +80,20 @@ def command(func: F) -> F:
 
 
 def safety(
-    summary: str,
     *,
+    summary: str,
     hazards: Sequence[str] | None = None,
     requires: str | None = None,
     forbidden_when: str | None = None,
-    confirm: bool = True,
+    confirm: bool = False,
 ) -> Callable[[F], F]:
     """Attach advisory safety context to a ``@command`` method.
 
-    ``confirm`` defaults to ``True`` so agents must prompt the operator
-    before executing the command. This does not block edge dispatch.
-    ``requires`` and ``forbidden_when`` are natural-language context.
+    All five fields are keyword-only. ``confirm`` defaults to ``False``.
+    Set ``confirm=True`` so agents must prompt the operator before executing
+    the command. This does not block edge dispatch. ``requires`` and
+    ``forbidden_when`` are natural-language context.
     """
-    if callable(summary):
-        raise TypeError('@safety requires a summary string; use @safety("...")')
     if not isinstance(summary, str) or not summary.strip():
         raise ValueError("@safety requires a non-empty summary")
 

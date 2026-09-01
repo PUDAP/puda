@@ -1,14 +1,19 @@
 package cli
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/PUDAP/puda/apps/cli/internal/db"
 	"github.com/PUDAP/puda/apps/cli/internal/nats"
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
+	natsio "github.com/nats-io/nats.go"
 	"github.com/spf13/cobra"
 )
 
@@ -21,6 +26,8 @@ var protocolRunCmd = &cobra.Command{
 	Long: `Run a protocol on machines via NATS.
 Loads a protocol JSON file from the given path and runs commands step-by-step, stopping on first error.
 Commands with the same step_number are sent in parallel and must all finish before the next step runs.
+Before a step containing a command with safety.confirm=true, the complete
+command and safety context are displayed and execution blocks until "yes" is entered.
 
 Optional: --nats-servers to override NATS server URLs in config file.
 
@@ -65,6 +72,21 @@ func runProtocol(cmd *cobra.Command, args []string) error {
 		return err // Error already formatted by ValidateProtocol
 	}
 
+	// Resolve safety from the live catalog immediately before execution. The
+	// protocol copy is editable planning context and is never authoritative.
+	nc, err := connectProtocolRunNATS(natsServers)
+	if err != nil {
+		return fmt.Errorf("failed to resolve live command safety: %w", err)
+	}
+	resolvedProtocol, validationErrors := authoritativeProtocolForRun(&protocolFile, func(machineID string) (nats.MachineCommands, error) {
+		return nats.GetMachineCommands(nc, machineID)
+	})
+	nc.Close()
+	if len(validationErrors) > 0 {
+		return formatProtocolValidationErrors(validationErrors)
+	}
+	protocolFile = *resolvedProtocol
+
 	// Insert protocol into database
 	store, err := db.Connect()
 	if err != nil {
@@ -82,8 +104,93 @@ func runProtocol(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if err := nats.RunProtocol(&protocolFile, natsServers, stepRanges); err != nil {
+	confirmationReader := bufio.NewReader(cmd.InOrStdin())
+	confirmation := func(ctx context.Context, stepNumber int, commands []puda.CommandRequest) error {
+		return confirmProtocolStep(ctx, confirmationReader, cmd.ErrOrStderr(), stepNumber, commands)
+	}
+	if err := nats.RunProtocol(&protocolFile, natsServers, stepRanges, confirmation); err != nil {
 		return fmt.Errorf("failed to run protocol: %w", err)
+	}
+	return nil
+}
+
+func authoritativeProtocolForRun(protocol *puda.ProtocolFile, fetchCatalog func(string) (nats.MachineCommands, error)) (*puda.ProtocolFile, []puda.ValidationError) {
+	validated, validationErrors := validateAndEnrichProtocol(protocol, fetchCatalog)
+	if len(validationErrors) > 0 {
+		return nil, validationErrors
+	}
+
+	resolved := *protocol
+	resolved.Commands = append([]puda.CommandRequest(nil), protocol.Commands...)
+	for index := range resolved.Commands {
+		resolved.Commands[index].Safety = validated.Commands[index].Safety
+	}
+	return &resolved, nil
+}
+
+func connectProtocolRunNATS(servers string) (*natsio.Conn, error) {
+	if servers == "" {
+		cfg, err := puda.LoadGlobalConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
+		}
+		servers = cfg.NATSServers
+	}
+	if servers == "" {
+		return nil, fmt.Errorf("NATS servers not configured; run 'puda config set nats_servers <url>'")
+	}
+	nc, err := natsio.Connect(servers, natsio.MaxReconnects(3), natsio.ReconnectWait(2*time.Second))
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
+	}
+	return nc, nil
+}
+
+func confirmProtocolStep(ctx context.Context, input *bufio.Reader, output io.Writer, stepNumber int, commands []puda.CommandRequest) error {
+	requiringConfirmation := make([]puda.CommandRequest, 0)
+	for _, command := range commands {
+		if command.Safety != nil && command.Safety.Confirm {
+			requiringConfirmation = append(requiringConfirmation, command)
+		}
+	}
+	if len(requiringConfirmation) == 0 {
+		return nil
+	}
+
+	fmt.Fprintf(output, "Safety confirmation required for step %d:\n", stepNumber)
+	for _, command := range requiringConfirmation {
+		commandJSON, err := json.MarshalIndent(command, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to display safety confirmation for step %d: %w", stepNumber, err)
+		}
+		fmt.Fprintln(output, string(commandJSON))
+	}
+	fmt.Fprintf(output, "Type yes to continue step %d: ", stepNumber)
+
+	type readResult struct {
+		line string
+		err  error
+	}
+	resultChannel := make(chan readResult, 1)
+	go func() {
+		line, err := input.ReadString('\n')
+		resultChannel <- readResult{line: line, err: err}
+	}()
+
+	var result readResult
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case result = <-resultChannel:
+	}
+	if result.err != nil && !(result.err == io.EOF && strings.TrimSpace(result.line) != "") {
+		if result.err == io.EOF {
+			return fmt.Errorf("step %d was not confirmed: confirmation input closed", stepNumber)
+		}
+		return fmt.Errorf("failed to read safety confirmation for step %d: %w", stepNumber, result.err)
+	}
+	if !strings.EqualFold(strings.TrimSpace(result.line), "yes") {
+		return fmt.Errorf("step %d was not confirmed", stepNumber)
 	}
 	return nil
 }

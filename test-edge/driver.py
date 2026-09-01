@@ -62,10 +62,11 @@ class Driver:
 
     @command
     @safety(
-        "Confirm the workspace is clear before moving.",
+        summary="Collision risk from unhomed motion or an occupied workspace.",
         hazards=["collision"],
-        requires="Machine must just have been homed and the workspace clear.",
-        forbidden_when="Do not move if the workspace is occupied, human movement is detected",
+        requires="Machine must just have been homed.",
+        forbidden_when="Do not move if the workspace is occupied or human movement is detected.",
+        confirm=True,
     )
     def move_to(self, x: float, y: float, z: float) -> dict:
         """

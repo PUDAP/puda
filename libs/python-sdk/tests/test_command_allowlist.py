@@ -171,22 +171,22 @@ class CommandDecoratorTest(unittest.TestCase):
 
 class SafetyDriver(SerialDevice):
     @command
-    @safety("Collision risk if the deck is occupied.")
+    @safety(summary="Collision risk if the deck is occupied.")
     def move(self, x: float) -> None:
         """Move the gantry."""
 
     @command
     @safety(
-        "Heats the plate.",
+        summary="Heats the plate.",
         hazards=["thermal"],
         requires="Clamp must be closed before heating.",
         forbidden_when="Do not heat if the lid is open.",
-        confirm=False,
+        confirm=True,
     )
     def set_temp(self, temperature: int) -> None:
         """Hold temperature."""
 
-    @safety("Not a remote command.")
+    @safety(summary="Not a remote command.")
     def write(self, data: str) -> bool:
         return True
 
@@ -195,7 +195,7 @@ class SafetyDriver(SerialDevice):
         """No safety tag."""
 
     @command
-    @safety("Collision risk.")
+    @safety(summary="Collision risk.")
     def move_to(self, x: float) -> dict:
         """
         Move to an absolute position.
@@ -207,13 +207,13 @@ class SafetyDriver(SerialDevice):
 
 
 class SafetyDecoratorTest(unittest.TestCase):
-    def test_default_confirm_is_true(self) -> None:
+    def test_default_confirm_is_false(self) -> None:
         meta = get_safety(SafetyDriver.move)
         self.assertIsNotNone(meta)
         self.assertEqual(meta.summary, "Collision risk if the deck is occupied.")
         self.assertIsNone(meta.requires)
         self.assertIsNone(meta.forbidden_when)
-        self.assertTrue(meta.confirm)
+        self.assertFalse(meta.confirm)
 
     def test_prose_fields_and_confirm_override(self) -> None:
         meta = get_safety(SafetyDriver.set_temp)
@@ -221,7 +221,7 @@ class SafetyDecoratorTest(unittest.TestCase):
         self.assertEqual(meta.hazards, ("thermal",))
         self.assertEqual(meta.requires, "Clamp must be closed before heating.")
         self.assertEqual(meta.forbidden_when, "Do not heat if the lid is open.")
-        self.assertFalse(meta.confirm)
+        self.assertTrue(meta.confirm)
 
     def test_safety_without_command_is_not_advertised(self) -> None:
         names = resolve_command_names(SafetyDriver())
@@ -230,14 +230,14 @@ class SafetyDecoratorTest(unittest.TestCase):
         self.assertIsNotNone(get_safety(SafetyDriver.write))
 
     def test_either_decorator_order_works(self) -> None:
-        @safety("Home before jogging.")
+        @safety(summary="Home before jogging.")
         @command
         def jog(self) -> None:
             pass
 
         self.assertTrue(jog.__puda_command__)
         self.assertEqual(get_safety(jog).summary, "Home before jogging.")
-        self.assertTrue(get_safety(jog).confirm)
+        self.assertFalse(get_safety(jog).confirm)
 
     def test_bare_safety_requires_summary(self) -> None:
         with self.assertRaises(TypeError):
@@ -246,9 +246,21 @@ class SafetyDecoratorTest(unittest.TestCase):
             def broken(self) -> None:
                 pass
 
+        with self.assertRaises(TypeError):
+
+            @safety("positional summary is not allowed")
+            def positional(self) -> None:
+                pass
+
+        with self.assertRaises(TypeError):
+
+            @safety(summary="ok", extra=True)
+            def extra(self) -> None:
+                pass
+
         with self.assertRaises(ValueError):
 
-            @safety("   ")
+            @safety(summary="   ")
             def empty(self) -> None:
                 pass
 
@@ -262,13 +274,13 @@ class SafetyDecoratorTest(unittest.TestCase):
         )
         self.assertIn("    safety:", text)
         self.assertIn("        Collision risk if the deck is occupied.", text)
-        self.assertIn("        confirm: true", text)
+        self.assertIn("        confirm: false", text)
         self.assertNotIn("Safety-severity:", text)
         self.assertIn("        Heats the plate.", text)
         self.assertIn("        hazards: thermal", text)
         self.assertIn("        requires: Clamp must be closed before heating.", text)
         self.assertIn("        forbidden_when: Do not heat if the lid is open.", text)
-        self.assertIn("        confirm: false", text)
+        self.assertIn("        confirm: true", text)
         self.assertNotIn("write(", text)
 
         by_name = {entry["name"]: entry for entry in catalog}
@@ -279,11 +291,11 @@ class SafetyDecoratorTest(unittest.TestCase):
                 "hazards": [],
                 "requires": None,
                 "forbidden_when": None,
-                "confirm": True,
+                "confirm": False,
             },
         )
         self.assertIsNone(by_name["home"]["safety"])
-        self.assertFalse(by_name["set_temp"]["safety"]["confirm"])
+        self.assertTrue(by_name["set_temp"]["safety"]["confirm"])
         move_to = text[text.index("move_to(") :]
         self.assertLess(move_to.index("    Move to an absolute position."), move_to.index("    safety:"))
         self.assertLess(move_to.index("        Collision risk."), move_to.index("    Args:"))

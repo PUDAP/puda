@@ -288,10 +288,11 @@ Examples:
 			return err
 		}
 		defer nc.Close()
-		commands, err := pudanats.GetMachineCommands(nc, args[0])
+		payload, err := pudanats.GetMachineCommands(nc, args[0])
 		if err != nil {
 			return err
 		}
+		commands := payload.Commands
 		if name := strings.TrimSpace(machineCommandName); name != "" {
 			commands, err = extractMachineCommandText(commands, name)
 			if err != nil {

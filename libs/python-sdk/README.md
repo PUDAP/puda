@@ -238,13 +238,16 @@ Optional `@safety` metadata is published with the command catalog so agents can 
 from puda import command, safety
 
 @command
-@safety("Collision risk. Confirm the deck is clear and the machine is homed.")
+@safety(
+    summary="Collision risk. Confirm the deck is clear and the machine is homed.",
+    confirm=True,
+)
 def move(self, x: float, y: float, z: float) -> dict:
     """Move to an absolute position."""
     ...
 ```
 
-`confirm` defaults to `true`. Agents must prompt the user before executing a tagged command unless the driver sets `confirm=False`. Optional fields: `hazards`, plus `requires` and `forbidden_when` as natural-language context.
+`summary`, `hazards`, `requires`, `forbidden_when`, and `confirm` are the only `@safety` fields, and they are keyword-only. `confirm` defaults to `false`. Agents must prompt the user before executing a tagged command only when the driver sets `confirm=True`. `hazards`, `requires`, and `forbidden_when` are optional natural-language context.
 
 **Failure semantics:** Command handlers must raise an exception to indicate failure. Returning `False` (or any other value) is still a successful PUDA response. A `False` return is serialized as:
 
