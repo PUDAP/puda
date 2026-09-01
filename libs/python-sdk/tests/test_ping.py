@@ -79,6 +79,22 @@ class PingTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["sdk_version"], "9.8.7")
             self.assertEqual(payload["uptime_seconds"], 12.5)
             self.assertIn("timestamp", payload)
+            self.assertNotIn("description", payload)
+
+    async def test_ping_includes_description_when_set(self):
+        client = EdgeNatsClient(
+            ["nats://localhost:4222"],
+            "test-1",
+            description="  Software-only test machine.  ",
+        )
+        client.nc = FakeNATS()
+        await client.subscribe_ping()
+
+        msg = FakeMessage()
+        await client.nc.callbacks[client.ping](msg)
+
+        payload = json.loads(msg.respond.await_args.args[0])
+        self.assertEqual(payload["description"], "Software-only test machine.")
 
     async def test_non_ping_payload_returns_error_response(self):
         client = EdgeNatsClient(["nats://localhost:4222"], "test-1")

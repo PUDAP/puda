@@ -34,13 +34,13 @@ func TestParseMachineIDsAcceptsCommaSeparatedAndMultipleArgs(t *testing.T) {
 
 func TestWritePingResultsHuman(t *testing.T) {
 	results := []pudanats.PingResult{
-		{MachineID: "first", Status: "pong", RunStatus: "busy", LatencyMS: 2.5, SDKVersion: "0.0.17", UptimeSeconds: 12.5},
+		{MachineID: "first", Status: "pong", RunStatus: "busy", LatencyMS: 2.5, SDKVersion: "0.0.17", UptimeSeconds: 12.5, Description: "Liquid-handling robot."},
 		{MachineID: "offline", Status: "error", Error: "timeout"},
 	}
 	var buf bytes.Buffer
 	writePingResults(&buf, results, true)
 	output := buf.String()
-	for _, want := range []string{"first: pong", "status=busy", "2.500ms", "sdk=0.0.17", "offline: failed: timeout"} {
+	for _, want := range []string{"first: pong", "status=busy", "2.500ms", "sdk=0.0.17", "Liquid-handling robot.", "offline: failed: timeout"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output missing %q: %s", want, output)
 		}
@@ -49,7 +49,7 @@ func TestWritePingResultsHuman(t *testing.T) {
 
 func TestWritePingResultsJSONIsDefault(t *testing.T) {
 	results := []pudanats.PingResult{
-		{MachineID: "first", Status: "pong", RunStatus: "busy", LatencyMS: 2.5, SDKVersion: "0.0.17", UptimeSeconds: 12.5},
+		{MachineID: "first", Status: "pong", RunStatus: "busy", LatencyMS: 2.5, SDKVersion: "0.0.17", UptimeSeconds: 12.5, Description: "Liquid-handling robot."},
 		{MachineID: "offline", Status: "error", Error: "timeout"},
 	}
 	var buf bytes.Buffer
@@ -68,34 +68,46 @@ func TestWritePingResultsJSONIsDefault(t *testing.T) {
 	if payload.Count != 2 || payload.Responded != 1 || payload.Failed != 1 {
 		t.Fatalf("got counts count=%d responded=%d failed=%d", payload.Count, payload.Responded, payload.Failed)
 	}
-	if payload.Results[0].MachineID != "first" || payload.Results[1].Error != "timeout" {
+	if payload.Results[0].MachineID != "first" || payload.Results[0].Description != "Liquid-handling robot." || payload.Results[1].Error != "timeout" {
 		t.Fatalf("unexpected results: %+v", payload.Results)
 	}
 }
 
 func TestWriteListResultsJSONIsDefault(t *testing.T) {
+	pongs := []pudanats.PingResult{
+		{MachineID: "biologic", Status: "pong", Description: "Potentiostat."},
+		{MachineID: "first", Status: "pong"},
+	}
 	var buf bytes.Buffer
-	if err := writeListResults(&buf, []string{"biologic", "first"}, false); err != nil {
+	if err := writeListResults(&buf, pongs, false); err != nil {
 		t.Fatal(err)
 	}
 	var payload struct {
-		Machines []string `json:"machines"`
-		Count    int      `json:"count"`
+		Machines []listedMachine `json:"machines"`
+		Count    int             `json:"count"`
 	}
 	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
 		t.Fatalf("default output is not JSON: %v\n%s", err, buf.String())
 	}
-	if payload.Count != 2 || strings.Join(payload.Machines, ",") != "biologic,first" {
+	if payload.Count != 2 {
 		t.Fatalf("got %+v", payload)
+	}
+	if payload.Machines[0] != (listedMachine{MachineID: "biologic", Description: "Potentiostat."}) {
+		t.Fatalf("got %+v", payload.Machines[0])
+	}
+	if payload.Machines[1] != (listedMachine{MachineID: "first"}) {
+		t.Fatalf("got %+v", payload.Machines[1])
 	}
 }
 
 func TestWriteListResultsHuman(t *testing.T) {
 	var buf bytes.Buffer
-	if err := writeListResults(&buf, []string{"first"}, true); err != nil {
+	if err := writeListResults(&buf, []pudanats.PingResult{
+		{MachineID: "first", Description: "Software-only test machine."},
+	}, true); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := buf.String(), "1 machines found:\n  first\n"; got != want {
+	if got, want := buf.String(), "1 machines found:\n  first: Software-only test machine.\n"; got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }

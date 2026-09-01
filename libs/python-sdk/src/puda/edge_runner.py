@@ -31,6 +31,21 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
+def machine_description(driver: Any) -> str | None:
+    """Return the advertised summary from the driver class docstring.
+
+    The first paragraph is collapsed to a single line. That is what
+    ``puda machine list`` and ``puda machine ping`` show; put a one-sentence
+    brief there, with extra detail after a blank line if needed.
+    """
+    doc = inspect.getdoc(type(driver))
+    if not doc:
+        return None
+    first_paragraph, _, _ = doc.strip().partition("\n\n")
+    collapsed = " ".join(first_paragraph.split())
+    return collapsed or None
+
+
 def _normalize_handler_result(result: Any) -> dict | None:
     """
     Convert handler result to a dictionary suitable for JSON serialization.
@@ -128,7 +143,9 @@ class EdgeRunner:
             machine_driver: Driver instance exposing command handlers. Only
                 methods marked with ``@command`` are advertised and executed.
                 Handlers must raise to indicate failure; a ``False`` return is
-                still a successful response (``{"result": false}``).
+                still a successful response (``{"result": false}``). The class
+                docstring's first paragraph is advertised as the machine
+                description on ping unless ``nats_client`` already has one.
             telemetry_handler: Async callable run every second to publish
                 heartbeat, position, health, etc.; no arguments.
             state_handler: Optional callable returning a dict to merge into
@@ -141,6 +158,10 @@ class EdgeRunner:
         self.state_handler = state_handler
         self.nats_client.set_state_handler(state_handler)
         self.allowed_commands = require_command_names(machine_driver)
+        if not self.nats_client.description:
+            extracted = machine_description(machine_driver)
+            if extracted:
+                self.nats_client.set_description(extracted)
         logger.info(
             "Remote commands for %s: %s",
             type(machine_driver).__name__,

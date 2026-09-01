@@ -26,7 +26,8 @@ type PingResult struct {
 	SDKVersion    string  `json:"sdk_version,omitempty"`
 	UptimeSeconds float64 `json:"uptime_seconds,omitempty"`
 	RunStatus     string  `json:"run_status,omitempty"`
-	LatencyMS     float64 `json:"latency_ms"`
+	Description   string  `json:"description,omitempty"`
+	LatencyMS     float64 `json:"latency_ms,omitempty"`
 	Error         string  `json:"error,omitempty"`
 }
 
@@ -231,9 +232,9 @@ func SubscribeMachineSubjects(ctx context.Context, nc *natsio.Conn, machineIDs [
 	return ch, nil
 }
 
-// ListMachines broadcasts a Core NATS ping and gathers unique pong replies.
-func ListMachines(nc *natsio.Conn, timeout time.Duration) ([]string, error) {
-	seen := make(map[string]struct{})
+// ListMachinePongs broadcasts a Core NATS ping and gathers unique pong replies.
+func ListMachinePongs(nc *natsio.Conn, timeout time.Duration) ([]PingResult, error) {
+	seen := make(map[string]PingResult)
 	inbox := natsio.NewInbox()
 	sub, err := nc.SubscribeSync(inbox)
 	if err != nil {
@@ -266,14 +267,32 @@ func ListMachines(nc *natsio.Conn, timeout time.Duration) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed while collecting ping replies: %w", err)
 		}
-		if machineID, ok := machineIDFromPong(msg.Data); ok {
-			seen[machineID] = struct{}{}
+		pong, ok := parsePong(msg.Data)
+		if !ok {
+			continue
 		}
+		if _, exists := seen[pong.MachineID]; exists {
+			continue
+		}
+		seen[pong.MachineID] = pong
 	}
 
-	machines := make([]string, 0, len(seen))
-	for id := range seen {
-		machines = append(machines, id)
+	results := make([]PingResult, 0, len(seen))
+	for _, pong := range seen {
+		results = append(results, pong)
+	}
+	return results, nil
+}
+
+// ListMachines broadcasts a Core NATS ping and gathers unique pong replies.
+func ListMachines(nc *natsio.Conn, timeout time.Duration) ([]string, error) {
+	pongs, err := ListMachinePongs(nc, timeout)
+	if err != nil {
+		return nil, err
+	}
+	machines := make([]string, 0, len(pongs))
+	for _, pong := range pongs {
+		machines = append(machines, pong.MachineID)
 	}
 	return machines, nil
 }

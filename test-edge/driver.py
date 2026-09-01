@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class Driver:
+    """Software-only PUDA test machine. Commands are simulated in memory; no hardware is required."""
     def __init__(self, command_delay: float = 0.0):
         self._command_delay = max(0.0, command_delay)
         self._position = {"x": 0.0, "y": 0.0, "z": 0.0}

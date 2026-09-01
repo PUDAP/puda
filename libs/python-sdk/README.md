@@ -212,7 +212,8 @@ A Core NATS request with payload `ping` receives structured JSON:
   "timestamp": "2026-08-27T07:23:56Z",
   "sdk_version": "0.0.17",
   "uptime_seconds": 12.5,
-  "run_status": "idle"
+  "run_status": "idle",
+  "description": "Cartesian gantry for well-plate liquid handling."
 }
 ```
 
@@ -220,13 +221,20 @@ A Core NATS request with payload `ping` receives structured JSON:
 a command is executing and `idle` otherwise. It is intentionally not read from
 or persisted to machine KV state.
 
+`description` is the first paragraph of the driver class docstring, collapsed
+to a single line. `EdgeRunner` copies it onto the NATS client at startup. Pass
+`EdgeNatsClient(..., description="...")` to override it. The field is omitted
+when unset.
+
 Ping is intentionally Core NATS request/reply, not a durable JetStream
 immediate command. It reports whether the edge is responsive now and does not
 create an offline backlog.
 
 `puda machine list` sends one broadcast request to `puda.cmd.ping`, gathers all
 pong replies during its discovery window, deduplicates them by `machine_id`,
-and lists only edges that are responsive at that moment.
+and lists only edges that are responsive at that moment. Each reply's
+`description` is included so agents can tell what a machine does without
+fetching the command catalog.
 
 ### 4. EdgeRunner (`edge_runner.py`)
 

@@ -50,7 +50,7 @@ Output is a JSON object by default. Use --human for a text summary.`,
 var machineListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Discover responsive machines via Core NATS ping",
-	Long:  `Broadcast ping on puda.cmd.ping and list machines that reply with pong as JSON.`,
+	Long:  `Broadcast ping on puda.cmd.ping and list machines that reply with pong as JSON, including each edge's advertised description.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		nc, err := connectMachineNATS()
 		if err != nil {
@@ -58,19 +58,21 @@ var machineListCmd = &cobra.Command{
 		}
 		defer nc.Close()
 
-		machines, err := pudanats.ListMachines(nc, machineListTimeout)
+		pongs, err := pudanats.ListMachinePongs(nc, machineListTimeout)
 		if err != nil {
 			return err
 		}
-		sort.Strings(machines)
-		return writeListResults(cmd.OutOrStdout(), machines, machineHuman)
+		sort.Slice(pongs, func(i, j int) bool {
+			return pongs[i].MachineID < pongs[j].MachineID
+		})
+		return writeListResults(cmd.OutOrStdout(), pongs, machineHuman)
 	},
 }
 
 var machinePingCmd = &cobra.Command{
 	Use:   "ping <machine_ids>",
 	Short: "Check if machines are online",
-	Long: `Send Core NATS ping requests to machine(s) and report pong details as JSON.
+	Long: `Send Core NATS ping requests to machine(s) and report pong details as JSON, including each edge's advertised description.
 Machine IDs can be comma-separated, e.g. puda machine ping first,biologic.
 Use --human for a text summary.`,
 	Args: cobra.MinimumNArgs(1),
@@ -131,27 +133,49 @@ func writePingResults(w io.Writer, results []pudanats.PingResult, human bool) er
 			result.SDKVersion,
 			result.UptimeSeconds,
 		)
+		if result.Description != "" {
+			fmt.Fprintf(w, "  %s\n", result.Description)
+		}
 	}
 	return nil
 }
 
-func writeListResults(w io.Writer, machines []string, human bool) error {
-	if machines == nil {
-		machines = []string{}
+type listedMachine struct {
+	MachineID   string `json:"machine_id"`
+	Description string `json:"description"`
+}
+
+func listedMachineLabel(pong pudanats.PingResult) string {
+	if pong.Description == "" {
+		return pong.MachineID
+	}
+	return pong.MachineID + ": " + pong.Description
+}
+
+func writeListResults(w io.Writer, pongs []pudanats.PingResult, human bool) error {
+	if pongs == nil {
+		pongs = []pudanats.PingResult{}
+	}
+	machines := make([]listedMachine, 0, len(pongs))
+	for _, pong := range pongs {
+		machines = append(machines, listedMachine{
+			MachineID:   pong.MachineID,
+			Description: pong.Description,
+		})
 	}
 	if !human {
 		return writeJSON(w, struct {
-			Machines []string `json:"machines"`
-			Count    int      `json:"count"`
+			Machines []listedMachine `json:"machines"`
+			Count    int             `json:"count"`
 		}{machines, len(machines)})
 	}
-	if len(machines) == 0 {
+	if len(pongs) == 0 {
 		fmt.Fprintln(w, "No machines found.")
 		return nil
 	}
-	fmt.Fprintf(w, "%d machines found:\n", len(machines))
-	for _, id := range machines {
-		fmt.Fprintf(w, "  %s\n", id)
+	fmt.Fprintf(w, "%d machines found:\n", len(pongs))
+	for _, pong := range pongs {
+		fmt.Fprintf(w, "  %s\n", listedMachineLabel(pong))
 	}
 	return nil
 }

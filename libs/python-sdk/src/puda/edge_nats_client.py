@@ -50,6 +50,14 @@ def _sdk_version() -> str:
     except PackageNotFoundError:
         return "unknown"
 
+
+def _normalize_description(value: Optional[str]) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    collapsed = " ".join(value.split())
+    return collapsed or None
+
+
 class EdgeNatsClient:
     """
     NATS client used by the machine edge (connects to NATS, publishes telemetry, subscribes to commands).
@@ -69,7 +77,12 @@ class EdgeNatsClient:
     HEARTBEAT_INTERVAL = 5.0  # seconds
     POSITION_INTERVAL = 3.0  # seconds
     
-    def __init__(self, servers: list[str], machine_id: str):
+    def __init__(
+        self,
+        servers: list[str],
+        machine_id: str,
+        description: Optional[str] = None,
+    ):
         """
         Initialize NATS client for machine.
         
@@ -78,9 +91,12 @@ class EdgeNatsClient:
                 - Comma-separated string (e.g., "nats://localhost:4222,nats://localhost:4223")
                 - List of URLs (e.g., ["nats://localhost:4222"])
             machine_id: Machine identifier (e.g., "opentron")
+            description: Optional one-sentence summary advertised on ping.
+                ``EdgeRunner`` fills this from the driver class docstring when omitted.
         """
         self.servers: list[str] = servers
         self.machine_id: str = machine_id
+        self.description = _normalize_description(description)
         self.sdk_version = _sdk_version()
         self._started_at = time.monotonic()
         self.nc: Optional[nats.NATS] = None
@@ -125,6 +141,10 @@ class EdgeNatsClient:
     def set_runtime_status_handler(self, handler: Callable[[], str]) -> None:
         """Set the in-memory runtime status provider used by ping responses."""
         self.runtime_status_handler = handler
+
+    def set_description(self, description: Optional[str]) -> None:
+        """Set the one-sentence summary included in ping pong replies."""
+        self.description = _normalize_description(description)
     
     def _init_subjects(self):
         """Initialize all subject and stream names."""
@@ -165,8 +185,8 @@ class EdgeNatsClient:
         """Format current timestamp as ISO 8601 UTC string."""
         return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     
-    async def _publish_telemetry(self, subject: str, data: Dict[str, Any]) -> bool:
-        """Publish telemetry message to core NATS."""
+    async def _publish(self, subject: str, data: Dict[str, Any]) -> bool:
+        """Publish a timestamped message to core NATS (fire-and-forget)."""
         if not self.nc:
             logger.warning("NATS not connected, skipping %s", subject)
             return False
@@ -180,29 +200,14 @@ class EdgeNatsClient:
             logger.error("Error publishing to %s: %s", subject, e)
             return False
     
-    async def _publish_event(self, subject: str, data: Dict[str, Any]) -> bool:
-        """Publish event message to Core NATS (fire-and-forget)."""
-        if not self.nc:
-            logger.warning("NATS not connected, skipping %s", subject)
-            return False
-        
-        try:
-            message = {'timestamp': self._format_timestamp(), **data}
-            await self.nc.publish(subject=subject, payload=json.dumps(message).encode())
-            logger.debug("Published to %s", subject)
-            return True
-        except Exception as e:
-            logger.error("Error publishing to %s: %s", subject, e)
-            return False
-    
-    async def _ensure_stream(self, stream_name: str, subject_pattern: str, retention: str = 'workqueue'):
+    async def _ensure_stream(self, stream_name: str, subject_pattern: str, retention: str):
         """
         Ensure a stream exists with the specified retention policy.
         
         Args:
             stream_name: Name of the stream (e.g., STREAM_COMMAND_QUEUE)
             subject_pattern: Subject pattern for the stream (e.g., "puda.*.cmd.queue")
-            retention: Retention policy ('workqueue', 'interest', or 'limits'). Defaults to 'workqueue'
+            retention: Retention policy ('workqueue', 'interest', or 'limits')
         """
         if not self.js:
             return
@@ -249,7 +254,8 @@ class EdgeNatsClient:
         )
         await self._ensure_stream(
             STREAM_COMMAND_IMMEDIATE,
-            f"{NAMESPACE}.*.cmd.immediate"
+            f"{NAMESPACE}.*.cmd.immediate",
+            retention='workqueue'
         )
         await self._ensure_stream(
             STREAM_RESPONSE_QUEUE,
@@ -432,6 +438,8 @@ class EdgeNatsClient:
                 "uptime_seconds": round(max(0.0, time.monotonic() - self._started_at), 3),
                 "run_status": self.runtime_status_handler(),
             }
+            if self.description:
+                payload["description"] = self.description
         else:
             payload = {
                 "status": "error",
@@ -457,7 +465,7 @@ class EdgeNatsClient:
                 and now - self._last_heartbeat_at < self.HEARTBEAT_INTERVAL
             ):
                 return False
-            published = await self._publish_telemetry(self.tlm_heartbeat, {})
+            published = await self._publish(self.tlm_heartbeat, {})
             if published:
                 self._last_heartbeat_at = now
             return published
@@ -475,14 +483,14 @@ class EdgeNatsClient:
                 and now - self._last_position_at < self.POSITION_INTERVAL
             ):
                 return False
-            published = await self._publish_telemetry(self.tlm_pos, coords)
+            published = await self._publish(self.tlm_pos, coords)
             if published:
                 self._last_position_at = now
             return published
     
     async def publish_health(self, vitals: Dict[str, Any]):
         """Publish system health vitals (CPU, memory, temperature, etc.)."""
-        await self._publish_telemetry(self.tlm_health, vitals)
+        await self._publish(self.tlm_health, vitals)
     
     async def publish_state(self, data: Dict[str, Any]):
         """
@@ -1131,21 +1139,21 @@ class EdgeNatsClient:
     
     async def publish_log(self, log_level: str, msg: str, **kwargs):
         """Publish log event (Core NATS, fire-and-forget)."""
-        await self._publish_event(
+        await self._publish(
             self.evt_log,
             {'log_level': log_level, 'msg': msg, **kwargs}
         )
     
     async def publish_alert(self, alert_type: str, severity: str, **kwargs):
         """Publish alert event for critical issues (Core NATS, fire-and-forget)."""
-        await self._publish_event(
+        await self._publish(
             self.evt_alert,
             {'type': alert_type, 'severity': severity, **kwargs}
         )
     
     async def publish_media(self, media_url: str, media_type: str = "image", **kwargs):
         """Publish media event after uploading to object storage (Core NATS, fire-and-forget)."""
-        await self._publish_event(
+        await self._publish(
             self.evt_media,
             {'media_url': media_url, 'media_type': media_type, **kwargs}
         )
