@@ -62,7 +62,15 @@ puda protocol run --file test-edge/protocol.json --nats-servers nats://localhost
 
 `protocol.json` targets `test-1`.
 
-### 5. Docker (optional)
+### 5. Clock sync (edge hosts)
+
+On each edge PC, run the scripts in [`chrony/`](chrony/README.md). Pass the
+site NTP server IP when you invoke them (do not put it in `.env`).
+
+### 6. Docker (optional)
+
+Starts only the edge. Run the host Chrony script above first if this PC
+should lock to the site NTP server.
 
 ```bash
 docker compose -f test-edge/compose.yml up -d --build

@@ -1,0 +1,28 @@
+services:
+  chrony:
+    build: .
+    image: chrony:local
+    container_name: chrony
+    restart: always
+    # NTP replies must come from UDP 123. Bridge published ports SNAT that
+    # source port, so edge chronyd ignores the packet (Reach 0).
+    network_mode: host
+    cap_add:
+      - SYS_TIME
+      - SYS_NICE
+    volumes:
+      - ./chrony.conf:/etc/chrony/chrony.conf:ro
+      - chrony-data:/var/lib/chrony
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "chronyc tracking | grep -q 'Leap status[[:space:]]*:[[:space:]]*Normal'",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+
+volumes:
+  chrony-data:
