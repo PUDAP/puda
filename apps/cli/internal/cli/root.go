@@ -199,6 +199,7 @@ func init() {
 	rootCmd.AddCommand(protocolCmd)
 	rootCmd.AddCommand(projectCmd)
 	rootCmd.AddCommand(machineCmd)
+	rootCmd.AddCommand(livestreamCmd)
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(logoutCmd)

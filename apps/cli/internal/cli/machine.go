@@ -50,7 +50,7 @@ Output is a JSON object by default. Use --human for a text summary.`,
 var machineListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Discover responsive machines via Core NATS ping",
-	Long:  `Broadcast ping on puda.cmd.ping and list machines that reply with pong as JSON, including each edge's advertised description.`,
+	Long:  `Broadcast ping on puda.cmd.ping and list machines that reply with pong as JSON, including each edge's advertised description and livestreams attached in the fleet registry.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		nc, err := connectMachineNATS()
 		if err != nil {
@@ -65,14 +65,18 @@ var machineListCmd = &cobra.Command{
 		sort.Slice(pongs, func(i, j int) bool {
 			return pongs[i].MachineID < pongs[j].MachineID
 		})
-		return writeListResults(cmd.OutOrStdout(), pongs, machineHuman)
+		byMachine, err := pudanats.LivestreamsByMachine(nc)
+		if err != nil {
+			return err
+		}
+		return writeListResults(cmd.OutOrStdout(), pongs, byMachine, machineHuman)
 	},
 }
 
 var machinePingCmd = &cobra.Command{
 	Use:   "ping <machine_ids>",
 	Short: "Check if machines are online",
-	Long: `Send Core NATS ping requests to machine(s) and report pong details as JSON, including each edge's advertised description.
+	Long: `Send Core NATS ping requests to machine(s) and report pong details as JSON, including each edge's advertised description and livestreams attached in the fleet registry.
 Machine IDs can be comma-separated, e.g. puda machine ping first,biologic.
 Use --human for a text summary.`,
 	Args: cobra.MinimumNArgs(1),
@@ -88,7 +92,11 @@ Use --human for a text summary.`,
 		defer nc.Close()
 
 		results := pudanats.PingMachines(nc, machineIDs, machinePingTimeout)
-		if err := writePingResults(cmd.OutOrStdout(), results, machineHuman); err != nil {
+		byMachine, err := pudanats.LivestreamsByMachine(nc)
+		if err != nil {
+			return err
+		}
+		if err := writePingResults(cmd.OutOrStdout(), results, byMachine, machineHuman); err != nil {
 			return err
 		}
 		failed := 0
@@ -104,55 +112,100 @@ Use --human for a text summary.`,
 	},
 }
 
-func writePingResults(w io.Writer, results []pudanats.PingResult, human bool) error {
+type pingResultJSON struct {
+	MachineID     string                   `json:"machine_id"`
+	Status        string                   `json:"status"`
+	Timestamp     string                   `json:"timestamp,omitempty"`
+	SDKVersion    string                   `json:"sdk_version,omitempty"`
+	UptimeSeconds float64                  `json:"uptime_seconds,omitempty"`
+	RunStatus     string                   `json:"run_status,omitempty"`
+	Description   string                   `json:"description,omitempty"`
+	LatencyMS     float64                  `json:"latency_ms,omitempty"`
+	Error         string                   `json:"error,omitempty"`
+	Livestreams   []pudanats.LivestreamRef `json:"livestreams"`
+}
+
+func pingResultWithLivestreams(result pudanats.PingResult, refs []pudanats.LivestreamRef) pingResultJSON {
+	if refs == nil {
+		refs = []pudanats.LivestreamRef{}
+	}
+	return pingResultJSON{
+		MachineID:     result.MachineID,
+		Status:        result.Status,
+		Timestamp:     result.Timestamp,
+		SDKVersion:    result.SDKVersion,
+		UptimeSeconds: result.UptimeSeconds,
+		RunStatus:     result.RunStatus,
+		Description:   result.Description,
+		LatencyMS:     result.LatencyMS,
+		Error:         result.Error,
+		Livestreams:   refs,
+	}
+}
+
+func writePingResults(w io.Writer, results []pudanats.PingResult, byMachine map[string][]pudanats.LivestreamRef, human bool) error {
 	if !human {
 		responded := 0
+		payload := make([]pingResultJSON, 0, len(results))
 		for _, result := range results {
 			if result.Status == "pong" {
 				responded++
 			}
+			payload = append(payload, pingResultWithLivestreams(result, byMachine[result.MachineID]))
 		}
 		return writeJSON(w, struct {
-			Results   []pudanats.PingResult `json:"results"`
-			Count     int                   `json:"count"`
-			Responded int                   `json:"responded"`
-			Failed    int                   `json:"failed"`
-		}{results, len(results), responded, len(results) - responded})
+			Results   []pingResultJSON `json:"results"`
+			Count     int              `json:"count"`
+			Responded int              `json:"responded"`
+			Failed    int              `json:"failed"`
+		}{payload, len(results), responded, len(results) - responded})
 	}
 	for _, result := range results {
 		if result.Status != "pong" {
 			fmt.Fprintf(w, "%s: failed: %s\n", result.MachineID, result.Error)
-			continue
+		} else {
+			fmt.Fprintf(
+				w,
+				"%s: pong %.3fms status=%s sdk=%s uptime=%.3fs\n",
+				result.MachineID,
+				result.LatencyMS,
+				result.RunStatus,
+				result.SDKVersion,
+				result.UptimeSeconds,
+			)
+			if result.Description != "" {
+				fmt.Fprintf(w, "  %s\n", result.Description)
+			}
 		}
-		fmt.Fprintf(
-			w,
-			"%s: pong %.3fms status=%s sdk=%s uptime=%.3fs\n",
-			result.MachineID,
-			result.LatencyMS,
-			result.RunStatus,
-			result.SDKVersion,
-			result.UptimeSeconds,
-		)
-		if result.Description != "" {
-			fmt.Fprintf(w, "  %s\n", result.Description)
+		for _, stream := range pudanats.LivestreamsForMachine(byMachine, result.MachineID) {
+			fmt.Fprintf(w, "  %s\n", formatLivestreamRefHuman(stream))
 		}
 	}
 	return nil
 }
 
 type listedMachine struct {
-	MachineID   string `json:"machine_id"`
-	Description string `json:"description"`
+	MachineID   string                   `json:"machine_id"`
+	Description string                   `json:"description"`
+	Livestreams []pudanats.LivestreamRef `json:"livestreams"`
 }
 
-func listedMachineLabel(pong pudanats.PingResult) string {
-	if pong.Description == "" {
-		return pong.MachineID
+func listedMachineLabel(pong pudanats.PingResult, livestreams []pudanats.LivestreamRef) string {
+	label := pong.MachineID
+	if pong.Description != "" {
+		label += ": " + pong.Description
 	}
-	return pong.MachineID + ": " + pong.Description
+	switch len(livestreams) {
+	case 0:
+		return label
+	case 1:
+		return label + " (1 livestream)"
+	default:
+		return fmt.Sprintf("%s (%d livestreams)", label, len(livestreams))
+	}
 }
 
-func writeListResults(w io.Writer, pongs []pudanats.PingResult, human bool) error {
+func writeListResults(w io.Writer, pongs []pudanats.PingResult, byMachine map[string][]pudanats.LivestreamRef, human bool) error {
 	if pongs == nil {
 		pongs = []pudanats.PingResult{}
 	}
@@ -161,6 +214,7 @@ func writeListResults(w io.Writer, pongs []pudanats.PingResult, human bool) erro
 		machines = append(machines, listedMachine{
 			MachineID:   pong.MachineID,
 			Description: pong.Description,
+			Livestreams: pudanats.LivestreamsForMachine(byMachine, pong.MachineID),
 		})
 	}
 	if !human {
@@ -175,7 +229,7 @@ func writeListResults(w io.Writer, pongs []pudanats.PingResult, human bool) erro
 	}
 	fmt.Fprintf(w, "%d machines found:\n", len(pongs))
 	for _, pong := range pongs {
-		fmt.Fprintf(w, "  %s\n", listedMachineLabel(pong))
+		fmt.Fprintf(w, "  %s\n", listedMachineLabel(pong, pudanats.LivestreamsForMachine(byMachine, pong.MachineID)))
 	}
 	return nil
 }
@@ -444,7 +498,11 @@ func init() {
 }
 
 func connectMachineNATS() (*natsio.Conn, error) {
-	servers := machineNatsServers
+	return connectNATS(machineNatsServers)
+}
+
+func connectNATS(override string) (*natsio.Conn, error) {
+	servers := override
 	if servers == "" {
 		cfg, err := puda.LoadGlobalConfig()
 		if err != nil {

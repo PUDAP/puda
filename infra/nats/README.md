@@ -60,3 +60,6 @@ See [`three-node-r3/README.md`](./three-node-r3/README.md).
 
 Telemetry and events remain on Core NATS. `MACHINE_STATE` and
 `MACHINE_COMMANDS` are shared KV buckets keyed by `machine_id`.
+`LIVESTREAMS` is a fleet camera registry keyed by stream name; each record
+stores the MediaMTX host and the machines that use that feed. The CLI derives
+protocol URLs from host + name.

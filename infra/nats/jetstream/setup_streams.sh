@@ -61,7 +61,7 @@ for name in COMMANDS EVENTS; do
   fi
 done
 
-for name in MACHINE_STATE MACHINE_COMMANDS; do
+for name in MACHINE_STATE MACHINE_COMMANDS LIVESTREAMS; do
   echo "Configuring KV bucket '$name' with replicas=$REPLICAS..."
   if nats kv info "$name" -s "$NATS_URL" >/dev/null 2>&1; then
     nats kv edit "$name" -s "$NATS_URL" --replicas "$REPLICAS" >/dev/null

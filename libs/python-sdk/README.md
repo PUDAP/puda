@@ -234,7 +234,10 @@ create an offline backlog.
 pong replies during its discovery window, deduplicates them by `machine_id`,
 and lists only edges that are responsive at that moment. Each reply's
 `description` is included so agents can tell what a machine does without
-fetching the command catalog.
+fetching the command catalog. The CLI also joins fleet `LIVESTREAMS` registry
+records onto `puda machine list` and `puda machine ping`. Those records store
+host and stream name; protocol URLs are derived and are not part of the edge
+pong payload.
 
 ### 4. EdgeRunner (`edge_runner.py`)
 

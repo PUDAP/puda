@@ -78,6 +78,7 @@ nats stream info COMMAND_QUEUE -s nats://<nats1-ip>:<nats1-port>
 nats stream info COMMAND_IMMEDIATE -s nats://<nats1-ip>:<nats1-port>
 nats kv info MACHINE_STATE -s nats://<nats1-ip>:<nats1-port>
 nats kv info MACHINE_COMMANDS -s nats://<nats1-ip>:<nats1-port>
+nats kv info LIVESTREAMS -s nats://<nats1-ip>:<nats1-port>
 ```
 
 Each asset should report three replicas and current followers before it is

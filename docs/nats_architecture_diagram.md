@@ -529,6 +529,7 @@ graph TB
 **Storage**:
 - Bucket: `MACHINE_STATE` (one shared bucket; key = `{machine_id}`)
 - Commands catalog: `MACHINE_COMMANDS` (one shared bucket; key = `{machine_id}`)
+- Livestream registry: `LIVESTREAMS` (one shared bucket; key = stream `name`; value includes `host`, `description`, and `machine_ids`. The CLI derives RTSP/RTMP/HLS/WebRTC URLs from host + name.)
 - Value: JSON with current state (idle/active/paused/error), run_id, timestamp
 
 **Example**:
