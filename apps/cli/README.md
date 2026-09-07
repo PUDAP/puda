@@ -60,6 +60,30 @@ Then run the following:
    puda skills install
    ```
 
+## Build and release
+
+From `apps/cli`. Requires [just](https://github.com/casey/just). Publish also requires [goreleaser](https://goreleaser.com/install/) and a GitHub token that can create releases (`GITHUB_TOKEN` or `gh auth`).
+
+```bash
+just build              # ./puda
+just install            # GOPATH/bin
+just publish-snapshot   # dry-run, no GitHub release
+```
+
+Release (tag the git repo, then publish from this directory). Paste AI-generated notes into the heredoc; omit it to let goreleaser write notes from commits:
+
+```bash
+git tag -a v0.0.37 -m "v0.0.37"
+git push origin v0.0.37
+just publish <<'EOF'
+## Breaking Changes
+- ...
+
+## Changes
+- ...
+EOF
+```
+
 ## Troubleshooting
 
 ### Windows Issues

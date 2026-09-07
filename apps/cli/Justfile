@@ -47,17 +47,34 @@ clean:
 
 # Publish using goreleaser
 # Usage: just publish
-# Note: Requires goreleaser to be installed
+#        just publish <<'EOF'
+#        ## Breaking Changes
+#        - ...
+#        EOF
+# Piped stdin becomes the GitHub release notes. With no stdin, goreleaser
+# generates notes from commits.
 # Install: https://goreleaser.com/install/
 publish:
-    @which goreleaser > /dev/null || (echo "Error: goreleaser not found. Install from https://goreleaser.com/install/" && exit 1)
-    goreleaser release
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v goreleaser >/dev/null; then
+      echo "Error: goreleaser not found. Install from https://goreleaser.com/install/" >&2
+      exit 1
+    fi
+    extra=()
+    if [[ ! -t 0 ]]; then
+      notes=$(mktemp)
+      trap 'rm -f "$notes"' EXIT
+      cat > "$notes"
+      extra+=(--release-notes "$notes")
+    fi
+    goreleaser release --clean "${extra[@]}"
 
 # Publish using goreleaser (snapshot/dry-run)
 # Usage: just publish-snapshot
 publish-snapshot:
     @which goreleaser > /dev/null || (echo "Error: goreleaser not found. Install from https://goreleaser.com/install/" && exit 1)
-    goreleaser release --snapshot
+    goreleaser release --snapshot --clean
 
 # Run the built binary
 # Usage: just run [arguments]
