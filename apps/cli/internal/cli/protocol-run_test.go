@@ -269,3 +269,33 @@ func TestParseProtocolSteps(t *testing.T) {
 		})
 	}
 }
+
+func TestProtocolRunExposesYesFlag(t *testing.T) {
+	if protocolRunCmd.Flags().Lookup("yes") == nil {
+		t.Fatal("protocol run must expose --yes")
+	}
+}
+
+func TestSafetyConfirmationNilWhenSkipped(t *testing.T) {
+	cmd := &cobra.Command{}
+	if got := safetyConfirmation(cmd, true); got != nil {
+		t.Fatal("expected nil confirmation when --yes is set")
+	}
+}
+
+func TestSafetyConfirmationPromptsWhenNotSkipped(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.SetIn(strings.NewReader("no\n"))
+	confirmation := safetyConfirmation(cmd, false)
+	if confirmation == nil {
+		t.Fatal("expected confirmation gate when --yes is unset")
+	}
+	err := confirmation(context.Background(), 1, []puda.CommandRequest{{
+		StepNumber: 1,
+		Name:       "move",
+		Safety:     &puda.CommandSafety{Summary: "Motion risk.", Confirm: true},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "not confirmed") {
+		t.Fatalf("err=%v", err)
+	}
+}

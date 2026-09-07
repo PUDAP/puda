@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/PUDAP/puda/apps/cli/internal/nats"
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
+	"github.com/spf13/cobra"
 )
 
 func TestSplitImmediateCommandTargets(t *testing.T) {
@@ -230,5 +232,43 @@ func TestQueueCommandResponseError(t *testing.T) {
 	response := &puda.NATSMessage{Response: &puda.CommandResponse{Status: puda.StatusSuccess}}
 	if err := queueCommandResponseError(response); err != nil {
 		t.Fatalf("queueCommandResponseError(success) = %v, want nil", err)
+	}
+}
+
+func TestCatalogCommandSafetyUsesMatchingConfirmCommand(t *testing.T) {
+	doc := "Move."
+	catalog := nats.MachineCommands{
+		Commands: "move()",
+		Catalog: []nats.MachineCommand{
+			{
+				Name: "move", Signature: "()", Doc: &doc, DocPresent: true, SafetyPresent: true,
+				Safety: &nats.MachineCommandSafety{
+					Summary: "Motion risk.", Hazards: []string{"collision"}, Confirm: boolPointer(true),
+				},
+			},
+		},
+	}
+	safety := catalogCommandSafety(catalog, "move")
+	if safety == nil || !safety.Confirm || safety.Summary != "Motion risk." {
+		t.Fatalf("safety=%+v", safety)
+	}
+	if catalogCommandSafety(catalog, "home") != nil {
+		t.Fatal("unexpected safety for missing command")
+	}
+}
+
+func TestConfirmMachineCommandSkippedWithYes(t *testing.T) {
+	previous := machineYes
+	machineYes = true
+	defer func() { machineYes = previous }()
+
+	cmd := &cobra.Command{}
+	cmd.SetIn(strings.NewReader(""))
+	err := confirmMachineCommand(cmd, puda.CommandRequest{
+		Name:   "move",
+		Safety: &puda.CommandSafety{Summary: "Motion risk.", Confirm: true},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

@@ -22,6 +22,9 @@ func TestMachinePingCommandMetadata(t *testing.T) {
 	if machineCmd.PersistentFlags().Lookup("human") == nil {
 		t.Fatal("machine command must expose --human")
 	}
+	if machineCmd.PersistentFlags().Lookup("yes") == nil {
+		t.Fatal("machine command must expose --yes")
+	}
 }
 
 func TestParseMachineIDsAcceptsCommaSeparatedAndMultipleArgs(t *testing.T) {

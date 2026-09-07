@@ -26,6 +26,7 @@ const (
 
 var machineNatsServers string
 var machineHuman bool
+var machineYes bool
 var machineCommandName string
 var machineListTimeout time.Duration
 var machinePingTimeout time.Duration
@@ -41,7 +42,8 @@ var machineCmd = &cobra.Command{
 	Short: "Machine operations",
 	Long: `Commands for machine operations.
 
-Output is a JSON object by default. Use --human for a text summary.`,
+Output is a JSON object by default. Use --human for a text summary.
+Use --yes/-y to skip safety confirmation prompts.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		cmd.Help()
 	},
@@ -482,6 +484,7 @@ Use --human for a text line per event instead of NDJSON.`,
 func init() {
 	machineCmd.PersistentFlags().StringVar(&machineNatsServers, "nats-servers", "", "Comma-separated NATS server URLs (overrides active env)")
 	machineCmd.PersistentFlags().BoolVar(&machineHuman, "human", false, "Output as human-readable text instead of JSON")
+	machineCmd.PersistentFlags().BoolVarP(&machineYes, "yes", "y", false, "Skip safety confirmation prompts")
 	machineListCmd.Flags().DurationVar(&machineListTimeout, "timeout", defaultPingDiscoveryTimeout, "How long to collect pong replies")
 	machinePingCmd.Flags().DurationVar(&machinePingTimeout, "timeout", 2*time.Second, "Timeout for each ping request")
 	machineCommandsCmd.Flags().StringVar(&machineCommandName, "command", "", "Show only these advertised commands (comma-separated)")

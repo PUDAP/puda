@@ -28,13 +28,15 @@ Loads a protocol JSON file from the given path and runs commands step-by-step, s
 Commands with the same step_number are sent in parallel and must all finish before the next step runs.
 Before a step containing a command with safety.confirm=true, the complete
 command and safety context are displayed and execution blocks until "yes" is entered.
+Use --yes/-y to skip confirmation.
 
 Optional: --nats-servers to override NATS server URLs in config file.
 
 Example:
   puda protocol run --file protocol.json --steps 2-5
   puda protocol run --file protocol.json --steps 2-
-  puda protocol run --file protocol.json --steps 4,6-7,10-`,
+  puda protocol run --file protocol.json --steps 4,6-7,10-
+  puda protocol run --file protocol.json --yes`,
 	RunE: runProtocol,
 }
 
@@ -43,6 +45,7 @@ var (
 	protocolFilePath string
 	natsServers      string
 	protocolSteps    string
+	protocolYes      bool
 )
 
 // init registers flags for the run command
@@ -50,6 +53,7 @@ func init() {
 	protocolRunCmd.Flags().StringVarP(&protocolFilePath, "file", "f", "", "Path to JSON file containing protocol (required)")
 	protocolRunCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Optional: Comma-separated NATS server URLs - overrides active env")
 	protocolRunCmd.Flags().StringVar(&protocolSteps, "steps", "", "Optional: comma-separated steps or inclusive ranges to run (e.g. 3, 2-5, 2-, 4,6-7,10-)")
+	protocolRunCmd.Flags().BoolVarP(&protocolYes, "yes", "y", false, "Skip safety confirmation prompts")
 	protocolRunCmd.MarkFlagRequired("file")
 }
 
@@ -104,10 +108,7 @@ func runProtocol(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	confirmationReader := bufio.NewReader(cmd.InOrStdin())
-	confirmation := func(ctx context.Context, stepNumber int, commands []puda.CommandRequest) error {
-		return confirmProtocolStep(ctx, confirmationReader, cmd.ErrOrStderr(), stepNumber, commands)
-	}
+	confirmation := safetyConfirmation(cmd, protocolYes)
 	if err := nats.RunProtocol(&protocolFile, natsServers, stepRanges, confirmation); err != nil {
 		return fmt.Errorf("failed to run protocol: %w", err)
 	}
@@ -144,6 +145,16 @@ func connectProtocolRunNATS(servers string) (*natsio.Conn, error) {
 		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
 	}
 	return nc, nil
+}
+
+func safetyConfirmation(cmd *cobra.Command, skip bool) nats.StepConfirmationFunc {
+	if skip {
+		return nil
+	}
+	reader := bufio.NewReader(cmd.InOrStdin())
+	return func(ctx context.Context, stepNumber int, commands []puda.CommandRequest) error {
+		return confirmProtocolStep(ctx, reader, cmd.ErrOrStderr(), stepNumber, commands)
+	}
 }
 
 func confirmProtocolStep(ctx context.Context, input *bufio.Reader, output io.Writer, stepNumber int, commands []puda.CommandRequest) error {

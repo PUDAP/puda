@@ -71,11 +71,13 @@ new UUIDv4 run ID is generated.
 
 Pass command parameters as a JSON object, either as the optional argument or
 with --params. Use --kwargs for protocol kwargs when required.
+Commands with safety.confirm=true prompt unless --yes/-y is set.
 Results are a JSON object by default; use --human for a text summary.
 
 Examples:
   puda machine run first move_electrode '{"deck_slot":"A2","well_name":"A1"}'
-  puda machine run biologic CV --params '{"voltage_min":-0.1,"voltage_max":0.1,"cycles":1}' --kwargs '{"channels":[0]}'`,
+  puda machine run biologic CV --params '{"voltage_min":-0.1,"voltage_max":0.1,"cycles":1}' --kwargs '{"channels":[0]}'
+  puda machine run first home --yes`,
 	Args: cobra.RangeArgs(2, 3),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		paramsJSON := machineRunParams
@@ -96,7 +98,7 @@ Examples:
 		}
 
 		runID := resolveRunID(machineRunID)
-		return runSingleMachineCommand(cmd.OutOrStdout(), args[0], args[1], params, kwargs, runID)
+		return runSingleMachineCommand(cmd, args[0], args[1], params, kwargs, runID)
 	},
 }
 
@@ -119,6 +121,30 @@ func resolveRunID(runID string) string {
 		return runID
 	}
 	return uuid.New().String()
+}
+
+func catalogCommandSafety(catalog pudanats.MachineCommands, name string) *puda.CommandSafety {
+	for _, entry := range catalog.Catalog {
+		if entry.Name != name || entry.Safety == nil || entry.Safety.Confirm == nil {
+			continue
+		}
+		return &puda.CommandSafety{
+			Summary:       entry.Safety.Summary,
+			Hazards:       entry.Safety.Hazards,
+			Requires:      optionalStringValue(entry.Safety.Requires),
+			ForbiddenWhen: optionalStringValue(entry.Safety.ForbiddenWhen),
+			Confirm:       *entry.Safety.Confirm,
+		}
+	}
+	return nil
+}
+
+func confirmMachineCommand(cmd *cobra.Command, request puda.CommandRequest) error {
+	confirmation := safetyConfirmation(cmd, machineYes)
+	if confirmation == nil {
+		return nil
+	}
+	return confirmation(cmd.Context(), request.StepNumber, []puda.CommandRequest{request})
 }
 
 func sendCompleteCommand(
@@ -159,7 +185,8 @@ func parseMachineRunObject(field, value string) (map[string]interface{}, error) 
 	return object, nil
 }
 
-func runSingleMachineCommand(w io.Writer, machineID, commandName string, params, kwargs map[string]interface{}, runID string) error {
+func runSingleMachineCommand(cmd *cobra.Command, machineID, commandName string, params, kwargs map[string]interface{}, runID string) error {
+	w := cmd.OutOrStdout()
 	globalConfig, err := puda.LoadGlobalConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
@@ -175,6 +202,21 @@ func runSingleMachineCommand(w io.Writer, machineID, commandName string, params,
 		return err
 	}
 	defer nc.Close()
+
+	request := puda.CommandRequest{
+		Name:       commandName,
+		Params:     params,
+		Kwargs:     kwargs,
+		StepNumber: 1,
+		Version:    "1.0",
+		MachineID:  machineID,
+	}
+	if catalog, err := pudanats.GetMachineCommands(nc, machineID); err == nil {
+		request.Safety = catalogCommandSafety(catalog, commandName)
+	}
+	if err := confirmMachineCommand(cmd, request); err != nil {
+		return err
+	}
 
 	store, err := db.Connect()
 	if err != nil {
@@ -197,14 +239,6 @@ func runSingleMachineCommand(w io.Writer, machineID, commandName string, params,
 	}
 	defer dispatcher.Close()
 
-	request := puda.CommandRequest{
-		Name:       commandName,
-		Params:     params,
-		Kwargs:     kwargs,
-		StepNumber: 1,
-		Version:    "1.0",
-		MachineID:  machineID,
-	}
 	response, err := pudanats.SendQueueCommand(js, dispatcher, request, runID, userID, username, store)
 	if err == nil {
 		err = queueCommandResponseError(response)
