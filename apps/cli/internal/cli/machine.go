@@ -501,17 +501,36 @@ func connectMachineNATS() (*natsio.Conn, error) {
 	return connectNATS(machineNatsServers)
 }
 
-func connectNATS(override string) (*natsio.Conn, error) {
+func resolveGatewayServers(override string) (string, error) {
+	if override != "" {
+		return override, nil
+	}
+	cfg, err := puda.LoadGlobalConfig()
+	if err != nil {
+		return "", nil
+	}
+	return cfg.GatewayServers, nil
+}
+
+func resolveNATSServers(override string) (string, error) {
 	servers := override
 	if servers == "" {
 		cfg, err := puda.LoadGlobalConfig()
 		if err != nil {
-			return nil, fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
+			return "", fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
 		}
 		servers = cfg.NATSServers
 	}
 	if servers == "" {
-		return nil, fmt.Errorf("NATS servers not configured; run 'puda config set nats_servers <url>'")
+		return "", fmt.Errorf("NATS servers not configured; run 'puda config set nats_servers <url>'")
+	}
+	return servers, nil
+}
+
+func connectNATS(override string) (*natsio.Conn, error) {
+	servers, err := resolveNATSServers(override)
+	if err != nil {
+		return nil, err
 	}
 	nc, err := natsio.Connect(servers, natsio.MaxReconnects(3), natsio.ReconnectWait(2*time.Second))
 	if err != nil {

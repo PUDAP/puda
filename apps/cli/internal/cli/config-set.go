@@ -7,10 +7,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const settableConfigKey = "nats_servers"
+const (
+	configKeyNATSServers    = "nats_servers"
+	configKeyGatewayServers = "gateway_servers"
+)
+
+var settableConfigKeys = []string{
+	configKeyNATSServers,
+	configKeyGatewayServers,
+}
 
 var getConfigKeys = []string{
-	"nats_servers",
+	configKeyNATSServers,
+	configKeyGatewayServers,
 	"user.username",
 	"user.user_id",
 }
@@ -26,13 +35,13 @@ var configGetCmd = &cobra.Command{
 }
 
 var configSetCmd = &cobra.Command{
-	Use:   "set nats_servers <value>",
-	Short: "Set NATS server URLs in the global config",
-	Long:  "Set the comma-separated NATS server URLs used by machine and protocol commands.",
+	Use:   "set <nats_servers|gateway_servers> <value>",
+	Short: "Set NATS or gateway server URLs in the global config",
+	Long:  "Set comma-separated NATS server URLs or gateway remote-cluster URLs used by healthcheck and other NATS commands.",
 	Args:  cobra.ExactArgs(2),
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
-			return []string{settableConfigKey}, cobra.ShellCompDirectiveNoFileComp
+			return settableConfigKeys, cobra.ShellCompDirectiveNoFileComp
 		}
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	},
@@ -48,8 +57,10 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 	}
 
 	switch key {
-	case "nats_servers":
+	case configKeyNATSServers:
 		fmt.Fprintln(cmd.OutOrStdout(), cfg.NATSServers)
+	case configKeyGatewayServers:
+		fmt.Fprintln(cmd.OutOrStdout(), cfg.GatewayServers)
 	case "user.username":
 		fmt.Fprintln(cmd.OutOrStdout(), cfg.User.Username)
 	case "user.user_id":
@@ -63,8 +74,10 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 
 func runConfigSet(cmd *cobra.Command, args []string) error {
 	key, value := args[0], args[1]
-	if key != settableConfigKey {
-		return fmt.Errorf("unknown config key %q; only %q can be set", key, settableConfigKey)
+	switch key {
+	case configKeyNATSServers, configKeyGatewayServers:
+	default:
+		return fmt.Errorf("unknown config key %q; settable keys: %v", key, settableConfigKeys)
 	}
 
 	cfg, err := puda.LoadGlobalConfig()
@@ -72,7 +85,12 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	cfg.NATSServers = value
+	switch key {
+	case configKeyNATSServers:
+		cfg.NATSServers = value
+	case configKeyGatewayServers:
+		cfg.GatewayServers = value
+	}
 
 	if err := puda.SaveGlobalConfig(cfg); err != nil {
 		return err

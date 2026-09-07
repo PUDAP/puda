@@ -127,8 +127,9 @@ type ConfigDatabase struct {
 // GlobalConfig represents the structure of the global PUDA CLI configuration file.
 // This is stored in the user's config directory and only contains user identity.
 type GlobalConfig struct {
-	User        ConfigUser `json:"user"`
-	NATSServers string     `json:"nats_servers,omitempty"`
+	User           ConfigUser `json:"user"`
+	NATSServers    string     `json:"nats_servers,omitempty"`
+	GatewayServers string     `json:"gateway_servers,omitempty"`
 }
 
 // ProjectConfig represents the structure of the project-level PUDA CLI config.json file.

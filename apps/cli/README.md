@@ -13,6 +13,7 @@ puda
 ├── db
 │   ├── exec [sql]           Execute SQL commands on the database
 │   └── schema               Display the database schema
+├── healthcheck              Check NATS server/cluster/gateway health [--nats-servers] [--gateway-servers] (JSON; --human for text)
 ├── help                     Help about any command
 ├── init [path]              Initialize a new PUDA project (requires --name)
 ├── login                    Log in to a PUDA account

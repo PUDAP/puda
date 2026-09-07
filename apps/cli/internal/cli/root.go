@@ -205,4 +205,5 @@ func init() {
 	rootCmd.AddCommand(logoutCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(dbCmd)
+	rootCmd.AddCommand(healthcheckCmd)
 }
