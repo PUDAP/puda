@@ -35,8 +35,7 @@ func Run(cmd *cobra.Command, targetVersion string, yes bool, currentVersion stri
 
 	cmp := compareSemver(currentTag, targetTag)
 
-	// Same version: nothing to do.
-	if cmp == 0 && currentVersion != "dev" {
+	if alreadyOnRelease(currentTag, targetTag) {
 		fmt.Fprintf(out, "puda cli is already on %s. Nothing to do.\n", targetTag)
 		return nil
 	}

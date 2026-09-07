@@ -29,14 +29,28 @@ func displayVersion(v string) string {
 	return normalizeTag(v)
 }
 
+// alreadyOnRelease reports whether current and target are the same version
+// string. Pre-release suffixes count: v0.1.0 and v0.1.0-rc1 are different.
+func alreadyOnRelease(current, target string) bool {
+	current = normalizeTag(current)
+	target = normalizeTag(target)
+	return current != "" && current == target
+}
+
 // compareSemver returns -1 if a<b, 0 if equal, 1 if a>b.
 // Accepts "vX.Y.Z" with optional pre-release (ignored for ordering).
-// Returns 0 if either side is not a parseable version.
+// An unparseable current version (e.g. "dev-<sha>-dirty") is treated as older
+// than a parseable target so `puda update` still installs the requested tag.
 func compareSemver(a, b string) int {
 	av, aok := parseSemver(a)
 	bv, bok := parseSemver(b)
-	if !aok || !bok {
+	switch {
+	case !aok && !bok:
 		return 0
+	case !aok:
+		return -1
+	case !bok:
+		return 1
 	}
 	for i := 0; i < 3; i++ {
 		if av[i] < bv[i] {
