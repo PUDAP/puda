@@ -6,21 +6,23 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
 	"github.com/spf13/cobra"
 )
 
+// lookPath is exec.LookPath, swapped in tests.
+var lookPath = exec.LookPath
+
 // configEditCmd opens the PUDA configuration file in the user's default editor.
 var configEditCmd = &cobra.Command{
 	Use:   "edit",
 	Short: "Edit PUDA CLI configuration",
-	Long: `Open the PUDA CLI configuration file in your default editor.
+	Long: `Open the PUDA CLI configuration file in a terminal editor.
 
-If the configuration file does not exist, a minimal template will be created.
-
-On Unix-like systems, the EDITOR or VISUAL environment variable is used when set.
-Otherwise, the OS default application for JSON files is used.`,
+Uses $EDITOR, then $VISUAL, then a terminal editor on PATH (editor, nano, vim, or vi).
+On Windows, notepad is used when no editor environment variable is set.`,
 	RunE: runConfigEdit,
 }
 
@@ -36,17 +38,13 @@ func runConfigEdit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create config directory %s: %w", configDir, err)
 	}
 
-	// If the config file does not exist, instruct the user to run `puda login`
-	// instead of silently creating a new file, so that required fields like
-	// user ID are properly initialized.
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		fmt.Fprintln(cmd.OutOrStdout(), "No configuration found.")
-		fmt.Fprintln(cmd.OutOrStdout(), "Please run `puda login` first to create your configuration file.")
-		return nil
+		return fmt.Errorf("no configuration found; run 'puda login' first")
+	} else if err != nil {
+		return fmt.Errorf("failed to stat config file %s: %w", configPath, err)
 	}
 
-	fmt.Fprintln(cmd.OutOrStdout(), "PUDA logged in.")
-
+	fmt.Fprintf(cmd.OutOrStdout(), "Opening %s\n", configPath)
 	if err := openInEditor(configPath); err != nil {
 		return fmt.Errorf("failed to open editor: %w", err)
 	}
@@ -54,45 +52,39 @@ func runConfigEdit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// openInEditor opens the given file in the user's preferred or OS-default editor.
-func openInEditor(path string) error {
-	// Prefer explicit editor configuration
-	if editor := os.Getenv("EDITOR"); editor != "" {
-		c := exec.Command(editor, path)
-		c.Stdin = os.Stdin
-		c.Stdout = os.Stdout
-		c.Stderr = os.Stderr
-		return c.Run()
-	}
-	if visual := os.Getenv("VISUAL"); visual != "" {
-		c := exec.Command(visual, path)
-		c.Stdin = os.Stdin
-		c.Stdout = os.Stdout
-		c.Stderr = os.Stderr
-		return c.Run()
+func resolveEditor() (name string, extraArgs []string, err error) {
+	for _, env := range []string{"EDITOR", "VISUAL"} {
+		if v := strings.TrimSpace(os.Getenv(env)); v != "" {
+			fields := strings.Fields(v)
+			return fields[0], fields[1:], nil
+		}
 	}
 
-	// Fallback to OS-specific default opener
-	switch runtime.GOOS {
-	case "windows":
-		// Use "start" via cmd.exe, with empty title argument
-		c := exec.Command("cmd", "/c", "start", "", path)
-		c.Stdin = os.Stdin
-		c.Stdout = os.Stdout
-		c.Stderr = os.Stderr
-		return c.Run()
-	case "darwin":
-		c := exec.Command("open", path)
-		c.Stdin = os.Stdin
-		c.Stdout = os.Stdout
-		c.Stderr = os.Stderr
-		return c.Run()
-	default:
-		// Most Linux/BSD desktops support xdg-open
-		c := exec.Command("xdg-open", path)
-		c.Stdin = os.Stdin
-		c.Stdout = os.Stdout
-		c.Stderr = os.Stderr
-		return c.Run()
+	candidates := []string{"editor", "nano", "vim", "vi"}
+	if runtime.GOOS == "windows" {
+		candidates = append(candidates, "notepad")
 	}
+	for _, name := range candidates {
+		path, lookErr := lookPath(name)
+		if lookErr == nil {
+			return path, nil, nil
+		}
+	}
+
+	return "", nil, fmt.Errorf("no editor found; set the EDITOR environment variable")
+}
+
+// openInEditor opens the given file in the user's preferred or OS-default editor.
+func openInEditor(path string) error {
+	name, extraArgs, err := resolveEditor()
+	if err != nil {
+		return err
+	}
+
+	args := append(append([]string{}, extraArgs...), path)
+	c := exec.Command(name, args...)
+	c.Stdin = os.Stdin
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	return c.Run()
 }

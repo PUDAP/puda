@@ -109,12 +109,30 @@ func SaveGlobalConfig(cfg *GlobalConfig) error {
 		return fmt.Errorf("failed to determine PUDA config path: %w", err)
 	}
 
+	return writeConfigFile(configPath, cfg, 0o600)
+}
+
+// SaveProjectConfig writes the project config back to the discovered project file.
+// If no project config exists, it returns nil without writing.
+func SaveProjectConfig(cfg *ProjectConfig) error {
+	configPath, err := ProjectConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to determine project config path: %w", err)
+	}
+	if configPath == "" {
+		return nil
+	}
+
+	return writeConfigFile(configPath, cfg, 0o644)
+}
+
+func writeConfigFile(configPath string, cfg any, perm os.FileMode) error {
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+	if err := os.WriteFile(configPath, data, perm); err != nil {
 		return fmt.Errorf("failed to write config file %s: %w", configPath, err)
 	}
 
