@@ -21,6 +21,9 @@ var protocolValidateCmd = &cobra.Command{
 	Short: "Validate and resolve a protocol JSON file",
 	Long: `Validate a protocol JSON file against each target machine's advertised commands.
 
+wait is a CLI builtin: it is not looked up in a machine catalog and does not
+require machine_id. params.seconds must be a number >= 0.
+
 The command validates the complete protocol before producing output. If any
 errors are found, all errors are returned. If validation succeeds, stdout is
 exactly "passed". The protocol file is never modified.`,
@@ -152,6 +155,21 @@ func validateAndEnrichProtocol(protocol *puda.ProtocolFile, fetchCatalog func(st
 	enrichedCommands := make([]validatedProtocolCommand, 0, len(protocol.Commands))
 	confirmationCount := 0
 	for index, command := range protocol.Commands {
+		if puda.IsWaitCommand(command) {
+			if _, err := puda.ParseWaitDuration(command.Params); err != nil {
+				continue
+			}
+			params := command.Params
+			if params == nil {
+				params = map[string]interface{}{}
+			}
+			enrichedCommands = append(enrichedCommands, validatedProtocolCommand{
+				Name: command.Name, Params: params, Kwargs: command.Kwargs,
+				StepNumber: command.StepNumber, Version: command.Version, MachineID: command.MachineID,
+				Description: "Wait locally in the CLI without sending a machine command.", Valid: true, Errors: []string{},
+			})
+			continue
+		}
 		if command.MachineID == "" {
 			continue
 		}
@@ -205,6 +223,9 @@ func validateAndEnrichProtocol(protocol *puda.ProtocolFile, fetchCatalog func(st
 func resolvableMachineIDs(commands []puda.CommandRequest) []string {
 	set := make(map[string]struct{})
 	for _, command := range commands {
+		if puda.IsWaitCommand(command) {
+			continue
+		}
 		if command.MachineID != "" {
 			set[command.MachineID] = struct{}{}
 		}

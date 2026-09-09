@@ -33,6 +33,13 @@ const (
 	ImmediateCommandReset    = "reset"
 )
 
+// WaitCommandName is a protocol command handled by the CLI. It is not sent to a machine.
+const WaitCommandName = "wait"
+
+// WaitParamSeconds is the wait duration parameter. Seconds keep protocol
+// delays readable; fractional values cover sub-second waits.
+const WaitParamSeconds = "seconds"
+
 // CommandResponseStatus represents the status of a command response
 type CommandResponseStatus string
 

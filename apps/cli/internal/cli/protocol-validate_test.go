@@ -289,3 +289,43 @@ func TestValidateCommandStructureAllowsParallelCommandsStartingAtOne(t *testing.
 		t.Fatalf("errors = %+v", errors)
 	}
 }
+
+func TestValidateAndEnrichProtocolSkipsCatalogFetchForWait(t *testing.T) {
+	protocol := validProtocol(
+		puda.CommandRequest{StepNumber: 1, Name: "wait", Params: map[string]interface{}{"seconds": float64(2)}},
+		puda.CommandRequest{StepNumber: 2, MachineID: "machine-001", Name: "move_to", Params: map[string]interface{}{
+			"x": float64(1), "y": float64(1), "z": float64(1),
+		}},
+	)
+	fetched := make([]string, 0)
+	got, validationErrors := validateAndEnrichProtocol(protocol, func(machineID string) (pudanats.MachineCommands, error) {
+		fetched = append(fetched, machineID)
+		return moveCatalog(), nil
+	})
+	if len(validationErrors) != 0 || got == nil {
+		t.Fatalf("got = %+v, validation errors = %v", got, validationErrors)
+	}
+	if len(fetched) != 1 || fetched[0] != "machine-001" {
+		t.Fatalf("fetched catalogs = %v", fetched)
+	}
+	if len(got.Commands) != 2 || got.Commands[0].Name != "wait" || got.Commands[1].Name != "move_to" {
+		t.Fatalf("commands = %+v", got.Commands)
+	}
+	if got.Summary.Machines != 1 {
+		t.Fatalf("machines = %d, want 1", got.Summary.Machines)
+	}
+}
+
+func TestValidateAndEnrichProtocolAllowsWaitOnlyProtocol(t *testing.T) {
+	protocol := validProtocol(puda.CommandRequest{StepNumber: 1, Name: "wait", Params: map[string]interface{}{"seconds": float64(1)}})
+	got, validationErrors := validateAndEnrichProtocol(protocol, func(string) (pudanats.MachineCommands, error) {
+		t.Fatal("wait should not resolve a machine catalog")
+		return pudanats.MachineCommands{}, nil
+	})
+	if len(validationErrors) != 0 || got == nil {
+		t.Fatalf("got = %+v, validation errors = %v", got, validationErrors)
+	}
+	if got.Summary.Machines != 0 || got.Commands[0].Name != "wait" {
+		t.Fatalf("got = %+v", got)
+	}
+}

@@ -3,6 +3,7 @@ package nats
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -311,5 +312,40 @@ func TestRequestStepConfirmationRejectsCancelledContextWithoutCallingGate(t *tes
 	}
 	if called {
 		t.Fatal("confirmation gate called after cancellation")
+	}
+}
+
+func TestExecuteWaitCommandReturnsImmediatelyForZeroDuration(t *testing.T) {
+	err := executeWaitCommand(context.Background(), puda.CommandRequest{
+		Name:       puda.WaitCommandName,
+		StepNumber: 1,
+		Params:     map[string]interface{}{"seconds": float64(0)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExecuteWaitCommandStopsOnCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := executeWaitCommand(ctx, puda.CommandRequest{
+		Name:       puda.WaitCommandName,
+		StepNumber: 1,
+		Params:     map[string]interface{}{"seconds": float64(60)},
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context canceled", err)
+	}
+}
+
+func TestExecuteWaitCommandRejectsInvalidParams(t *testing.T) {
+	err := executeWaitCommand(context.Background(), puda.CommandRequest{
+		Name:       puda.WaitCommandName,
+		StepNumber: 1,
+		Params:     map[string]interface{}{},
+	})
+	if err == nil || !strings.Contains(err.Error(), "seconds") {
+		t.Fatalf("error = %v", err)
 	}
 }

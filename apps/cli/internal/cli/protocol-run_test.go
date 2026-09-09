@@ -150,6 +150,33 @@ func TestAuthoritativeProtocolForRunReplacesEditableSafetyWithLiveCatalogSafety(
 	}
 }
 
+func TestAuthoritativeProtocolForRunPreservesWaitAndLiveMachineSafety(t *testing.T) {
+	protocol := validProtocol(
+		puda.CommandRequest{StepNumber: 1, Name: "wait", Params: map[string]interface{}{"seconds": float64(1)}},
+		puda.CommandRequest{
+			StepNumber: 2,
+			MachineID:  "machine-001",
+			Name:       "move_to",
+			Params:     map[string]interface{}{"x": float64(1), "y": float64(1), "z": float64(1)},
+			Safety:     &puda.CommandSafety{Summary: "edited", Confirm: false},
+		},
+	)
+
+	resolved, validationErrors := authoritativeProtocolForRun(protocol, func(string) (nats.MachineCommands, error) {
+		return moveCatalog(), nil
+	})
+	if len(validationErrors) != 0 || resolved == nil {
+		t.Fatalf("resolved = %+v, validation errors = %v", resolved, validationErrors)
+	}
+	if resolved.Commands[0].Name != "wait" || resolved.Commands[0].Safety != nil {
+		t.Fatalf("wait command = %+v", resolved.Commands[0])
+	}
+	safety := resolved.Commands[1].Safety
+	if safety == nil || !safety.Confirm || safety.Summary != "Confirm the workspace is clear before moving." {
+		t.Fatalf("run safety was not replaced from the live catalog: %+v", safety)
+	}
+}
+
 func TestAuthoritativeProtocolForRunFailsClosedWhenLiveCatalogCannotBeResolved(t *testing.T) {
 	protocol := validProtocol(puda.CommandRequest{StepNumber: 1, MachineID: "machine-001", Name: "move_to"})
 

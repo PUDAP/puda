@@ -129,12 +129,11 @@ func requestStepConfirmation(ctx context.Context, stepNumber int, commands []pud
 
 func sendQueueCommandBatch(ctx context.Context, publishInterlock *sync.Mutex, js nats.JetStreamContext, dispatcher *ResponseDispatcher, requests []puda.CommandRequest, startIndex int, totalCommands int, runID, userID, username string, store *db.Store) error {
 	if len(requests) == 1 {
-		request := requests[0]
-		log.Printf("Sending command %d/%d: %s (step %d) to machine %s", startIndex+1, totalCommands, request.Name, request.StepNumber, request.MachineID)
+		logProtocolCommandDispatch(startIndex+1, totalCommands, requests[0])
 	} else {
 		log.Printf("Sending %d commands in parallel for step %d", len(requests), requests[0].StepNumber)
 		for idx, request := range requests {
-			log.Printf("Sending command %d/%d: %s (step %d) to machine %s", startIndex+idx+1, totalCommands, request.Name, request.StepNumber, request.MachineID)
+			logProtocolCommandDispatch(startIndex+idx+1, totalCommands, request)
 		}
 	}
 
@@ -144,6 +143,14 @@ func sendQueueCommandBatch(ctx context.Context, publishInterlock *sync.Mutex, js
 		wg.Add(1)
 		go func(idx int, request puda.CommandRequest) {
 			defer wg.Done()
+			if puda.IsWaitCommand(request) {
+				results <- commandResult{
+					index:   startIndex + idx,
+					request: request,
+					err:     executeWaitCommand(ctx, request),
+				}
+				return
+			}
 			response, err := SendQueueCommandWithContext(ctx, publishInterlock, js, dispatcher, request, runID, userID, username, store)
 			results <- commandResult{
 				index:    startIndex + idx,
@@ -161,6 +168,11 @@ func sendQueueCommandBatch(ctx context.Context, publishInterlock *sync.Mutex, js
 		commandPosition := result.index + 1
 		if result.err != nil {
 			return fmt.Errorf("command %d/%d failed or timed out: %w", commandPosition, totalCommands, result.err)
+		}
+
+		if puda.IsWaitCommand(result.request) {
+			log.Printf("Command %d/%d succeeded: wait (step %d)", commandPosition, totalCommands, result.request.StepNumber)
+			continue
 		}
 
 		if err := requireSuccessfulQueueResponse(result.response); err != nil {
@@ -181,6 +193,41 @@ func sendQueueCommandBatch(ctx context.Context, publishInterlock *sync.Mutex, js
 	return nil
 }
 
+func logProtocolCommandDispatch(position, totalCommands int, request puda.CommandRequest) {
+	if puda.IsWaitCommand(request) {
+		if request.MachineID != "" {
+			log.Printf("Waiting command %d/%d (step %d) for machine %s", position, totalCommands, request.StepNumber, request.MachineID)
+			return
+		}
+		log.Printf("Waiting command %d/%d (step %d)", position, totalCommands, request.StepNumber)
+		return
+	}
+	log.Printf("Sending command %d/%d: %s (step %d) to machine %s", position, totalCommands, request.Name, request.StepNumber, request.MachineID)
+}
+
+func executeWaitCommand(ctx context.Context, request puda.CommandRequest) error {
+	duration, err := puda.ParseWaitDuration(request.Params)
+	if err != nil {
+		return fmt.Errorf("wait: %w", err)
+	}
+	if request.MachineID != "" {
+		log.Printf("Waiting %s (step %d) for machine %s", duration, request.StepNumber, request.MachineID)
+	} else {
+		log.Printf("Waiting %s (step %d)", duration, request.StepNumber)
+	}
+	if duration == 0 {
+		return ctx.Err()
+	}
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("wait interrupted: %w", ctx.Err())
+	case <-timer.C:
+		return nil
+	}
+}
+
 // SendQueueCommands sends queued protocol commands. Pass nil confirmation to
 // dispatch every step without an interactive gate.
 func SendQueueCommands(js nats.JetStreamContext, dispatcher *ResponseDispatcher, requests []puda.CommandRequest, runID, userID, username string, store *db.Store, confirmation StepConfirmationFunc) (returnErr error) {
@@ -195,9 +242,12 @@ func SendQueueCommands(js nats.JetStreamContext, dispatcher *ResponseDispatcher,
 		completeStepNumber = lastStepNumber + 1
 	}
 
-	// Collect unique machine IDs
+	// Collect unique machine IDs. wait is handled locally and is not a machine.
 	machineIDs := make(map[string]bool)
 	for _, req := range requests {
+		if puda.IsWaitCommand(req) {
+			continue
+		}
 		if req.MachineID == "" {
 			return fmt.Errorf("command missing machine_id: %+v", req)
 		}
@@ -250,8 +300,9 @@ func SendQueueCommands(js nats.JetStreamContext, dispatcher *ResponseDispatcher,
 		}
 	}()
 
-	// Send START commands to all machines
-	log.Printf("Sending START commands to all machines: %v", machineIDList)
+	if len(machineIDList) > 0 {
+		log.Printf("Sending START commands to all machines: %v", machineIDList)
+	}
 	for _, machineID := range machineIDList {
 		if ctx.Err() != nil {
 			return fmt.Errorf("interrupted before starting machines")
@@ -292,7 +343,9 @@ func SendQueueCommands(js nats.JetStreamContext, dispatcher *ResponseDispatcher,
 	}
 
 	log.Printf("All %d commands completed successfully", len(requests))
-	log.Printf("Sending COMPLETE commands to all machines: %v", machineIDList)
+	if len(machineIDList) > 0 {
+		log.Printf("Sending COMPLETE commands to all machines: %v", machineIDList)
+	}
 	return nil
 }
 
