@@ -25,7 +25,7 @@ puda
 ├── machine                  Optional: --nats-servers (overrides active env)
 │   ├── commands <machine_id>  List commands the machine exposes [--command names] (JSON; --human for text)
 │   ├── home <machine_id> [machine_id...]  Home machine(s)
-│   ├── list                 Broadcast puda.cmd.ping and list pong responders (JSON; --human for text)
+│   ├── list                 Broadcast puda.cmd.ping and list pong responders with description and livestream_count (JSON; --human for text)
 │   ├── ping <machine_ids>   Ping comma-separated machine IDs (JSON; --human for text)
 │   ├── reset <machine_id>   Reset a machine
 │   ├── state <machine_id>   Get the state of a machine as JSON

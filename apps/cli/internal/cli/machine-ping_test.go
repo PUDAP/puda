@@ -9,6 +9,25 @@ import (
 	pudanats "github.com/PUDAP/puda/apps/cli/internal/nats"
 )
 
+func TestMachineListCommandMetadata(t *testing.T) {
+	if got, want := machineListCmd.Use, "list"; got != want {
+		t.Fatalf("Use=%q want=%q", got, want)
+	}
+	for _, want := range []string{
+		"livestream_count",
+		"registered with PUDA",
+		"Other cameras may exist",
+		"puda livestream list --machines",
+	} {
+		if !strings.Contains(machineListCmd.Long, want) {
+			t.Fatalf("Long missing %q: %s", want, machineListCmd.Long)
+		}
+	}
+	if machineListCmd.Flags().Lookup("timeout") == nil {
+		t.Fatal("list command must expose --timeout")
+	}
+}
+
 func TestMachinePingCommandMetadata(t *testing.T) {
 	if got, want := machinePingCmd.Use, "ping <machine_ids>"; got != want {
 		t.Fatalf("Use=%q want=%q", got, want)
@@ -95,10 +114,10 @@ func TestWriteListResultsJSONIsDefault(t *testing.T) {
 	if payload.Count != 2 {
 		t.Fatalf("got %+v", payload)
 	}
-	if payload.Machines[0].MachineID != "biologic" || payload.Machines[0].Description != "Potentiostat." || len(payload.Machines[0].Livestreams) != 0 {
+	if payload.Machines[0].MachineID != "biologic" || payload.Machines[0].Description != "Potentiostat." || payload.Machines[0].LivestreamCount != 0 {
 		t.Fatalf("got %+v", payload.Machines[0])
 	}
-	if payload.Machines[1].MachineID != "first" || payload.Machines[1].Description != "" || len(payload.Machines[1].Livestreams) != 0 {
+	if payload.Machines[1].MachineID != "first" || payload.Machines[1].Description != "" || payload.Machines[1].LivestreamCount != 0 {
 		t.Fatalf("got %+v", payload.Machines[1])
 	}
 }
@@ -115,7 +134,7 @@ func TestWriteListResultsHuman(t *testing.T) {
 	}
 }
 
-func TestWriteListResultsJoinsLivestreams(t *testing.T) {
+func TestWriteListResultsLivestreamCount(t *testing.T) {
 	byMachine := map[string][]pudanats.LivestreamRef{
 		"first": {
 			{Name: "deck", Host: "first", Description: "Deck view", URLs: pudanats.DeriveLivestreamURLs("first", "deck")},
@@ -136,18 +155,24 @@ func TestWriteListResultsJoinsLivestreams(t *testing.T) {
 	if err := json.Unmarshal(jsonBuf.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if len(payload.Machines[0].Livestreams) != 2 || payload.Machines[0].Livestreams[0].Name != "deck" {
-		t.Fatalf("first livestreams=%+v", payload.Machines[0].Livestreams)
+	if payload.Machines[0].LivestreamCount != 2 {
+		t.Fatalf("first livestream_count=%d", payload.Machines[0].LivestreamCount)
 	}
-	if len(payload.Machines[1].Livestreams) != 0 {
-		t.Fatalf("biologic livestreams=%+v", payload.Machines[1].Livestreams)
+	if payload.Machines[1].LivestreamCount != 0 {
+		t.Fatalf("biologic livestream_count=%d", payload.Machines[1].LivestreamCount)
+	}
+	if strings.Contains(jsonBuf.String(), `"livestreams"`) || strings.Contains(jsonBuf.String(), `"urls"`) {
+		t.Fatalf("list JSON must not join livestream objects:\n%s", jsonBuf.String())
+	}
+	if !strings.Contains(jsonBuf.String(), `"livestream_count": 2`) || !strings.Contains(jsonBuf.String(), `"livestream_count": 0`) {
+		t.Fatalf("list JSON must include livestream_count for every machine:\n%s", jsonBuf.String())
 	}
 
 	var humanBuf bytes.Buffer
 	if err := writeListResults(&humanBuf, pongs, byMachine, true); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := humanBuf.String(), "2 machines found:\n  first: Gantry. (2 livestreams)\n  biologic\n"; got != want {
+	if got, want := humanBuf.String(), "2 machines found:\n  first: Gantry. (2 registered livestreams)\n  biologic\n"; got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }

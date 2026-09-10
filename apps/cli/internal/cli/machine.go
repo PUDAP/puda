@@ -52,7 +52,10 @@ Use --yes/-y to skip safety confirmation prompts.`,
 var machineListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Discover responsive machines via Core NATS ping",
-	Long:  `Broadcast ping on puda.cmd.ping and list machines that reply with pong as JSON, including each edge's advertised description and livestreams attached in the fleet registry.`,
+	Long: `Broadcast ping on puda.cmd.ping and list machines that reply with pong as JSON, including each edge's advertised description and livestream_count.
+
+livestream_count is how many livestreams are registered with PUDA for that machine. Other cameras may exist on the host and not appear here. Use puda livestream list --machines <id> for registered names, hosts, and URLs.
+Use --human for a text summary.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		nc, err := connectMachineNATS()
 		if err != nil {
@@ -187,23 +190,23 @@ func writePingResults(w io.Writer, results []pudanats.PingResult, byMachine map[
 }
 
 type listedMachine struct {
-	MachineID   string                   `json:"machine_id"`
-	Description string                   `json:"description"`
-	Livestreams []pudanats.LivestreamRef `json:"livestreams"`
+	MachineID       string `json:"machine_id"`
+	Description     string `json:"description"`
+	LivestreamCount int    `json:"livestream_count"`
 }
 
-func listedMachineLabel(pong pudanats.PingResult, livestreams []pudanats.LivestreamRef) string {
+func listedMachineLabel(pong pudanats.PingResult, livestreamCount int) string {
 	label := pong.MachineID
 	if pong.Description != "" {
 		label += ": " + pong.Description
 	}
-	switch len(livestreams) {
+	switch livestreamCount {
 	case 0:
 		return label
 	case 1:
-		return label + " (1 livestream)"
+		return label + " (1 registered livestream)"
 	default:
-		return fmt.Sprintf("%s (%d livestreams)", label, len(livestreams))
+		return fmt.Sprintf("%s (%d registered livestreams)", label, livestreamCount)
 	}
 }
 
@@ -214,9 +217,9 @@ func writeListResults(w io.Writer, pongs []pudanats.PingResult, byMachine map[st
 	machines := make([]listedMachine, 0, len(pongs))
 	for _, pong := range pongs {
 		machines = append(machines, listedMachine{
-			MachineID:   pong.MachineID,
-			Description: pong.Description,
-			Livestreams: pudanats.LivestreamsForMachine(byMachine, pong.MachineID),
+			MachineID:       pong.MachineID,
+			Description:     pong.Description,
+			LivestreamCount: len(pudanats.LivestreamsForMachine(byMachine, pong.MachineID)),
 		})
 	}
 	if !human {
@@ -231,7 +234,8 @@ func writeListResults(w io.Writer, pongs []pudanats.PingResult, byMachine map[st
 	}
 	fmt.Fprintf(w, "%d machines found:\n", len(pongs))
 	for _, pong := range pongs {
-		fmt.Fprintf(w, "  %s\n", listedMachineLabel(pong, pudanats.LivestreamsForMachine(byMachine, pong.MachineID)))
+		count := len(pudanats.LivestreamsForMachine(byMachine, pong.MachineID))
+		fmt.Fprintf(w, "  %s\n", listedMachineLabel(pong, count))
 	}
 	return nil
 }
