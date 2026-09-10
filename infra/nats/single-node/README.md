@@ -8,8 +8,12 @@ and NATS UI.
 ```bash
 cp .env.example .env
 # Set HOST_IP to this machine's reachable address.
+# Set EXTERNAL_PORT if the host client port should not be 4222.
 docker compose up -d
 ```
+
+`EXTERNAL_PORT` controls the host port exposed for client connections and the
+port advertised to clients. NATS still listens on `4222` inside the container.
 
 ## Provision PUDA resources
 
