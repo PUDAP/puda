@@ -1,6 +1,16 @@
 package cli
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestUpdateCommandHelpIncludesReleasesURL(t *testing.T) {
+	const want = "https://github.com/pudap/puda/releases"
+	if !strings.Contains(updateCmd.Long, want) {
+		t.Fatalf("update help must include %s", want)
+	}
+}
 
 func TestUpdateCommandExposesYesFlag(t *testing.T) {
 	if updateCmd.Flags().Lookup("yes") == nil {

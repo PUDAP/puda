@@ -24,6 +24,7 @@ from .models import (
     CommandResponse,
     CommandResponseStatus,
     CommandResponseCode,
+    ImmediateCommand,
     MachineState,
     NATSMessage,
 )
@@ -346,6 +347,12 @@ class EdgeRunner:
 
         try:
             logger.info("Executing immediate command: %s (run_id: %s)", command_name, run_id)
+            if (
+                command_name.lower() == ImmediateCommand.RESET
+                and command_name.lower() not in self.allowed_commands
+            ):
+                logger.info("Driver has no reset command; skipping")
+                return CommandResponse(status=CommandResponseStatus.SUCCESS)
             handler, error_response = _validate_handler(
                 self.machine_driver, command_name, self.allowed_commands
             )

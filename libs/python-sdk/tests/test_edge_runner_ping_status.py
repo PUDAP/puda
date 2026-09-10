@@ -3,6 +3,13 @@ import unittest
 from puda.command import command
 from puda.edge_nats_client import EdgeNatsClient
 from puda.edge_runner import EdgeRunner, machine_description
+from puda.models import (
+    CommandRequest,
+    CommandResponseStatus,
+    MessageHeader,
+    MessageType,
+    NATSMessage,
+)
 
 
 class Driver:
@@ -59,6 +66,27 @@ class EdgeRunnerPingStatusTests(unittest.IsolatedAsyncioTestCase):
         client = EdgeNatsClient(["nats://localhost:4222"], "test-1")
         EdgeRunner(client, Driver(), telemetry)
         self.assertIsNone(client.description)
+
+    async def test_missing_reset_command_is_a_successful_noop(self):
+        client = EdgeNatsClient(["nats://localhost:4222"], "test-1")
+        runner = EdgeRunner(client, Driver(), telemetry)
+        response = await runner._handle_immediate(
+            NATSMessage(
+                header=MessageHeader(
+                    message_type=MessageType.COMMAND,
+                    user_id="user-1",
+                    username="user",
+                    machine_id="test-1",
+                    run_id="run-1",
+                ),
+                command=CommandRequest(
+                    name="reset",
+                    step_number=1,
+                    machine_id="test-1",
+                ),
+            )
+        )
+        self.assertEqual(response.status, CommandResponseStatus.SUCCESS)
 
 
 class MachineDescriptionTests(unittest.TestCase):

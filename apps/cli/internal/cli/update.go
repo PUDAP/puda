@@ -17,21 +17,14 @@ var updateCmd = &cobra.Command{
 	Short: "Update the puda CLI to the latest (or a specific) release",
 	Long: `Download and install a release of the puda CLI from GitHub.
 
+Releases: https://github.com/pudap/puda/releases
+
 Without a version, the latest release is installed. Pass a tag as [version] or
 --version to install that release; downgrading will print a warning and require
 confirmation unless --yes/-y is set.
 
 The binary is replaced in place at the path reported by 'which puda'
 (os.Executable). Use --yes/-y to skip confirmation prompts.`,
-	Example: `  # Upgrade to the latest release
-  puda update
-
-  # Install a specific release (upgrade or downgrade)
-  puda update v1.5.0
-  puda update --version v1.5.0
-
-  # Non-interactive (useful in scripts)
-  puda update v1.5.0 --yes`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		target, err := resolveUpdateVersion(updateTargetVersion, args)

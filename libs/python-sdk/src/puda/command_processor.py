@@ -290,6 +290,12 @@ class CommandProcessor:
         await self.run_manager.clear_run()
         logger.info("Resetting machine")
         response = await handler(message)
+        if (
+            response.status == CommandResponseStatus.ERROR
+            and response.code == CommandResponseCode.UNKNOWN_COMMAND
+        ):
+            logger.info("Driver has no reset command; run_id cleared")
+            response = _ok()
         if response.status == CommandResponseStatus.SUCCESS:
             await self._client.publish_state({"state": MachineState.IDLE, "run_id": None})
             logger.info("Machine reset")
