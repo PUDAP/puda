@@ -53,14 +53,11 @@ In another terminal.
 puda machine list --nats-servers nats://localhost:4222
 puda machine commands test-1 --nats-servers nats://localhost:4222
 puda machine home test-1 --nats-servers nats://localhost:4222
-puda machine run test-1 move '{"x":10,"y":20,"z":5}' --nats-servers nats://localhost:4222
+puda machine run test-1 move_to '{"x":10,"y":20,"z":5}' --nats-servers nats://localhost:4222
 puda machine run test-1 echo '{"message":"hello"}' --nats-servers nats://localhost:4222
 puda machine run test-1 get_status --nats-servers nats://localhost:4222
 puda machine state --nats-servers nats://localhost:4222
-puda protocol run --file test-edge/protocol.json --nats-servers nats://localhost:4222
 ```
-
-`protocol.json` targets `test-1`.
 
 ### 5. Clock sync (edge hosts)
 
@@ -81,10 +78,14 @@ docker compose -f test-edge/compose.yml up -d --build
 | Command | How to invoke | What it does |
 | --- | --- | --- |
 | `home` | `puda machine home <id>` | Move simulated axes to origin |
-| `reset` | `puda machine reset <id>` | Clear homed flag and position |
-| `move` | `puda machine run <id> move '{"x":1,"y":2,"z":3}'` | Set absolute `{x,y,z}` |
-| `echo` | `puda machine run <id> echo '{"message":"hi"}'` | Round-trip a string |
-| `wait` | `puda machine run <id> wait '{"seconds":5}'` | Sleep; useful for BUSY / cancel tests |
+| `reset` | `puda machine reset <id>` | Clear homed flag, heater, and position |
+| `move_to` | `puda machine run <id> move_to '{"x":1,"y":2,"z":3}'` | Set absolute `{x,y,z}` (`@safety`, `confirm=true`) |
+| `set_heater` | `puda machine run <id> set_heater '{"celsius":40}'` | Set simulated heater (`@safety`, `confirm=false`) |
+| `echo` | `puda machine run <id> echo '{"message":"hi"}'` | Round-trip a string inside a dict |
+| `echo_str` / `echo_int` / `echo_float` / `echo_bool` / `echo_bytes` | `puda machine run <id> echo_int '{"value":3}'` | Round-trip JSON primitives |
+| `echo_list` / `echo_dict` / `echo_any` / `echo_optional` / `echo_union` | `puda machine run <id> echo_list '{"values":[1,2]}'` | Lists, objects, any, null, unions |
+| `echo_nested` / `echo_records` / `echo_mixed` / `load_layout` | `puda machine run <id> load_layout '{"layout":{"A1":"tiprack"}}'` | Nested types and `Dict[str, str]` |
+| `wait` | `puda machine run <id> wait '{"seconds":5}'` | Sleep; useful for BUSY / cancel tests. Protocols should use the CLI `wait` builtin |
 | `fail` | `puda machine run <id> fail '{"message":"boom"}'` | Raise so the edge returns `EXECUTION_ERROR` |
-| `get_status` | `puda machine run <id> get_status` | Snapshot of homed + position |
+| `get_status` | `puda machine run <id> get_status` | Snapshot of homed + position + heater |
 | `pause` / `resume` / `cancel` | `puda machine pause\|resume\|cancel <id>` | Immediate-command acknowledgements |

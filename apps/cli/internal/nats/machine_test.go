@@ -60,6 +60,30 @@ func TestParseMachineCommandsPreservesStructuredCatalog(t *testing.T) {
 	}
 }
 
+func TestParseMachineCommandsPreservesParameterSchemas(t *testing.T) {
+	payload := []byte(`{
+		"commands":"load_deck(self, layout: Dict[str, str])",
+		"catalog":[{
+			"name":"load_deck",
+			"signature":"(self, layout: Dict[str, str]) -> dict",
+			"doc":"Load the deck.",
+			"safety":null,
+			"parameters":{"layout":{"required":true,"schema":{"kind":"dict","values":{"kind":"str"}}}}
+		}]
+	}`)
+	commands, err := parseMachineCommands(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := commands.Catalog[0]
+	if entry.Parameters == nil || len(entry.Parameters["layout"].Schema) == 0 {
+		t.Fatalf("parameters = %+v", entry.Parameters)
+	}
+	if string(entry.Parameters["layout"].Schema) != `{"kind":"dict","values":{"kind":"str"}}` {
+		t.Fatalf("schema = %s", entry.Parameters["layout"].Schema)
+	}
+}
+
 func TestParseMachineCommandsRejectsMissingCatalogFields(t *testing.T) {
 	payloads := []string{
 		`{"commands":"run()"}`,

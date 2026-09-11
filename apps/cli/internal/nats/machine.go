@@ -39,12 +39,18 @@ type MachineCommands struct {
 }
 
 type MachineCommand struct {
-	Name          string                `json:"name"`
-	Signature     string                `json:"signature"`
-	Doc           *string               `json:"doc"`
-	Safety        *MachineCommandSafety `json:"safety"`
-	DocPresent    bool                  `json:"-"`
-	SafetyPresent bool                  `json:"-"`
+	Name          string                      `json:"name"`
+	Signature     string                      `json:"signature"`
+	Doc           *string                     `json:"doc"`
+	Safety        *MachineCommandSafety       `json:"safety"`
+	Parameters    map[string]CatalogParameter `json:"parameters,omitempty"`
+	DocPresent    bool                        `json:"-"`
+	SafetyPresent bool                        `json:"-"`
+}
+
+type CatalogParameter struct {
+	Required bool            `json:"required"`
+	Schema   json.RawMessage `json:"schema"`
 }
 
 type MachineCommandSafety struct {

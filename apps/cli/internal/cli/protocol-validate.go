@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -64,22 +63,6 @@ type validatedProtocolCommand struct {
 	Safety      *puda.CommandSafety    `json:"safety,omitempty"`
 	Valid       bool                   `json:"valid"`
 	Errors      []string               `json:"errors"`
-}
-
-type parameterKind string
-
-const (
-	parameterInt    parameterKind = "int"
-	parameterFloat  parameterKind = "float"
-	parameterString parameterKind = "str"
-	parameterBool   parameterKind = "bool"
-	parameterDict   parameterKind = "dict"
-	parameterList   parameterKind = "list"
-)
-
-type parameterType struct {
-	Kinds    []parameterKind
-	Nullable bool
 }
 
 type parsedMachineParam struct {
@@ -309,6 +292,10 @@ func parseMachineCommand(entry pudanats.MachineCommand) (parsedMachineCommand, e
 	if err != nil {
 		return parsedMachineCommand{}, err
 	}
+	catalogSchemas, err := catalogParameterSchemas(entry)
+	if err != nil {
+		return parsedMachineCommand{}, err
+	}
 	parsed := parsedMachineCommand{Params: make(map[string]parsedMachineParam)}
 	if entry.Doc != nil {
 		parsed.Description = *entry.Doc
@@ -334,13 +321,16 @@ func parseMachineCommand(entry pudanats.MachineCommand) (parsedMachineCommand, e
 		}
 		if strings.HasPrefix(parameter, "**") {
 			nameAndType := strings.TrimSpace(strings.TrimPrefix(parameter, "**"))
-			colon := indexTopLevel(nameAndType, ':')
-			if colon < 0 {
-				return parsedMachineCommand{}, fmt.Errorf("unsupported unannotated **kwargs parameter")
+			name, annotation, hasAnnotation := splitNameAndAnnotation(nameAndType)
+			if name == "" {
+				return parsedMachineCommand{}, fmt.Errorf("invalid empty parameter name")
 			}
-			typeSpec, err := parseParameterType(nameAndType[colon+1:])
+			typeSpec, err := resolveParameterSchema(name, annotation, hasAnnotation, catalogSchemas)
 			if err != nil {
-				return parsedMachineCommand{}, err
+				if !hasAnnotation {
+					return parsedMachineCommand{}, fmt.Errorf("unsupported unannotated **kwargs parameter")
+				}
+				return parsedMachineCommand{}, fmt.Errorf("parameter %q: %w", name, err)
 			}
 			parsed.ExtraKwargs = &typeSpec
 			continue
@@ -354,24 +344,57 @@ func parseMachineCommand(entry pudanats.MachineCommand) (parsedMachineCommand, e
 		if equals := indexTopLevel(declaration, '='); equals >= 0 {
 			declaration = declaration[:equals]
 		}
-		colon := indexTopLevel(declaration, ':')
-		if colon < 0 {
-			return parsedMachineCommand{}, fmt.Errorf("parameter %q has no type annotation", strings.TrimSpace(declaration))
-		}
-		name := strings.TrimSpace(declaration[:colon])
+		name, annotation, hasAnnotation := splitNameAndAnnotation(declaration)
 		if name == "" {
 			return parsedMachineCommand{}, fmt.Errorf("invalid empty parameter name")
 		}
 		if _, duplicate := parsed.Params[name]; duplicate {
 			return parsedMachineCommand{}, fmt.Errorf("duplicate parameter %q in signature", name)
 		}
-		typeSpec, err := parseParameterType(declaration[colon+1:])
+		typeSpec, err := resolveParameterSchema(name, annotation, hasAnnotation, catalogSchemas)
 		if err != nil {
+			if !hasAnnotation {
+				return parsedMachineCommand{}, fmt.Errorf("parameter %q has no type annotation", name)
+			}
 			return parsedMachineCommand{}, fmt.Errorf("parameter %q: %w", name, err)
 		}
 		parsed.Params[name] = parsedMachineParam{Required: required, Type: typeSpec}
 	}
 	return parsed, nil
+}
+
+func catalogParameterSchemas(entry pudanats.MachineCommand) (map[string]parameterType, error) {
+	schemas := make(map[string]parameterType, len(entry.Parameters))
+	for name, spec := range entry.Parameters {
+		if len(spec.Schema) == 0 {
+			continue
+		}
+		schema, err := schemaFromJSON(spec.Schema)
+		if err != nil {
+			return nil, fmt.Errorf("parameter %q: %w", name, err)
+		}
+		schemas[name] = schema
+	}
+	return schemas, nil
+}
+
+func splitNameAndAnnotation(declaration string) (string, string, bool) {
+	declaration = strings.TrimSpace(declaration)
+	colon := indexTopLevel(declaration, ':')
+	if colon < 0 {
+		return declaration, "", false
+	}
+	return strings.TrimSpace(declaration[:colon]), declaration[colon+1:], true
+}
+
+func resolveParameterSchema(name, annotation string, hasAnnotation bool, catalogSchemas map[string]parameterType) (parameterType, error) {
+	if schema, ok := catalogSchemas[name]; ok {
+		return schema, nil
+	}
+	if !hasAnnotation {
+		return parameterType{}, fmt.Errorf("has no type annotation")
+	}
+	return parseParameterType(annotation)
 }
 
 func signatureParameters(signature string) (string, error) {
@@ -407,55 +430,6 @@ func signatureParameters(signature string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("invalid signature %q: unbalanced parentheses", signature)
-}
-
-func parseParameterType(annotation string) (parameterType, error) {
-	annotation = strings.TrimSpace(annotation)
-	if len(annotation) >= 2 && ((annotation[0] == '\'' && annotation[len(annotation)-1] == '\'') || (annotation[0] == '"' && annotation[len(annotation)-1] == '"')) {
-		annotation = strings.TrimSpace(annotation[1 : len(annotation)-1])
-	}
-	annotation = strings.TrimPrefix(annotation, "typing.")
-	if strings.HasPrefix(annotation, "Optional[") && strings.HasSuffix(annotation, "]") {
-		result, err := parseParameterType(annotation[len("Optional[") : len(annotation)-1])
-		result.Nullable = true
-		return result, err
-	}
-	if strings.HasPrefix(annotation, "Union[") && strings.HasSuffix(annotation, "]") {
-		return parseTypeUnion(splitTopLevel(annotation[len("Union[") : len(annotation)-1]))
-	}
-	if parts := splitTopLevelPipes(annotation); len(parts) > 1 {
-		return parseTypeUnion(parts)
-	}
-	if annotation == "None" || annotation == "NoneType" {
-		return parameterType{Nullable: true}, nil
-	}
-	kind, ok := map[string]parameterKind{
-		"int": parameterInt, "float": parameterFloat, "str": parameterString,
-		"bool": parameterBool, "dict": parameterDict, "list": parameterList,
-	}[annotation]
-	if !ok {
-		return parameterType{}, fmt.Errorf("unsupported annotation %q", annotation)
-	}
-	return parameterType{Kinds: []parameterKind{kind}}, nil
-}
-
-func parseTypeUnion(parts []string) (parameterType, error) {
-	result := parameterType{}
-	seen := make(map[parameterKind]struct{})
-	for _, part := range parts {
-		member, err := parseParameterType(part)
-		if err != nil {
-			return parameterType{}, err
-		}
-		result.Nullable = result.Nullable || member.Nullable
-		for _, kind := range member.Kinds {
-			if _, ok := seen[kind]; !ok {
-				seen[kind] = struct{}{}
-				result.Kinds = append(result.Kinds, kind)
-			}
-		}
-	}
-	return result, nil
 }
 
 func splitTopLevelPipes(value string) []string {
@@ -519,53 +493,15 @@ func validateParameterValue(commandIndex int, field, commandName, name string, v
 		return []puda.ValidationError{{CommandIndex: commandIndex, Field: field, Message: fmt.Sprintf("command %s does not accept parameter %s", commandName, name)}}
 	}
 	if value == nil {
-		if expected.Nullable {
+		if expected.Nullable || expected.Kind == parameterNull || expected.Kind == parameterAny {
 			return nil
 		}
 		return []puda.ValidationError{{CommandIndex: commandIndex, Field: field, Message: fmt.Sprintf("parameter %s does not allow null", name)}}
 	}
-	for _, kind := range expected.Kinds {
-		if valueMatchesParameterKind(value, kind) {
-			return nil
-		}
+	if valueMatchesSchema(value, expected) {
+		return nil
 	}
 	return []puda.ValidationError{{CommandIndex: commandIndex, Field: field, Message: fmt.Sprintf("parameter %s must match annotation %s", name, formatParameterType(expected))}}
-}
-
-func valueMatchesParameterKind(value interface{}, kind parameterKind) bool {
-	switch kind {
-	case parameterInt:
-		number, ok := value.(float64)
-		return ok && !math.IsNaN(number) && !math.IsInf(number, 0) && math.Trunc(number) == number
-	case parameterFloat:
-		_, ok := value.(float64)
-		return ok
-	case parameterString:
-		_, ok := value.(string)
-		return ok
-	case parameterBool:
-		_, ok := value.(bool)
-		return ok
-	case parameterDict:
-		_, ok := value.(map[string]interface{})
-		return ok
-	case parameterList:
-		_, ok := value.([]interface{})
-		return ok
-	default:
-		return false
-	}
-}
-
-func formatParameterType(value parameterType) string {
-	parts := make([]string, 0, len(value.Kinds)+1)
-	for _, kind := range value.Kinds {
-		parts = append(parts, string(kind))
-	}
-	if value.Nullable {
-		parts = append(parts, "None")
-	}
-	return strings.Join(parts, " | ")
 }
 
 func optionalStringValue(value *string) string {
@@ -632,6 +568,9 @@ func indexTopLevel(value string, target rune) int {
 			}
 			continue
 		}
+		if character == target && depth == 0 {
+			return index
+		}
 		switch character {
 		case '\'', '"':
 			quote = character
@@ -639,10 +578,6 @@ func indexTopLevel(value string, target rune) int {
 			depth++
 		case ')', ']', '}':
 			depth--
-		default:
-			if character == target && depth == 0 {
-				return index
-			}
 		}
 	}
 	return -1

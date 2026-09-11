@@ -116,7 +116,7 @@ func TestValidateAndEnrichProtocolRejectsMalformedStructuredCatalog(t *testing.T
 
 func TestValidateCommandParamsRejectsDuplicateNamesAcrossParamsAndKwargs(t *testing.T) {
 	command := puda.CommandRequest{Name: "run", Params: map[string]interface{}{"x": float64(1)}, Kwargs: map[string]interface{}{"x": float64(2)}}
-	parsed := parsedMachineCommand{Params: map[string]parsedMachineParam{"x": {Required: true, Type: parameterType{Kinds: []parameterKind{parameterFloat}}}}}
+	parsed := parsedMachineCommand{Params: map[string]parsedMachineParam{"x": {Required: true, Type: parameterType{Kind: parameterFloat}}}}
 
 	errors := validateCommandParams(0, command, parsed)
 	if len(errors) != 1 || errors[0].Field != "kwargs.x" || !strings.Contains(errors[0].Message, "both params and kwargs") {
@@ -194,6 +194,26 @@ func TestValidateAndEnrichProtocolAggregatesStructuralAndResolvableCatalogErrors
 	}
 }
 
+func TestValidateCommandParamsSkipsTypeCheckForAny(t *testing.T) {
+	parsed, err := parseMachineCommand(testCommand("run", "(payload: 'Any')", "Run.", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []interface{}{
+		"ok",
+		float64(2),
+		true,
+		nil,
+		[]interface{}{float64(1), "x"},
+		map[string]interface{}{"ok": true, "n": float64(2)},
+	} {
+		command := puda.CommandRequest{Name: "run", Params: map[string]interface{}{"payload": value}}
+		if errors := validateCommandParams(0, command, parsed); len(errors) != 0 {
+			t.Fatalf("Any rejected %#v: %+v", value, errors)
+		}
+	}
+}
+
 func TestValidateCommandParamsChecksBasicAnnotationTypesAndNullability(t *testing.T) {
 	parsed, err := parseMachineCommand(testCommand("run", "(count: 'int', ratio: 'float', label: 'str', enabled: 'bool', options: 'dict', values: 'list', note: 'str | None' = None)", "Run.", nil))
 	if err != nil {
@@ -228,9 +248,12 @@ func TestParseMachineCommandRejectsNullForNonNullableAndUnknownAnnotation(t *tes
 		t.Fatalf("errors = %+v", errors)
 	}
 
-	_, err = parseMachineCommand(testCommand("run", "(values: list[int])", "Run.", nil))
+	_, err = parseMachineCommand(testCommand("run", "(callback: Callable[[int], str])", "Run.", nil))
 	if err == nil || !strings.Contains(err.Error(), "unsupported annotation") {
 		t.Fatalf("error = %v", err)
+	}
+	if !strings.Contains(err.Error(), "origin=Callable") || !strings.Contains(err.Error(), "JSON-compatible primitive") {
+		t.Fatalf("unsupported annotation error is not actionable: %v", err)
 	}
 }
 
