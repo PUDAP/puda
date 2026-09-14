@@ -58,7 +58,7 @@ chronyd -Q "server 100.118.119.115 iburst"
 ## Edge hosts
 
 On each edge **host** (not in the edge container), point Chrony at `HOST_IP`.
-See `test-edge/chrony/README.md`. Manual Debian/Ubuntu steps:
+See [`client/README.md`](./client/README.md). Manual Debian/Ubuntu steps:
 
 ```bash
 sudo timedatectl set-ntp false

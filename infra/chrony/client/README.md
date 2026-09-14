@@ -1,13 +1,14 @@
 # Edge Chrony client
 
-Point this **edge host** at the site NTP server (`infra/chrony`). The edge
-process does not talk NTP; it uses the host clock.
+Point this **edge host** at the site NTP server (the Chrony container one
+directory up). The edge process does not talk NTP; it uses the host clock.
 
 Do not run these scripts on the NATS/NTP machine. That host already runs the
 `chrony` container, which sets its clock.
 
 Pass the server address when you run the script. Use `HOST_IP` from
-`infra/chrony/.env` (Tailscale IP, LAN IP, or Tailscale MagicDNS). Example: `100.118.119.115`, `bears`.
+`infra/chrony/.env` (Tailscale IP, LAN IP, or Tailscale MagicDNS). Example:
+`100.118.119.115`, `bears`.
 
 ## Linux
 

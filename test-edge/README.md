@@ -61,7 +61,7 @@ puda machine state --nats-servers nats://localhost:4222
 
 ### 5. Clock sync (edge hosts)
 
-On each edge PC, run the scripts in [`chrony/`](chrony/README.md). Pass the
+On each edge PC, run the scripts in [`infra/chrony/client`](../infra/chrony/client/README.md). Pass the
 site NTP server IP when you invoke them (do not put it in `.env`).
 
 ### 6. Docker (optional)
