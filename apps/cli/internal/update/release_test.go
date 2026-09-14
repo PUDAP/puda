@@ -41,6 +41,48 @@ func TestFilterReleaseNotesBetweenSkipsUnparseableTags(t *testing.T) {
 	assertStringSlicesEqual(t, got, want)
 }
 
+func TestFilterReleaseNotesBetweenSkipsPrereleasesForStableTarget(t *testing.T) {
+	releases := []githubRelease{
+		{TagName: "v1.3.0"},
+		{TagName: "v1.3.0-rc2"},
+		{TagName: "v1.3.0-rc1"},
+		{TagName: "v1.2.0"},
+		{TagName: "v1.2.0-rc1", Prerelease: true},
+		{TagName: "v1.1.1", Prerelease: true},
+		{TagName: "v1.1.0"},
+	}
+
+	got := releaseTags(filterReleaseNotesBetween(releases, "v1.1.0", "v1.3.0", -1))
+	want := []string{"v1.2.0", "v1.3.0"}
+	assertStringSlicesEqual(t, got, want)
+}
+
+func TestFilterReleaseNotesBetweenIncludesPrereleasesForRCTarget(t *testing.T) {
+	releases := []githubRelease{
+		{TagName: "v1.3.0-rc2"},
+		{TagName: "v1.3.0-rc1"},
+		{TagName: "v1.2.0"},
+		{TagName: "v1.1.0"},
+	}
+
+	got := releaseTags(filterReleaseNotesBetween(releases, "v1.1.0", "v1.3.0-rc2", -1))
+	want := []string{"v1.2.0", "v1.3.0-rc1", "v1.3.0-rc2"}
+	assertStringSlicesEqual(t, got, want)
+}
+
+func TestFilterReleaseNotesBetweenSkipsPrereleasesOnDowngradeToStable(t *testing.T) {
+	releases := []githubRelease{
+		{TagName: "v1.3.0"},
+		{TagName: "v1.3.0-rc1"},
+		{TagName: "v1.2.0"},
+		{TagName: "v1.1.0"},
+	}
+
+	got := releaseTags(filterReleaseNotesBetween(releases, "v1.3.0", "v1.1.0", 1))
+	want := []string{"v1.2.0", "v1.1.0"}
+	assertStringSlicesEqual(t, got, want)
+}
+
 func releaseTags(releases []githubRelease) []string {
 	tags := make([]string, 0, len(releases))
 	for _, rel := range releases {

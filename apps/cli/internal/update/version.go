@@ -90,3 +90,13 @@ func isParseableSemver(s string) bool {
 	_, ok := parseSemver(s)
 	return ok
 }
+
+// isPrerelease reports whether s is a semver pre-release (e.g. v1.0.0-rc1).
+// Build metadata (+...) is ignored and is not treated as a pre-release.
+func isPrerelease(s string) bool {
+	s = strings.TrimPrefix(normalizeTag(s), "v")
+	if i := strings.Index(s, "+"); i >= 0 {
+		s = s[:i]
+	}
+	return strings.Contains(s, "-")
+}

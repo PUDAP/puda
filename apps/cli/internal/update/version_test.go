@@ -34,3 +34,27 @@ func TestCompareSemverDevIsOlderThanRelease(t *testing.T) {
 		t.Fatalf("compareSemver(dev, v0.0.36)=%d want -1", got)
 	}
 }
+
+func TestIsPrerelease(t *testing.T) {
+	tests := []struct {
+		version string
+		want    bool
+	}{
+		{"v1.0.0-rc1", true},
+		{"v1.0.0-rc.1", true},
+		{"1.0.0-rc1", true},
+		{"v1.0.0-alpha", true},
+		{"v1.0.0-beta.2", true},
+		{"v1.0.0-rc1+build", true},
+		{"v1.0.0", false},
+		{"1.0.0", false},
+		{"v1.0.0+build", false},
+		{"dev", false},
+		{"", false},
+	}
+	for _, tc := range tests {
+		if got := isPrerelease(tc.version); got != tc.want {
+			t.Errorf("isPrerelease(%q)=%v want %v", tc.version, got, tc.want)
+		}
+	}
+}

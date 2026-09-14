@@ -11,11 +11,12 @@ import (
 
 // githubRelease models the subset of the GitHub release JSON we care about.
 type githubRelease struct {
-	TagName string `json:"tag_name"`
-	Name    string `json:"name"`
-	Body    string `json:"body"`
-	HTMLURL string `json:"html_url"`
-	Assets  []struct {
+	TagName    string `json:"tag_name"`
+	Name       string `json:"name"`
+	Body       string `json:"body"`
+	HTMLURL    string `json:"html_url"`
+	Prerelease bool   `json:"prerelease"`
+	Assets     []struct {
 		Name               string `json:"name"`
 		BrowserDownloadURL string `json:"browser_download_url"`
 		Size               int64  `json:"size"`
@@ -179,10 +180,14 @@ func fetchReleases() ([]githubRelease, error) {
 }
 
 func filterReleaseNotesBetween(releases []githubRelease, currentTag, targetTag string, cmp int) []githubRelease {
+	includePrereleases := isPrerelease(targetTag)
 	var out []githubRelease
 	for _, rel := range releases {
 		tag := normalizeTag(rel.TagName)
 		if !isParseableSemver(tag) {
+			continue
+		}
+		if !includePrereleases && isPrereleaseRelease(rel) {
 			continue
 		}
 
@@ -200,6 +205,10 @@ func filterReleaseNotesBetween(releases []githubRelease, currentTag, targetTag s
 	return out
 }
 
+func isPrereleaseRelease(rel githubRelease) bool {
+	return rel.Prerelease || isPrerelease(rel.TagName)
+}
+
 func containsReleaseTag(releases []githubRelease, tag string) bool {
 	tag = normalizeTag(tag)
 	for _, rel := range releases {
@@ -212,9 +221,18 @@ func containsReleaseTag(releases []githubRelease, tag string) bool {
 
 func sortReleaseNotes(releases []githubRelease, cmp int) {
 	sort.SliceStable(releases, func(i, j int) bool {
-		if cmp < 0 {
-			return compareSemver(releases[i].TagName, releases[j].TagName) < 0
+		cmpSem := compareSemver(releases[i].TagName, releases[j].TagName)
+		if cmpSem == 0 {
+			left := normalizeTag(releases[i].TagName)
+			right := normalizeTag(releases[j].TagName)
+			if cmp < 0 {
+				return left < right
+			}
+			return left > right
 		}
-		return compareSemver(releases[i].TagName, releases[j].TagName) > 0
+		if cmp < 0 {
+			return cmpSem < 0
+		}
+		return cmpSem > 0
 	})
 }

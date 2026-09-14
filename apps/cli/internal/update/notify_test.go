@@ -20,6 +20,7 @@ func TestBuildNotice(t *testing.T) {
 		{"major bump", "v0.1.0", "v1.0.0", false, true},
 		{"dev build: silent", "dev", "v0.2.0", false, false},
 		{"unparseable latest: silent", "v0.1.0", "nightly", false, false},
+		{"prerelease latest: silent", "v0.1.0", "v0.2.0-rc1", false, false},
 		{"no v prefix current", "0.1.0", "v0.2.0", false, true},
 		{"no v prefix both", "0.1.0", "0.2.0", false, true},
 	}

@@ -87,6 +87,9 @@ func buildNotice(current, latest string) string {
 	if latest == "" || !isParseableSemver(current) || !isParseableSemver(latest) {
 		return ""
 	}
+	if isPrerelease(latest) {
+		return ""
+	}
 	if compareSemver(latest, current) <= 0 {
 		return ""
 	}
