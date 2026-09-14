@@ -92,13 +92,15 @@ func TestValidateAndEnrichProtocolRejectsMalformedStructuredCatalog(t *testing.T
 	tests := []struct {
 		name    string
 		catalog pudanats.MachineCommands
+		field   string
+		message string
 	}{
-		{name: "missing catalog", catalog: pudanats.MachineCommands{}},
-		{name: "missing name", catalog: testCatalog(testCommand("", "(x: int)", "doc", nil))},
-		{name: "missing signature", catalog: testCatalog(testCommand("run", "", "doc", nil))},
-		{name: "missing doc field", catalog: testCatalog(pudanats.MachineCommand{Name: "run", Signature: "(x: int)", SafetyPresent: true})},
-		{name: "missing safety field", catalog: testCatalog(pudanats.MachineCommand{Name: "run", Signature: "(x: int)", Doc: stringPointer("doc")})},
-		{name: "malformed safety", catalog: testCatalog(testCommand("run", "(x: int)", "doc", &pudanats.MachineCommandSafety{Summary: "safe", Confirm: nil}))},
+		{name: "missing catalog", catalog: pudanats.MachineCommands{}, field: "machine_id", message: "catalog"},
+		{name: "missing name", catalog: testCatalog(testCommand("", "(x: int)", "doc", nil)), field: "name", message: "not found"},
+		{name: "missing signature", catalog: testCatalog(testCommand("run", "", "doc", nil)), field: "name", message: "catalog"},
+		{name: "missing doc field", catalog: testCatalog(pudanats.MachineCommand{Name: "run", Signature: "(x: int)", SafetyPresent: true}), field: "name", message: "catalog"},
+		{name: "missing safety field", catalog: testCatalog(pudanats.MachineCommand{Name: "run", Signature: "(x: int)", Doc: stringPointer("doc")}), field: "name", message: "catalog"},
+		{name: "malformed safety", catalog: testCatalog(testCommand("run", "(x: int)", "doc", &pudanats.MachineCommandSafety{Summary: "safe", Confirm: nil})), field: "name", message: "catalog"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -107,7 +109,7 @@ func TestValidateAndEnrichProtocolRejectsMalformedStructuredCatalog(t *testing.T
 			if got != nil || len(validationErrors) == 0 {
 				t.Fatalf("got = %+v, errors = %v", got, validationErrors)
 			}
-			if !strings.Contains(validationErrors[0].Message, "catalog") {
+			if validationErrors[0].Field != test.field || !strings.Contains(validationErrors[0].Message, test.message) {
 				t.Fatalf("error = %+v", validationErrors[0])
 			}
 		})
@@ -336,6 +338,69 @@ func TestValidateAndEnrichProtocolSkipsCatalogFetchForWait(t *testing.T) {
 	}
 	if got.Summary.Machines != 1 {
 		t.Fatalf("machines = %d, want 1", got.Summary.Machines)
+	}
+}
+
+func TestValidateAndEnrichProtocolIgnoresUnusedUnparseableCatalogCommands(t *testing.T) {
+	catalog := testCatalog(
+		testCommand("CA", "(self, callback: Callable[[int], str], **kwargs)", "Unused and unparseable.", nil),
+		testCommand("CV", "(self, params: dict[str, Any] | None = None, **kwargs)", "Cyclic voltammetry.", nil),
+	)
+	protocol := validProtocol(puda.CommandRequest{
+		StepNumber: 1,
+		MachineID:  "biologic",
+		Name:       "CV",
+		Params: map[string]interface{}{
+			"start":         float64(-0.025),
+			"end":           float64(-0.5),
+			"E2":            float64(-0.025),
+			"channels":      []interface{}{float64(0)},
+			"retrieve_data": true,
+		},
+	})
+	got, validationErrors := validateAndEnrichProtocol(protocol, func(machineID string) (pudanats.MachineCommands, error) {
+		if machineID != "biologic" {
+			t.Fatalf("unexpected machine ID %q", machineID)
+		}
+		return catalog, nil
+	})
+	if len(validationErrors) != 0 || got == nil {
+		t.Fatalf("got = %+v, validation errors = %v", got, validationErrors)
+	}
+	if got.Commands[0].Name != "CV" {
+		t.Fatalf("commands = %+v", got.Commands)
+	}
+}
+
+func TestParseMachineCommandAcceptsUnannotatedKwargsArgsAndParameters(t *testing.T) {
+	parsed, err := parseMachineCommand(testCommand(
+		"CV",
+		"(self, params: dict[str, Any] | None = None, *args, **kwargs)",
+		"Cyclic voltammetry.",
+		nil,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.ExtraKwargs == nil || parsed.ExtraKwargs.Kind != parameterAny {
+		t.Fatalf("kwargs schema = %+v", parsed.ExtraKwargs)
+	}
+	if _, ok := parsed.Params["args"]; ok {
+		t.Fatalf("variadic args should be ignored: %+v", parsed.Params)
+	}
+	errors := validateCommandParams(0, puda.CommandRequest{Name: "CV", Params: map[string]interface{}{
+		"start": float64(-0.025), "channels": []interface{}{float64(0)},
+	}}, parsed)
+	if len(errors) != 0 {
+		t.Fatalf("unannotated kwargs rejected extra params: %+v", errors)
+	}
+
+	parsed, err = parseMachineCommand(testCommand("echo", "(self, message)", "Echo.", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Params["message"].Type.Kind != parameterAny {
+		t.Fatalf("unannotated param schema = %+v", parsed.Params["message"].Type)
 	}
 }
 

@@ -36,6 +36,10 @@ type parameterType struct {
 	Members  []parameterType `json:"members,omitempty"`
 }
 
+func unconstrainedType() parameterType {
+	return parameterType{Kind: parameterAny}
+}
+
 func parseParameterType(annotation string) (parameterType, error) {
 	schema, err := parseAnnotation(annotation)
 	if err != nil {

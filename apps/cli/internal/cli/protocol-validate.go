@@ -18,7 +18,12 @@ const machineCatalogWorkerLimit = 4
 var protocolValidateCmd = &cobra.Command{
 	Use:   "validate",
 	Short: "Validate and resolve a protocol JSON file",
-	Long: `Validate a protocol JSON file against each target machine's advertised commands.
+	Long: `Validate a protocol JSON file against the advertised commands it uses.
+
+Only commands named in the protocol are parsed from each machine catalog.
+Unused catalog entries are ignored, so an unrelated signature cannot fail
+validation. Unannotated parameters, *args, and **kwargs are accepted without
+a type check.
 
 wait is a CLI builtin: it is not looked up in a machine catalog and does not
 require machine_id. params.seconds must be a number >= 0.
@@ -119,19 +124,24 @@ func writeProtocolValidationSuccess(writer io.Writer) error {
 func validateAndEnrichProtocol(protocol *puda.ProtocolFile, fetchCatalog func(string) (pudanats.MachineCommands, error)) (*validatedProtocol, []puda.ValidationError) {
 	structuralErrors, _ := puda.ValidateProtocol(protocol)
 	machineIDs := resolvableMachineIDs(protocol.Commands)
+	usedNames := usedMachineCommandNames(protocol.Commands)
 	catalogs, catalogErrors := fetchMachineCatalogs(machineIDs, fetchCatalog)
 
 	parsedCatalogs := make(map[string]map[string]parsedMachineCommand, len(catalogs))
+	commandCatalogErrors := make(map[string]map[string]error, len(catalogs))
 	for _, machineID := range machineIDs {
 		if catalogErrors[machineID] != nil {
 			continue
 		}
-		parsed, err := parseMachineCatalog(catalogs[machineID])
+		parsed, commandErrors, err := parseUsedMachineCommands(catalogs[machineID], usedNames[machineID])
 		if err != nil {
 			catalogErrors[machineID] = err
 			continue
 		}
 		parsedCatalogs[machineID] = parsed
+		if len(commandErrors) > 0 {
+			commandCatalogErrors[machineID] = commandErrors
+		}
 	}
 
 	liveErrors := make([]puda.ValidationError, 0)
@@ -161,6 +171,10 @@ func validateAndEnrichProtocol(protocol *puda.ProtocolFile, fetchCatalog func(st
 			continue
 		}
 		if command.Name == "" {
+			continue
+		}
+		if commandErr := commandCatalogErrors[command.MachineID][command.Name]; commandErr != nil {
+			liveErrors = append(liveErrors, puda.ValidationError{CommandIndex: index, Field: "name", Message: fmt.Sprintf("failed to parse advertised command %q: %v", command.Name, commandErr)})
 			continue
 		}
 		parsed, ok := parsedCatalogs[command.MachineID][command.Name]
@@ -201,6 +215,22 @@ func validateAndEnrichProtocol(protocol *puda.ProtocolFile, fetchCatalog func(st
 		Summary:  validatedProtocolSummary{Valid: true, TotalCommands: len(enrichedCommands), Machines: len(machineIDs), CommandsRequiringConfirmation: confirmationCount},
 		Commands: enrichedCommands,
 	}, nil
+}
+
+func usedMachineCommandNames(commands []puda.CommandRequest) map[string]map[string]struct{} {
+	used := make(map[string]map[string]struct{})
+	for _, command := range commands {
+		if puda.IsWaitCommand(command) || command.MachineID == "" || command.Name == "" {
+			continue
+		}
+		names := used[command.MachineID]
+		if names == nil {
+			names = make(map[string]struct{})
+			used[command.MachineID] = names
+		}
+		names[command.Name] = struct{}{}
+	}
+	return used
 }
 
 func resolvableMachineIDs(commands []puda.CommandRequest) []string {
@@ -263,28 +293,39 @@ func fetchMachineCatalogs(machineIDs []string, fetch func(string) (pudanats.Mach
 	return catalogs, errorsByMachine
 }
 
-func parseMachineCatalog(catalog pudanats.MachineCommands) (map[string]parsedMachineCommand, error) {
+func parseUsedMachineCommands(catalog pudanats.MachineCommands, usedNames map[string]struct{}) (map[string]parsedMachineCommand, map[string]error, error) {
 	if catalog.Catalog == nil {
-		return nil, fmt.Errorf("catalog field is missing")
+		return nil, nil, fmt.Errorf("catalog field is missing")
 	}
-	parsed := make(map[string]parsedMachineCommand, len(catalog.Catalog))
+	parsed := make(map[string]parsedMachineCommand, len(usedNames))
+	commandErrors := make(map[string]error)
+	seen := make(map[string]int, len(usedNames))
 	for index, entry := range catalog.Catalog {
-		if entry.Name == "" || entry.Signature == "" || !entry.DocPresent || !entry.SafetyPresent {
-			return nil, fmt.Errorf("catalog[%d] is missing required name, signature, doc, or safety field", index)
+		if _, used := usedNames[entry.Name]; !used {
+			continue
 		}
-		if _, duplicate := parsed[entry.Name]; duplicate {
-			return nil, fmt.Errorf("catalog contains duplicate command %q", entry.Name)
+		if previous, duplicate := seen[entry.Name]; duplicate {
+			commandErrors[entry.Name] = fmt.Errorf("catalog contains duplicate command %q (catalog[%d] and catalog[%d])", entry.Name, previous, index)
+			delete(parsed, entry.Name)
+			continue
+		}
+		seen[entry.Name] = index
+		if entry.Name == "" || entry.Signature == "" || !entry.DocPresent || !entry.SafetyPresent {
+			commandErrors[entry.Name] = fmt.Errorf("catalog[%d] is missing required name, signature, doc, or safety field", index)
+			continue
 		}
 		if entry.Safety != nil && (entry.Safety.Summary == "" || entry.Safety.Hazards == nil || entry.Safety.Confirm == nil) {
-			return nil, fmt.Errorf("catalog[%d] has malformed safety metadata", index)
+			commandErrors[entry.Name] = fmt.Errorf("catalog[%d] has malformed safety metadata", index)
+			continue
 		}
 		command, err := parseMachineCommand(entry)
 		if err != nil {
-			return nil, fmt.Errorf("catalog[%d] command %q: %w", index, entry.Name, err)
+			commandErrors[entry.Name] = fmt.Errorf("catalog[%d] command %q: %w", index, entry.Name, err)
+			continue
 		}
 		parsed[entry.Name] = command
 	}
-	return parsed, nil
+	return parsed, commandErrors, nil
 }
 
 func parseMachineCommand(entry pudanats.MachineCommand) (parsedMachineCommand, error) {
@@ -327,16 +368,13 @@ func parseMachineCommand(entry pudanats.MachineCommand) (parsedMachineCommand, e
 			}
 			typeSpec, err := resolveParameterSchema(name, annotation, hasAnnotation, catalogSchemas)
 			if err != nil {
-				if !hasAnnotation {
-					return parsedMachineCommand{}, fmt.Errorf("unsupported unannotated **kwargs parameter")
-				}
 				return parsedMachineCommand{}, fmt.Errorf("parameter %q: %w", name, err)
 			}
 			parsed.ExtraKwargs = &typeSpec
 			continue
 		}
 		if strings.HasPrefix(parameter, "*") {
-			return parsedMachineCommand{}, fmt.Errorf("variadic positional parameters are unsupported because edge dispatch is kwargs-only")
+			continue
 		}
 
 		required := indexTopLevel(parameter, '=') < 0
@@ -353,9 +391,6 @@ func parseMachineCommand(entry pudanats.MachineCommand) (parsedMachineCommand, e
 		}
 		typeSpec, err := resolveParameterSchema(name, annotation, hasAnnotation, catalogSchemas)
 		if err != nil {
-			if !hasAnnotation {
-				return parsedMachineCommand{}, fmt.Errorf("parameter %q has no type annotation", name)
-			}
 			return parsedMachineCommand{}, fmt.Errorf("parameter %q: %w", name, err)
 		}
 		parsed.Params[name] = parsedMachineParam{Required: required, Type: typeSpec}
@@ -392,7 +427,7 @@ func resolveParameterSchema(name, annotation string, hasAnnotation bool, catalog
 		return schema, nil
 	}
 	if !hasAnnotation {
-		return parameterType{}, fmt.Errorf("has no type annotation")
+		return unconstrainedType(), nil
 	}
 	return parseParameterType(annotation)
 }
