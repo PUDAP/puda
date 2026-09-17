@@ -125,6 +125,9 @@ type pingResultJSON struct {
 	UptimeSeconds float64                  `json:"uptime_seconds,omitempty"`
 	RunStatus     string                   `json:"run_status,omitempty"`
 	Description   string                   `json:"description,omitempty"`
+	LocalIP       string                   `json:"local_ip,omitempty"`
+	TailscaleIP   string                   `json:"tailscale_ip,omitempty"`
+	MagicDNS      string                   `json:"magicdns,omitempty"`
 	LatencyMS     float64                  `json:"latency_ms,omitempty"`
 	Error         string                   `json:"error,omitempty"`
 	Livestreams   []pudanats.LivestreamRef `json:"livestreams"`
@@ -142,6 +145,9 @@ func pingResultWithLivestreams(result pudanats.PingResult, refs []pudanats.Lives
 		UptimeSeconds: result.UptimeSeconds,
 		RunStatus:     result.RunStatus,
 		Description:   result.Description,
+		LocalIP:       result.LocalIP,
+		TailscaleIP:   result.TailscaleIP,
+		MagicDNS:      result.MagicDNS,
 		LatencyMS:     result.LatencyMS,
 		Error:         result.Error,
 		Livestreams:   refs,
@@ -185,6 +191,9 @@ func writePingResults(w io.Writer, results []pudanats.PingResult, byMachine map[
 		for _, stream := range pudanats.LivestreamsForMachine(byMachine, result.MachineID) {
 			fmt.Fprintf(w, "  %s\n", formatLivestreamRefHuman(stream))
 		}
+		if line := pingNetworkLine(result); line != "" {
+			fmt.Fprintf(w, "  %s\n", line)
+		}
 	}
 	return nil
 }
@@ -192,7 +201,24 @@ func writePingResults(w io.Writer, results []pudanats.PingResult, byMachine map[
 type listedMachine struct {
 	MachineID       string `json:"machine_id"`
 	Description     string `json:"description"`
+	LocalIP         string `json:"local_ip,omitempty"`
+	TailscaleIP     string `json:"tailscale_ip,omitempty"`
+	MagicDNS        string `json:"magicdns,omitempty"`
 	LivestreamCount int    `json:"livestream_count"`
+}
+
+func pingNetworkLine(result pudanats.PingResult) string {
+	parts := make([]string, 0, 3)
+	if result.LocalIP != "" {
+		parts = append(parts, "local_ip="+result.LocalIP)
+	}
+	if result.TailscaleIP != "" {
+		parts = append(parts, "tailscale_ip="+result.TailscaleIP)
+	}
+	if result.MagicDNS != "" {
+		parts = append(parts, "magicdns="+result.MagicDNS)
+	}
+	return strings.Join(parts, " ")
 }
 
 func listedMachineLabel(pong pudanats.PingResult, livestreamCount int) string {
@@ -219,6 +245,9 @@ func writeListResults(w io.Writer, pongs []pudanats.PingResult, byMachine map[st
 		machines = append(machines, listedMachine{
 			MachineID:       pong.MachineID,
 			Description:     pong.Description,
+			LocalIP:         pong.LocalIP,
+			TailscaleIP:     pong.TailscaleIP,
+			MagicDNS:        pong.MagicDNS,
 			LivestreamCount: len(pudanats.LivestreamsForMachine(byMachine, pong.MachineID)),
 		})
 	}

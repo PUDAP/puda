@@ -27,6 +27,9 @@ type PingResult struct {
 	UptimeSeconds float64 `json:"uptime_seconds,omitempty"`
 	RunStatus     string  `json:"run_status,omitempty"`
 	Description   string  `json:"description,omitempty"`
+	LocalIP       string  `json:"local_ip,omitempty"`
+	TailscaleIP   string  `json:"tailscale_ip,omitempty"`
+	MagicDNS      string  `json:"magicdns,omitempty"`
 	LatencyMS     float64 `json:"latency_ms,omitempty"`
 	Error         string  `json:"error,omitempty"`
 }

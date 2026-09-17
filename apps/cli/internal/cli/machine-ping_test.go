@@ -56,13 +56,34 @@ func TestParseMachineIDsAcceptsCommaSeparatedAndMultipleArgs(t *testing.T) {
 
 func TestWritePingResultsHuman(t *testing.T) {
 	results := []pudanats.PingResult{
-		{MachineID: "first", Status: "pong", RunStatus: "busy", LatencyMS: 2.5, SDKVersion: "0.0.17", UptimeSeconds: 12.5, Description: "Liquid-handling robot."},
+		{
+			MachineID:     "first",
+			Status:        "pong",
+			RunStatus:     "busy",
+			LatencyMS:     2.5,
+			SDKVersion:    "0.0.17",
+			UptimeSeconds: 12.5,
+			Description:   "Liquid-handling robot.",
+			LocalIP:       "192.168.1.10",
+			TailscaleIP:   "100.99.243.61",
+			MagicDNS:      "host.tailnet.ts.net",
+		},
 		{MachineID: "offline", Status: "error", Error: "timeout"},
 	}
 	var buf bytes.Buffer
 	writePingResults(&buf, results, nil, true)
 	output := buf.String()
-	for _, want := range []string{"first: pong", "status=busy", "2.500ms", "sdk=0.0.17", "Liquid-handling robot.", "offline: failed: timeout"} {
+	for _, want := range []string{
+		"first: pong",
+		"status=busy",
+		"2.500ms",
+		"sdk=0.0.17",
+		"Liquid-handling robot.",
+		"local_ip=192.168.1.10",
+		"tailscale_ip=100.99.243.61",
+		"magicdns=host.tailnet.ts.net",
+		"offline: failed: timeout",
+	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output missing %q: %s", want, output)
 		}
@@ -95,6 +116,32 @@ func TestWritePingResultsJSONIsDefault(t *testing.T) {
 	}
 }
 
+func TestWritePingResultsJSONIncludesHostAddresses(t *testing.T) {
+	results := []pudanats.PingResult{
+		{
+			MachineID:   "first",
+			Status:      "pong",
+			LocalIP:     "192.168.1.10",
+			TailscaleIP: "100.99.243.61",
+			MagicDNS:    "host.tailnet.ts.net",
+		},
+	}
+	var buf bytes.Buffer
+	if err := writePingResults(&buf, results, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Results []pingResultJSON `json:"results"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("default output is not JSON: %v\n%s", err, buf.String())
+	}
+	got := payload.Results[0]
+	if got.LocalIP != "192.168.1.10" || got.TailscaleIP != "100.99.243.61" || got.MagicDNS != "host.tailnet.ts.net" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
 func TestWriteListResultsJSONIsDefault(t *testing.T) {
 	pongs := []pudanats.PingResult{
 		{MachineID: "biologic", Status: "pong", Description: "Potentiostat."},
@@ -119,6 +166,40 @@ func TestWriteListResultsJSONIsDefault(t *testing.T) {
 	}
 	if payload.Machines[1].MachineID != "first" || payload.Machines[1].Description != "" || payload.Machines[1].LivestreamCount != 0 {
 		t.Fatalf("got %+v", payload.Machines[1])
+	}
+}
+
+func TestWriteListResultsJSONIncludesHostAddresses(t *testing.T) {
+	pongs := []pudanats.PingResult{
+		{
+			MachineID:   "first",
+			Status:      "pong",
+			Description: "Software-only test machine.",
+			LocalIP:     "192.168.1.10",
+			TailscaleIP: "100.99.243.61",
+			MagicDNS:    "host.tailnet.ts.net",
+		},
+	}
+	var buf bytes.Buffer
+	if err := writeListResults(&buf, pongs, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Machines []listedMachine `json:"machines"`
+		Count    int             `json:"count"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("default output is not JSON: %v\n%s", err, buf.String())
+	}
+	want := listedMachine{
+		MachineID:   "first",
+		Description: "Software-only test machine.",
+		LocalIP:     "192.168.1.10",
+		TailscaleIP: "100.99.243.61",
+		MagicDNS:    "host.tailnet.ts.net",
+	}
+	if payload.Count != 1 || payload.Machines[0] != want {
+		t.Fatalf("got %+v", payload)
 	}
 }
 

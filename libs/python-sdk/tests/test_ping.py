@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from puda.edge_nats_client import EdgeNatsClient
+from puda.host_addresses import HostAddresses
 
 
 class FakeSubscription:
@@ -30,6 +31,16 @@ class FakeMessage:
 
 
 class PingTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.addresses_patcher = patch(
+            "puda.edge_nats_client.discover_host_addresses",
+            return_value=HostAddresses(),
+        )
+        self.mock_discover = self.addresses_patcher.start()
+
+    async def asyncTearDown(self):
+        self.addresses_patcher.stop()
+
     async def test_ping_reports_idle_from_runtime_status_handler(self):
         client = EdgeNatsClient(["nats://localhost:4222"], "test-1")
         client.nc = FakeNATS()
@@ -80,6 +91,9 @@ class PingTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["uptime_seconds"], 12.5)
             self.assertIn("timestamp", payload)
             self.assertNotIn("description", payload)
+            self.assertNotIn("local_ip", payload)
+            self.assertNotIn("tailscale_ip", payload)
+            self.assertNotIn("magicdns", payload)
 
     async def test_ping_includes_description_when_set(self):
         client = EdgeNatsClient(
@@ -95,6 +109,54 @@ class PingTests(unittest.IsolatedAsyncioTestCase):
 
         payload = json.loads(msg.respond.await_args.args[0])
         self.assertEqual(payload["description"], "Software-only test machine.")
+
+    async def test_ping_includes_host_addresses_when_discovered(self):
+        self.mock_discover.return_value = HostAddresses(
+            local_ip="192.168.1.10",
+            tailscale_ip="100.99.243.61",
+            magicdns="host.tailnet.ts.net",
+        )
+        client = EdgeNatsClient(["nats://localhost:4222"], "test-1")
+        client.nc = FakeNATS()
+        await client.subscribe_ping()
+
+        msg = FakeMessage()
+        await client.nc.callbacks[client.ping](msg)
+
+        payload = json.loads(msg.respond.await_args.args[0])
+        self.assertEqual(payload["local_ip"], "192.168.1.10")
+        self.assertEqual(payload["tailscale_ip"], "100.99.243.61")
+        self.assertEqual(payload["magicdns"], "host.tailnet.ts.net")
+
+    async def test_ping_includes_tailscale_only_when_local_ip_missing(self):
+        self.mock_discover.return_value = HostAddresses(
+            tailscale_ip="100.99.243.61",
+            magicdns="host.tailnet.ts.net",
+        )
+        client = EdgeNatsClient(["nats://localhost:4222"], "test-1")
+        client.nc = FakeNATS()
+        await client.subscribe_ping()
+
+        msg = FakeMessage()
+        await client.nc.callbacks[client.ping](msg)
+
+        payload = json.loads(msg.respond.await_args.args[0])
+        self.assertNotIn("local_ip", payload)
+        self.assertEqual(payload["tailscale_ip"], "100.99.243.61")
+        self.assertEqual(payload["magicdns"], "host.tailnet.ts.net")
+
+    async def test_ping_survives_host_address_discovery_failure(self):
+        self.mock_discover.side_effect = RuntimeError("tailscale down")
+        client = EdgeNatsClient(["nats://localhost:4222"], "test-1")
+        client.nc = FakeNATS()
+        await client.subscribe_ping()
+
+        msg = FakeMessage()
+        await client.nc.callbacks[client.ping](msg)
+
+        payload = json.loads(msg.respond.await_args.args[0])
+        self.assertEqual(payload["status"], "pong")
+        self.assertNotIn("local_ip", payload)
 
     async def test_non_ping_payload_returns_error_response(self):
         client = EdgeNatsClient(["nats://localhost:4222"], "test-1")

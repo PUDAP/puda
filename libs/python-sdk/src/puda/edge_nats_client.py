@@ -35,6 +35,7 @@ from .constants import (
 )
 from .command_processor import CommandProcessor
 from .models import CommandResponse, MachineState, NATSMessage, _get_current_timestamp
+from .host_addresses import HostAddresses, discover_host_addresses
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,9 @@ class EdgeNatsClient:
         self._last_heartbeat_at: float | None = None
         self._position_lock = asyncio.Lock()
         self._last_position_at: float | None = None
+        self._host_addresses_lock = asyncio.Lock()
+        self._host_addresses_loaded = False
+        self._cached_host_addresses = HostAddresses()
 
         self.commands = CommandProcessor(self)
 
@@ -261,6 +265,7 @@ class EdgeNatsClient:
         self._ping_broadcast_sub = None
         self._last_heartbeat_at = None
         self._last_position_at = None
+        self._host_addresses_loaded = False
 
     async def _setup_jetstream(self) -> None:
         self.js = self.nc.jetstream()
@@ -283,6 +288,7 @@ class EdgeNatsClient:
             )
             await self._setup_jetstream()
             self._is_connected = True
+            self._schedule_host_addresses_refresh()
             logger.info("Connected to NATS servers: %s", self.servers)
             return True
         except Exception as e:
@@ -300,6 +306,7 @@ class EdgeNatsClient:
     async def _reconnected_callback(self) -> None:
         logger.info("Reconnected to NATS servers")
         self._is_connected = True
+        self._schedule_host_addresses_refresh()
         if self.nc:
             await self._setup_jetstream()
             await self._resubscribe_handlers()
@@ -321,6 +328,30 @@ class EdgeNatsClient:
             self._reset_connection_state()
             logger.info("Disconnected from NATS")
 
+    def _schedule_host_addresses_refresh(self) -> None:
+        """Invalidate cached host addresses and prefetch so ping replies stay fast."""
+        self._host_addresses_loaded = False
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(self._host_addresses())
+
+    async def _host_addresses(self) -> HostAddresses:
+        async with self._host_addresses_lock:
+            if self._host_addresses_loaded:
+                return self._cached_host_addresses
+            loop = asyncio.get_running_loop()
+            try:
+                self._cached_host_addresses = await loop.run_in_executor(
+                    None, discover_host_addresses
+                )
+            except Exception:
+                logger.debug("Host address discovery failed", exc_info=True)
+                self._cached_host_addresses = HostAddresses()
+            self._host_addresses_loaded = True
+            return self._cached_host_addresses
+
     async def subscribe_ping(self) -> None:
         """Subscribe to direct and fleet-wide Core NATS ping subjects."""
         if self.nc is None:
@@ -339,19 +370,30 @@ class EdgeNatsClient:
             self.ping_broadcast,
         )
 
+    async def _pong_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "status": "pong",
+            "machine_id": self.machine_id,
+            "timestamp": self._format_timestamp(),
+            "sdk_version": self.sdk_version,
+            "uptime_seconds": round(max(0.0, time.monotonic() - self._started_at), 3),
+            "run_status": self.runtime_status_handler(),
+        }
+        if self.description:
+            payload["description"] = self.description
+        addresses = await self._host_addresses()
+        if addresses.local_ip:
+            payload["local_ip"] = addresses.local_ip
+        if addresses.tailscale_ip:
+            payload["tailscale_ip"] = addresses.tailscale_ip
+        if addresses.magicdns:
+            payload["magicdns"] = addresses.magicdns
+        return payload
+
     async def _handle_ping(self, msg: Msg) -> None:
         """Reply to ping with a structured pong payload."""
         if msg.data.strip().lower() == b"ping":
-            payload: dict[str, Any] = {
-                "status": "pong",
-                "machine_id": self.machine_id,
-                "timestamp": self._format_timestamp(),
-                "sdk_version": self.sdk_version,
-                "uptime_seconds": round(max(0.0, time.monotonic() - self._started_at), 3),
-                "run_status": self.runtime_status_handler(),
-            }
-            if self.description:
-                payload["description"] = self.description
+            payload = await self._pong_payload()
         else:
             payload = {
                 "status": "error",

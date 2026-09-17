@@ -213,7 +213,10 @@ A Core NATS request with payload `ping` receives structured JSON:
   "sdk_version": "0.0.17",
   "uptime_seconds": 12.5,
   "run_status": "idle",
-  "description": "Cartesian gantry for well-plate liquid handling."
+  "description": "Cartesian gantry for well-plate liquid handling.",
+  "local_ip": "192.168.1.10",
+  "tailscale_ip": "100.99.243.61",
+  "magicdns": "host.tailnet.ts.net"
 }
 ```
 
@@ -226,6 +229,11 @@ to a single line. `EdgeRunner` copies it onto the NATS client at startup. Pass
 `EdgeNatsClient(..., description="...")` to override it. The field is omitted
 when unset.
 
+`local_ip`, `tailscale_ip`, and `magicdns` are best-effort host addresses.
+`local_ip` is the LAN IPv4 (default-route address, falling back if Tailscale
+is the default route). `tailscale_ip` and `magicdns` come from
+`tailscale status --json`. Each field is omitted when it cannot be discovered.
+
 Ping is intentionally Core NATS request/reply, not a durable JetStream
 immediate command. It reports whether the edge is responsive now and does not
 create an offline backlog.
@@ -234,7 +242,9 @@ create an offline backlog.
 pong replies during its discovery window, deduplicates them by `machine_id`,
 and lists only edges that are responsive at that moment. Each reply's
 `description` is included so agents can tell what a machine does without
-fetching the command catalog. The CLI also reports `livestream_count`: how
+fetching the command catalog. Host address fields (`local_ip`,
+`tailscale_ip`, `magicdns`) are forwarded the same way so a caller can reach
+the host over LAN or Tailscale. The CLI also reports `livestream_count`: how
 many fleet `LIVESTREAMS` registry records attach to that machine. That count
 is registered PUDA livestreams only; unregistered cameras on the host may
 exist and are not included. Use `puda livestream list --machines <id>` for

@@ -6,11 +6,11 @@ import (
 )
 
 func TestParsePong(t *testing.T) {
-	pong, ok := parsePong([]byte(`{"status":"pong","machine_id":"test-1","timestamp":"2026-08-27T07:23:56Z","sdk_version":"0.0.17","uptime_seconds":12.5,"run_status":"busy","description":"Software-only test machine."}`))
+	pong, ok := parsePong([]byte(`{"status":"pong","machine_id":"test-1","timestamp":"2026-08-27T07:23:56Z","sdk_version":"0.0.17","uptime_seconds":12.5,"run_status":"busy","description":"Software-only test machine.","local_ip":"192.168.1.10","tailscale_ip":"100.99.243.61","magicdns":"host.tailnet.ts.net"}`))
 	if !ok {
 		t.Fatal("valid pong rejected")
 	}
-	if pong.MachineID != "test-1" || pong.SDKVersion != "0.0.17" || pong.UptimeSeconds != 12.5 || pong.RunStatus != "busy" || pong.Description != "Software-only test machine." {
+	if pong.MachineID != "test-1" || pong.SDKVersion != "0.0.17" || pong.UptimeSeconds != 12.5 || pong.RunStatus != "busy" || pong.Description != "Software-only test machine." || pong.LocalIP != "192.168.1.10" || pong.TailscaleIP != "100.99.243.61" || pong.MagicDNS != "host.tailnet.ts.net" {
 		t.Fatalf("pong=%+v", pong)
 	}
 }
