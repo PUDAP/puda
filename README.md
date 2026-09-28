@@ -87,3 +87,7 @@ See [`docs/uv.md`](docs/uv.md) for detailed information about working with UV wo
    uv sync
    ```
    This installs dependencies for all workspace members and creates a shared virtual environment.
+
+## License
+
+[MIT](LICENSE)
