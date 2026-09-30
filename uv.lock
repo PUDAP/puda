@@ -117,6 +117,7 @@ version = "0.0.17"
 source = { editable = "libs/python-sdk" }
 dependencies = [
     { name = "nats-py" },
+    { name = "psutil" },
     { name = "pydantic" },
 ]
 
@@ -128,6 +129,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "nats-py", specifier = ">=2.12.0" },
+    { name = "psutil", specifier = ">=6.1.1" },
     { name = "pydantic", specifier = ">=2.12.5" },
 ]
 
@@ -290,7 +292,6 @@ name = "test-edge"
 version = "0.1.0"
 source = { virtual = "test-edge" }
 dependencies = [
-    { name = "psutil" },
     { name = "puda" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -299,7 +300,6 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "psutil", specifier = ">=6.1.1" },
     { name = "puda", editable = "libs/python-sdk" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pydantic-settings", specifier = ">=2.12.0" },

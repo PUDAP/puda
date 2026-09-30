@@ -29,11 +29,14 @@ from .models import (
     MachineState,
     NATSMessage,
 )
+from .host_health import read_host_health
+from .machine_state import find_machine_state_handler
 from .tlm_stream import iter_tlm_stream_methods, tlm_stream_description
 
 logger = logging.getLogger(__name__)
 
 TLM_STREAM_ERROR_LOG_INTERVAL = 30.0  # seconds
+HOST_HEALTH_INTERVAL = 5.0  # seconds
 
 
 def machine_description(driver: Any) -> str | None:
@@ -138,8 +141,9 @@ class EdgeRunner:
         self,
         nats_client: EdgeNatsClient,
         machine_driver: Any,
-        telemetry_handler: Callable[[], Awaitable[None]],
+        telemetry_handler: Callable[[], Awaitable[None]] | None = None,
         state_handler: Callable[[], dict] | None = None,
+        host_health: bool = True,
     ) -> None:
         """
         Args:
@@ -153,16 +157,25 @@ class EdgeRunner:
                 description on ping unless ``nats_client`` already has one.
                 Methods marked with ``@tlm_stream`` are polled at their own
                 interval and published as telemetry streams.
-            telemetry_handler: Async callable run every second to publish
-                heartbeat, health, etc.; no arguments. Use ``@tlm_stream`` on
-                the driver for anything that needs its own rate.
+                A ``@machine_state`` method supplies extra MACHINE_STATE fields.
+            telemetry_handler: Optional async callable run every second for
+                custom telemetry; no arguments. The runner publishes the
+                heartbeat and host health itself. Prefer ``@tlm_stream`` on
+                the driver.
             state_handler: Optional callable returning a dict to merge into
-                the state payload (e.g. deck state); if None, only state/run_id
-                are published.
+                the state payload. Overrides the driver's ``@machine_state``
+                method; if neither exists, only state/run_id are published.
+            host_health: Publish host CPU, memory, and temperature on
+                ``tlm.health`` every HOST_HEALTH_INTERVAL seconds. Set False
+                if the edge publishes its own health.
         """
         self.nats_client = nats_client
         self.machine_driver = machine_driver
         self.telemetry_handler = telemetry_handler
+        self.host_health = host_health
+        self._last_host_health_at: float | None = None
+        if state_handler is None:
+            state_handler = find_machine_state_handler(machine_driver)
         self.state_handler = state_handler
         self.nats_client.set_state_handler(state_handler)
         self.allowed_commands = require_command_names(machine_driver)
@@ -405,6 +418,16 @@ class EdgeRunner:
         payload: dict[str, Any] = {"commands": text, "catalog": catalog}
         await self.nats_client.publish_commands(payload)
 
+    async def _publish_host_health(self) -> None:
+        if not self.host_health:
+            return
+        now = time.monotonic()
+        if self._last_host_health_at is not None and now - self._last_host_health_at < HOST_HEALTH_INTERVAL:
+            return
+        self._last_host_health_at = now
+        vitals = await asyncio.get_running_loop().run_in_executor(None, read_host_health)
+        await self.nats_client.publish_health(vitals)
+
     def _start_tlm_streams(self) -> None:
         for stream_name, func, spec in self.tlm_streams:
             method = func.__get__(self.machine_driver, type(self.machine_driver))
@@ -447,13 +470,16 @@ class EdgeRunner:
             await asyncio.sleep(next_at - now)
 
     async def _run_main_loop(self) -> None:
-        """Never returns; runs ensure_connection + telemetry_handler every second."""
+        """Never returns; every second runs ensure_connection, heartbeat, host health, and telemetry_handler."""
         while True:
             try:
                 if not await self._ensure_connection():
                     continue
                 try:
-                    await self.telemetry_handler()
+                    await self.nats_client.publish_heartbeat()
+                    await self._publish_host_health()
+                    if self.telemetry_handler is not None:
+                        await self.telemetry_handler()
                     await asyncio.sleep(1)
                 except Exception as e:
                     logger.error("Error publishing telemetry: %s", e, exc_info=True)

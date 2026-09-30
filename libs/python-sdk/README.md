@@ -296,7 +296,7 @@ def move(self, x: float, y: float, z: float) -> dict:
 
 #### Telemetry streams
 
-Mark a driver method with `@tlm_stream(interval=...)` to publish its return value as a telemetry stream. `EdgeRunner` calls the method every `interval` seconds, in a worker thread as it does for commands, and publishes the result to `puda.<machine_id>.tlm.stream.<name>`. Each stream runs at its own rate, independent of the 1-second `telemetry_handler` loop.
+Mark a driver method with `@tlm_stream(interval=...)` to publish its return value as a telemetry stream. `EdgeRunner` calls the method every `interval` seconds, in a worker thread as it does for commands, and publishes the result to `puda.<machine_id>.tlm.stream.<name>`. Each stream runs at its own rate and can run at the same time as a command.
 
 ```python
 from puda import command, tlm_stream
@@ -317,7 +317,27 @@ def get_position(self) -> dict[str, float]:
 - Return `None` to skip a sample. Exceptions are logged and the stream keeps running.
 - Subscribe to `puda.<machine_id>.tlm.stream.>` for every stream on a machine.
 
-For data that arrives as events from a driver thread rather than on a fixed schedule, call `nats_client.publish_tlm_stream_threadsafe("<name>", data)`. `EdgeNatsClient.publish_position` still works and publishes to `tlm.stream.pos` at most every 3 seconds.
+For data that arrives as events from a driver thread rather than on a fixed schedule, call `nats_client.publish_tlm_stream_threadsafe("<name>", data)`.
+
+#### Machine state, heartbeat, and host health
+
+Mark one driver method with `@machine_state` to add fields to every `MACHINE_STATE` update:
+
+```python
+from puda import machine_state
+
+@machine_state
+def snapshot(self) -> dict:
+    return {"homed": self._homed}
+```
+
+The method is called whenever machine state is published: at startup and reconnect, when a queued command starts and ends, after immediate commands, on errors, and at shutdown. It is not polled, so an idle machine's state is written once. It runs on the event loop rather than in a worker thread, so return cached values; a blocking device read stalls command handling and telemetry. Use `@tlm_stream` for values that change outside commands. Don't return `state`, `run_id`, or `timestamp`, which PUDA sets.
+
+`EdgeRunner` also publishes the heartbeat (every 5 seconds) and host health (`cpu`, `mem` and `temp` on `tlm.health`, every 5 seconds) without any edge code. A minimal edge is:
+
+```python
+runner = EdgeRunner(nats_client=nats_client, machine_driver=driver)
+```
 
 ### 5. ExecutionState (`execution_state.py`)
 

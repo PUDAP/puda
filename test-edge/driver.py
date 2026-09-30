@@ -19,7 +19,7 @@ import logging
 import time
 from typing import Any, Dict
 
-from puda import command, safety, tlm_stream
+from puda import command, machine_state, safety, tlm_stream
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,7 @@ class Driver:
         if self._command_delay:
             time.sleep(self._command_delay)
 
+    @machine_state
     def snapshot(self) -> dict:
         """Extra fields merged into MACHINE_STATE KV updates."""
         return {

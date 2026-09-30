@@ -19,6 +19,13 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.0 expects this SDK.
 - `EdgeNatsClient.declare_tlm_stream`, `publish_tlm_stream`, and `publish_tlm_stream_threadsafe` for streams published outside the decorator.
 - Pong replies include `tlm_streams` (name, subject, interval, description) for `puda machine info`.
 
+- `@machine_state` decorator. The marked driver method's dict is merged into every `MACHINE_STATE` update. An explicit `state_handler` still takes precedence.
+
+### Changed
+
+- `EdgeRunner` publishes the heartbeat itself, and `telemetry_handler` is now optional. Existing `publish_heartbeat()` calls are harmless, because heartbeats are throttled to one every 5s.
+- `EdgeRunner` publishes host health (`cpu`, `mem`, `temp`) on `tlm.health` every 5s. `psutil` is now an SDK dependency. Pass `host_health=False` if the edge publishes its own health.
+
 ## [0.0.17] - 2026-09-09
 
 ### Breaking
