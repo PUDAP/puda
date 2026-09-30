@@ -99,3 +99,49 @@ func TestParseMachineCommandsRejectsMissingCatalogFields(t *testing.T) {
 		}
 	}
 }
+
+func TestWatchSubjectsDefaultsAndMachines(t *testing.T) {
+	got, err := WatchSubjects(nil, nil)
+	if err != nil || strings.Join(got, ",") != "puda.*.>" {
+		t.Fatalf("got=%v err=%v", got, err)
+	}
+	got, err = WatchSubjects([]string{"first", "lab.second", "first"}, nil)
+	if err != nil || strings.Join(got, ",") != "puda.first.>,puda.lab-second.>" {
+		t.Fatalf("got=%v err=%v", got, err)
+	}
+}
+
+func TestWatchSubjectsAcceptsFullSubjects(t *testing.T) {
+	in := []string{"puda.balance.tlm.stream.weight", "puda.*.tlm.stream.>", "puda.>"}
+	got, err := WatchSubjects(nil, in)
+	if err != nil || strings.Join(got, ",") != strings.Join(in, ",") {
+		t.Fatalf("got=%v err=%v", got, err)
+	}
+}
+
+func TestWatchSubjectsRejectsInvalid(t *testing.T) {
+	for _, subject := range []string{
+		"tlm.stream.pos",
+		"puda",
+		"puda..tlm",
+		"puda.first.>.pos",
+		"puda.fir*.tlm",
+		"puda.first tlm",
+	} {
+		if _, err := WatchSubjects(nil, []string{subject}); err == nil {
+			t.Fatalf("expected error for %q", subject)
+		}
+	}
+	if _, err := WatchSubjects([]string{"first"}, []string{"puda.first.>"}); err == nil {
+		t.Fatal("expected error when combining subjects and machines")
+	}
+}
+
+func TestSubjectsNameHeartbeat(t *testing.T) {
+	if !subjectsNameHeartbeat([]string{"puda.first.tlm.heartbeat"}) || !subjectsNameHeartbeat([]string{"puda.*.tlm.heartbeat"}) {
+		t.Fatal("explicit heartbeat subject must include heartbeats")
+	}
+	if subjectsNameHeartbeat([]string{"puda.*.>", "puda.first.tlm.>"}) {
+		t.Fatal("wildcard subjects must not include heartbeats")
+	}
+}

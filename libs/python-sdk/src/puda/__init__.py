@@ -2,6 +2,7 @@
 from . import models
 
 from .command import command, safety
+from .tlm_stream import tlm_stream
 from .edge_nats_client import EdgeNatsClient
 from .edge_runner import EdgeRunner
 from .edge_updater import EdgeUpdater
@@ -12,6 +13,7 @@ from .stream_subscriber import StreamSubscriber
 __all__ = [
     "command",
     "safety",
+    "tlm_stream",
     "EdgeNatsClient",
     "EdgeRunner",
     "EdgeUpdater",

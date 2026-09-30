@@ -110,6 +110,39 @@ class PingTests(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(msg.respond.await_args.args[0])
         self.assertEqual(payload["description"], "Software-only test machine.")
 
+    async def test_ping_lists_declared_tlm_streams(self):
+        client = EdgeNatsClient(["nats://localhost:4222"], "test-1")
+        client.nc = FakeNATS()
+        client.declare_tlm_stream("weight", 0.25, "Mass in grams")
+        await client.subscribe_ping()
+
+        msg = FakeMessage()
+        await client.nc.callbacks[client.ping](msg)
+
+        payload = json.loads(msg.respond.await_args.args[0])
+        self.assertEqual(
+            payload["tlm_streams"],
+            [
+                {
+                    "name": "weight",
+                    "subject": "puda.test-1.tlm.stream.weight",
+                    "interval": 0.25,
+                    "description": "Mass in grams",
+                }
+            ],
+        )
+
+    async def test_ping_has_empty_tlm_streams_by_default(self):
+        client = EdgeNatsClient(["nats://localhost:4222"], "test-1")
+        client.nc = FakeNATS()
+        await client.subscribe_ping()
+
+        msg = FakeMessage()
+        await client.nc.callbacks[client.ping](msg)
+
+        payload = json.loads(msg.respond.await_args.args[0])
+        self.assertEqual(payload["tlm_streams"], [])
+
     async def test_ping_includes_host_addresses_when_discovered(self):
         self.mock_discover.return_value = HostAddresses(
             local_ip="192.168.1.10",

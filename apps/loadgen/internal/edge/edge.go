@@ -9,7 +9,7 @@ import (
 
 func safeID(id string) string           { return strings.ReplaceAll(id, ".", "-") }
 func HeartbeatSubject(id string) string { return fmt.Sprintf("puda.%s.tlm.heartbeat", safeID(id)) }
-func PositionSubject(id string) string  { return fmt.Sprintf("puda.%s.tlm.pos", safeID(id)) }
+func PositionSubject(id string) string  { return fmt.Sprintf("puda.%s.tlm.stream.pos", safeID(id)) }
 func HealthSubject(id string) string    { return fmt.Sprintf("puda.%s.tlm.health", safeID(id)) }
 func QueueSubject(id string) string     { return fmt.Sprintf("puda.%s.cmd.queue", safeID(id)) }
 func ImmediateSubject(id string) string { return fmt.Sprintf("puda.%s.cmd.immediate", safeID(id)) }

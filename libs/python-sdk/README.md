@@ -214,6 +214,14 @@ A Core NATS request with payload `ping` receives structured JSON:
   "uptime_seconds": 12.5,
   "run_status": "idle",
   "description": "Cartesian gantry for well-plate liquid handling.",
+  "tlm_streams": [
+    {
+      "name": "pos",
+      "subject": "puda.first.tlm.stream.pos",
+      "interval": 3.0,
+      "description": "Current cartesian position."
+    }
+  ],
   "local_ip": "192.168.1.10",
   "tailscale_ip": "100.99.243.61",
   "magicdns": "host.tailnet.ts.net"
@@ -228,6 +236,10 @@ or persisted to machine KV state.
 to a single line. `EdgeRunner` copies it onto the NATS client at startup. Pass
 `EdgeNatsClient(..., description="...")` to override it. The field is omitted
 when unset.
+
+`tlm_streams` lists every telemetry stream the edge has declared, with its
+subject, interval in seconds, and description. It is always present and may be
+empty. See [Telemetry streams](#telemetry-streams).
 
 `local_ip`, `tailscale_ip`, and `magicdns` are best-effort host addresses.
 `local_ip` is the LAN IPv4 (default-route address, falling back if Tailscale
@@ -248,7 +260,9 @@ the host over LAN or Tailscale. The CLI also reports `livestream_count`: how
 many fleet `LIVESTREAMS` registry records attach to that machine. That count
 is registered PUDA livestreams only; unregistered cameras on the host may
 exist and are not included. Use `puda livestream list --machines <id>` for
-registered names, hosts, and URLs. `puda machine ping` still joins the full
+registered names, hosts, and URLs. It also reports `tlm_stream_count`.
+`puda machine info` (formerly `puda machine ping`, which still works as an
+alias) shows the full `tlm_streams` list and joins the full
 registered records (host, stream name, derived protocol URLs). Those records
 store host and stream name; protocol URLs are derived and are not part of the
 edge pong payload.
@@ -279,6 +293,31 @@ def move(self, x: float, y: float, z: float) -> dict:
 ```json
 {"result": false}
 ```
+
+#### Telemetry streams
+
+Mark a driver method with `@tlm_stream(interval=...)` to publish its return value as a telemetry stream. `EdgeRunner` calls the method every `interval` seconds, in a worker thread as it does for commands, and publishes the result to `puda.<machine_id>.tlm.stream.<name>`. Each stream runs at its own rate, independent of the 1-second `telemetry_handler` loop.
+
+```python
+from puda import command, tlm_stream
+
+@tlm_stream(interval=0.25)
+def weight(self) -> dict | None:
+    """Mass in grams."""
+    return {"g": self._latest, "fresh": self._fresh}
+
+@command
+@tlm_stream(interval=3.0, name="pos")
+def get_position(self) -> dict[str, float]:
+    ...
+```
+
+- The stream name defaults to the method name. Names may contain letters, digits, `_` and `-`.
+- The first paragraph of the method docstring is advertised as the stream description.
+- Return `None` to skip a sample. Exceptions are logged and the stream keeps running.
+- Subscribe to `puda.<machine_id>.tlm.stream.>` for every stream on a machine.
+
+For data that arrives as events from a driver thread rather than on a fixed schedule, call `nats_client.publish_tlm_stream_threadsafe("<name>", data)`. `EdgeNatsClient.publish_position` still works and publishes to `tlm.stream.pos` at most every 3 seconds.
 
 ### 5. ExecutionState (`execution_state.py`)
 

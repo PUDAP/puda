@@ -266,14 +266,14 @@ graph TB
 
     subgraph "Core NATS Subjects (Fire-and-Forget, No JetStream)"
         TLM_HEARTBEAT[puda.{machine_id}.tlm.heartbeat]
-        TLM_POS[puda.{machine_id}.tlm.pos]
+        TLM_STREAM[puda.{machine_id}.tlm.stream.{name}]
         TLM_HEALTH[puda.{machine_id}.tlm.health]
         EVT_LOG[puda.{machine_id}.evt.log]
         EVT_ALERT[puda.{machine_id}.evt.alert]
         EVT_MEDIA[puda.{machine_id}.evt.media]
         
         NATS --> TLM_HEARTBEAT
-        NATS --> TLM_POS
+        NATS --> TLM_STREAM
         NATS --> TLM_HEALTH
         NATS --> EVT_LOG
         NATS --> EVT_ALERT
@@ -446,8 +446,8 @@ sequenceDiagram
                 <td>Core NATS</td>
             </tr>
             <tr>
-                <td><code>puda.{machine_id}.tlm.pos</code></td>
-                <td>Real-time position coordinates (where the machine is)</td>
+                <td><code>puda.{machine_id}.tlm.stream.{name}</code></td>
+                <td>Telemetry streams declared with <code>@tlm_stream</code>, each at its own rate (e.g. <code>pos</code>, <code>weight</code>)</td>
                 <td>Core NATS</td>
             </tr>
             <tr>

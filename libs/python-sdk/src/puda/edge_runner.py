@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import time
 from typing import Any, Callable, Awaitable
 
 from .command import (
@@ -28,15 +29,18 @@ from .models import (
     MachineState,
     NATSMessage,
 )
+from .tlm_stream import iter_tlm_stream_methods, tlm_stream_description
 
 logger = logging.getLogger(__name__)
+
+TLM_STREAM_ERROR_LOG_INTERVAL = 30.0  # seconds
 
 
 def machine_description(driver: Any) -> str | None:
     """Return the advertised summary from the driver class docstring.
 
     The first paragraph is collapsed to a single line. That is what
-    ``puda machine list`` and ``puda machine ping`` show; put a one-sentence
+    ``puda machine list`` and ``puda machine info`` show; put a one-sentence
     brief there, with extra detail after a blank line if needed.
     """
     doc = inspect.getdoc(type(driver))
@@ -147,8 +151,11 @@ class EdgeRunner:
                 still a successful response (``{"result": false}``). The class
                 docstring's first paragraph is advertised as the machine
                 description on ping unless ``nats_client`` already has one.
+                Methods marked with ``@tlm_stream`` are polled at their own
+                interval and published as telemetry streams.
             telemetry_handler: Async callable run every second to publish
-                heartbeat, position, health, etc.; no arguments.
+                heartbeat, health, etc.; no arguments. Use ``@tlm_stream`` on
+                the driver for anything that needs its own rate.
             state_handler: Optional callable returning a dict to merge into
                 the state payload (e.g. deck state); if None, only state/run_id
                 are published.
@@ -168,6 +175,18 @@ class EdgeRunner:
             type(machine_driver).__name__,
             ", ".join(sorted(self.allowed_commands)) or "(none)",
         )
+        self.tlm_streams = iter_tlm_stream_methods(machine_driver)
+        for stream_name, func, spec in self.tlm_streams:
+            self.nats_client.declare_tlm_stream(
+                stream_name, spec.interval, tlm_stream_description(func)
+            )
+        if self.tlm_streams:
+            logger.info(
+                "Telemetry streams for %s: %s",
+                type(machine_driver).__name__,
+                ", ".join(f"{name} ({spec.interval}s)" for name, _, spec in self.tlm_streams),
+            )
+        self._tlm_stream_tasks: list[asyncio.Task] = []
         # Manage command execution state
         self.exec_state = ExecutionState()
         self.nats_client.set_runtime_status_handler(self.exec_state.get_runtime_status)
@@ -195,6 +214,7 @@ class EdgeRunner:
         await self._publish_commands()
         # publish initial state so CLI state lookups work before the first command
         await self._publish_state(MachineState.IDLE)
+        self._start_tlm_streams()
         try:
             await self._run_main_loop()
         finally:
@@ -203,6 +223,7 @@ class EdgeRunner:
     async def _shutdown(self) -> None:
         """Publish offline state, release driver resources, and close NATS."""
         logger.info("Shutting down edge runner...")
+        await self._stop_tlm_streams()
         try:
             await self._publish_state(MachineState.OFFLINE)
         except Exception as e:
@@ -383,6 +404,47 @@ class EdgeRunner:
         text, catalog = build_command_catalog(self.machine_driver)
         payload: dict[str, Any] = {"commands": text, "catalog": catalog}
         await self.nats_client.publish_commands(payload)
+
+    def _start_tlm_streams(self) -> None:
+        for stream_name, func, spec in self.tlm_streams:
+            method = func.__get__(self.machine_driver, type(self.machine_driver))
+            self._tlm_stream_tasks.append(
+                asyncio.create_task(self._poll_tlm_stream(stream_name, method, spec.interval))
+            )
+
+    async def _stop_tlm_streams(self) -> None:
+        tasks, self._tlm_stream_tasks = self._tlm_stream_tasks, []
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _poll_tlm_stream(
+        self, stream_name: str, method: Callable[[], Any], interval: float
+    ) -> None:
+        """Sample *method* every *interval* seconds and publish non-None results."""
+        loop = asyncio.get_running_loop()
+        next_at = time.monotonic()
+        last_error_log: float | None = None
+        while True:
+            try:
+                if self.nats_client.nc is not None:
+                    data = await loop.run_in_executor(None, method)
+                    if data is not None:
+                        await self.nats_client.publish_tlm_stream(
+                            stream_name, _normalize_handler_result(data)
+                        )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                now = time.monotonic()
+                if last_error_log is None or now - last_error_log >= TLM_STREAM_ERROR_LOG_INTERVAL:
+                    last_error_log = now
+                    logger.error("Error sampling tlm stream %s: %s", stream_name, e, exc_info=True)
+            next_at += interval
+            now = time.monotonic()
+            if next_at < now:
+                next_at = now
+            await asyncio.sleep(next_at - now)
 
     async def _run_main_loop(self) -> None:
         """Never returns; runs ensure_connection + telemetry_handler every second."""

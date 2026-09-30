@@ -49,7 +49,7 @@ type livestreamRecord struct {
 	MachineIDs  []string `json:"machine_ids"`
 }
 
-// LivestreamRef is the visual-context view joined onto machine ping.
+// LivestreamRef is the visual-context view joined onto machine info.
 type LivestreamRef struct {
 	Name        string         `json:"name"`
 	Host        string         `json:"host"`

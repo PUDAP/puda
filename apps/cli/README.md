@@ -25,12 +25,12 @@ puda
 ├── machine                  Optional: --nats-servers (overrides active env)
 │   ├── commands <machine_id>  List commands the machine exposes [--command names] (JSON; --human for text)
 │   ├── home <machine_id> [machine_id...]  Home machine(s)
-│   ├── list                 Broadcast puda.cmd.ping and list pong responders with description and livestream_count (JSON; --human for text)
-│   ├── ping <machine_ids>   Ping comma-separated machine IDs (JSON; --human for text)
+│   ├── list                 Broadcast puda.cmd.ping and list pong responders with description, livestream_count, and tlm_stream_count (JSON; --human for text)
+│   ├── info <machine_ids>   Ping comma-separated machine IDs and show status, tlm_streams, and livestreams (alias: ping; JSON; --human for text)
 │   ├── reset <machine_id>   Reset a machine
 │   ├── state <machine_id>   Get the state of a machine as JSON
 │   ├── update <machine_id>  Tell a PUDA edge to pull (git/docker) and restart
-│   └── watch                Stream tlm/evt as NDJSON (requires --targets)
+│   └── watch [subject...]   Stream NATS subjects as NDJSON (wildcards allowed; -m <ids> for whole machines)
 ├── project
 │   └── hash                 SHA-256 hash of project-linked DB rows (--id)
 ├── protocol

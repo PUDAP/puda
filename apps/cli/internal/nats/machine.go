@@ -32,6 +32,16 @@ type PingResult struct {
 	MagicDNS      string  `json:"magicdns,omitempty"`
 	LatencyMS     float64 `json:"latency_ms,omitempty"`
 	Error         string  `json:"error,omitempty"`
+	// TlmStreams is nil for edges on SDK versions that predate telemetry streams.
+	TlmStreams []TlmStream `json:"tlm_streams,omitempty"`
+}
+
+// TlmStream is a telemetry stream advertised by an edge in its pong reply.
+type TlmStream struct {
+	Name        string   `json:"name"`
+	Subject     string   `json:"subject"`
+	Interval    *float64 `json:"interval"`
+	Description string   `json:"description,omitempty"`
 }
 
 // MachineCommands is the complete MACHINE_COMMANDS payload. Commands is kept
@@ -74,15 +84,11 @@ type WatchEvent struct {
 	Data      json.RawMessage `json:"data"`
 }
 
-// WatchOpts configures which subjects SubscribeMachineSubjects subscribes to.
+// WatchOpts configures SubscribeMachineSubjects.
 type WatchOpts struct {
-	// Subjects limits output to messages whose "category.topic" starts with one
-	// of these prefixes (e.g. "tlm.health", "cmd.response"). Nil or empty means
-	// all subjects pass.
-	Subjects map[string]struct{}
-	// IncludeHeartbeat must be true to receive heartbeat messages.
-	// Heartbeats are excluded by default because they are high-frequency
-	// and already consumed by ListMachines.
+	// IncludeHeartbeat must be true to receive heartbeat messages unless a
+	// subject names tlm.heartbeat explicitly. Heartbeats are excluded by
+	// default because they are high-frequency.
 	IncludeHeartbeat bool
 }
 
@@ -142,31 +148,60 @@ func watchEventFromMsg(msg *natsio.Msg) (WatchEvent, bool) {
 	}, true
 }
 
-func shouldEmitWatchEvent(evt WatchEvent, opts WatchOpts) bool {
-	if !opts.IncludeHeartbeat && evt.Topic == "heartbeat" {
-		return false
+func validateWatchSubject(subject string) error {
+	tokens := strings.Split(subject, ".")
+	if len(tokens) < 2 || tokens[0] != "puda" {
+		return fmt.Errorf("invalid subject %q: must start with puda.", subject)
 	}
-	if len(opts.Subjects) == 0 {
-		return true
+	for i, token := range tokens {
+		if token == "" || strings.ContainsAny(token, " \t\r\n") {
+			return fmt.Errorf("invalid subject %q: empty token or whitespace", subject)
+		}
+		if strings.Contains(token, ">") && (token != ">" || i != len(tokens)-1) {
+			return fmt.Errorf("invalid subject %q: > must be the last token", subject)
+		}
+		if strings.Contains(token, "*") && token != "*" {
+			return fmt.Errorf("invalid subject %q: * must be a whole token", subject)
+		}
 	}
-	catTopic := evt.Category + "." + evt.Topic
-	for filter := range opts.Subjects {
-		if catTopic == filter || strings.HasPrefix(catTopic, filter+".") {
+	return nil
+}
+
+// WatchSubjects returns the NATS subjects to subscribe to. Explicit subjects
+// are validated and used as-is; otherwise each machine ID maps to
+// puda.<machine_id>.>, or puda.*.> when there are none.
+func WatchSubjects(machineIDs, subjects []string) ([]string, error) {
+	if len(subjects) > 0 && len(machineIDs) > 0 {
+		return nil, fmt.Errorf("pass either subject arguments or --machines, not both")
+	}
+	if len(subjects) > 0 {
+		for _, subject := range subjects {
+			if err := validateWatchSubject(subject); err != nil {
+				return nil, err
+			}
+		}
+		return uniqueMachineIDs(subjects), nil
+	}
+	if len(machineIDs) == 0 {
+		return []string{"puda.*.>"}, nil
+	}
+	out := make([]string, 0, len(machineIDs))
+	for _, id := range uniqueMachineIDs(machineIDs) {
+		out = append(out, fmt.Sprintf("puda.%s.>", strings.ReplaceAll(id, ".", "-")))
+	}
+	return out, nil
+}
+
+// subjectsNameHeartbeat reports whether any subject explicitly targets
+// tlm.heartbeat, in which case heartbeats are not filtered out.
+func subjectsNameHeartbeat(subjects []string) bool {
+	for _, subject := range subjects {
+		tokens := strings.Split(subject, ".")
+		if len(tokens) >= 4 && tokens[2] == "tlm" && tokens[3] == "heartbeat" {
 			return true
 		}
 	}
 	return false
-}
-
-func watchSubjects(machineIDs []string) []string {
-	if len(machineIDs) == 0 {
-		return []string{"puda.*.>"}
-	}
-	subjects := make([]string, 0, len(machineIDs))
-	for _, id := range machineIDs {
-		subjects = append(subjects, fmt.Sprintf("puda.%s.>", id))
-	}
-	return subjects
 }
 
 // PingMachines sends direct Core NATS ping requests concurrently.
@@ -198,15 +233,15 @@ func PingMachines(nc *natsio.Conn, machineIDs []string, timeout time.Duration) [
 	return results
 }
 
-// SubscribeMachineSubjects subscribes to puda.<id>.> for every machine ID in
-// the slice, or puda.*.> when machineIDs is empty. It captures machine traffic
-// and multiplexes all messages into a single channel.
-func SubscribeMachineSubjects(ctx context.Context, nc *natsio.Conn, machineIDs []string, opts WatchOpts) (<-chan WatchEvent, error) {
+// SubscribeMachineSubjects subscribes to each subject (see WatchSubjects) and
+// multiplexes all messages into a single channel.
+func SubscribeMachineSubjects(ctx context.Context, nc *natsio.Conn, subjects []string, opts WatchOpts) (<-chan WatchEvent, error) {
 	ch := make(chan WatchEvent, 64)
+	dropHeartbeat := !opts.IncludeHeartbeat && !subjectsNameHeartbeat(subjects)
 
 	handler := func(msg *natsio.Msg) {
 		evt, ok := watchEventFromMsg(msg)
-		if !ok || !shouldEmitWatchEvent(evt, opts) {
+		if !ok || (dropHeartbeat && evt.Category == "tlm" && evt.Topic == "heartbeat") {
 			return
 		}
 		select {
@@ -215,7 +250,6 @@ func SubscribeMachineSubjects(ctx context.Context, nc *natsio.Conn, machineIDs [
 		}
 	}
 
-	subjects := watchSubjects(machineIDs)
 	subs := make([]*natsio.Subscription, 0, len(subjects))
 	for _, subject := range subjects {
 		sub, err := nc.Subscribe(subject, handler)

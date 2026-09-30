@@ -19,7 +19,7 @@ import logging
 import time
 from typing import Any, Dict
 
-from puda import command, safety
+from puda import command, safety, tlm_stream
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +59,10 @@ class Driver:
         return True
 
     @command
+    @tlm_stream(interval=3.0, name="pos")
     def get_position(self) -> dict[str, float]:
         """
-        Current simulated cartesian position (telemetry only).
+        Current simulated cartesian position.
 
         Returns:
             dict[str, float]: Keys x, y, z

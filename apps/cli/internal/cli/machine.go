@@ -29,10 +29,9 @@ var machineHuman bool
 var machineYes bool
 var machineCommandName string
 var machineListTimeout time.Duration
-var machinePingTimeout time.Duration
+var machineInfoTimeout time.Duration
 var watchMachines []string
 var watchTimeout int
-var watchSubjects []string
 var watchIncludeHeartbeat bool
 
 var machineCommandHeaderRe = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\(`)
@@ -52,9 +51,10 @@ Use --yes/-y to skip safety confirmation prompts.`,
 var machineListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Discover responsive machines via Core NATS ping",
-	Long: `Broadcast ping on puda.cmd.ping and list machines that reply with pong as JSON, including each edge's advertised description and livestream_count.
+	Long: `Broadcast ping on puda.cmd.ping and list machines that reply with pong as JSON, including each edge's advertised description, livestream_count, and tlm_stream_count.
 
 livestream_count is how many livestreams are registered with PUDA for that machine. Other cameras may exist on the host and not appear here. Use puda livestream list --machines <id> for registered names, hosts, and URLs.
+tlm_stream_count is how many telemetry streams the edge advertises. Use puda machine info <id> for their names, subjects, and intervals.
 Use --human for a text summary.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		nc, err := connectMachineNATS()
@@ -78,11 +78,13 @@ Use --human for a text summary.`,
 	},
 }
 
-var machinePingCmd = &cobra.Command{
-	Use:   "ping <machine_ids>",
-	Short: "Check if machines are online",
-	Long: `Send Core NATS ping requests to machine(s) and report pong details as JSON, including each edge's advertised description and livestreams attached in the fleet registry.
-Machine IDs can be comma-separated, e.g. puda machine ping first,biologic.
+var machineInfoCmd = &cobra.Command{
+	Use:     "info <machine_ids>",
+	Aliases: []string{"ping"},
+	Short:   "Show whether machines are online and what they advertise",
+	Long: `Send Core NATS ping requests to machine(s) and report pong details as JSON, including each edge's advertised description, telemetry streams (tlm_streams), and livestreams attached in the fleet registry.
+Each tlm_stream lists the subject it publishes on (puda.<machine_id>.tlm.stream.<name>) and its interval in seconds.
+Machine IDs can be comma-separated, e.g. puda machine info first,biologic.
 Use --human for a text summary.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -96,12 +98,12 @@ Use --human for a text summary.`,
 		}
 		defer nc.Close()
 
-		results := pudanats.PingMachines(nc, machineIDs, machinePingTimeout)
+		results := pudanats.PingMachines(nc, machineIDs, machineInfoTimeout)
 		byMachine, err := pudanats.LivestreamsByMachine(nc)
 		if err != nil {
 			return err
 		}
-		if err := writePingResults(cmd.OutOrStdout(), results, byMachine, machineHuman); err != nil {
+		if err := writeInfoResults(cmd.OutOrStdout(), results, byMachine, machineHuman); err != nil {
 			return err
 		}
 		failed := 0
@@ -117,7 +119,7 @@ Use --human for a text summary.`,
 	},
 }
 
-type pingResultJSON struct {
+type infoResultJSON struct {
 	MachineID     string                   `json:"machine_id"`
 	Status        string                   `json:"status"`
 	Timestamp     string                   `json:"timestamp,omitempty"`
@@ -130,14 +132,19 @@ type pingResultJSON struct {
 	MagicDNS      string                   `json:"magicdns,omitempty"`
 	LatencyMS     float64                  `json:"latency_ms,omitempty"`
 	Error         string                   `json:"error,omitempty"`
+	TlmStreams    []pudanats.TlmStream     `json:"tlm_streams"`
 	Livestreams   []pudanats.LivestreamRef `json:"livestreams"`
 }
 
-func pingResultWithLivestreams(result pudanats.PingResult, refs []pudanats.LivestreamRef) pingResultJSON {
+func infoResultWithLivestreams(result pudanats.PingResult, refs []pudanats.LivestreamRef) infoResultJSON {
 	if refs == nil {
 		refs = []pudanats.LivestreamRef{}
 	}
-	return pingResultJSON{
+	tlmStreams := result.TlmStreams
+	if tlmStreams == nil {
+		tlmStreams = []pudanats.TlmStream{}
+	}
+	return infoResultJSON{
 		MachineID:     result.MachineID,
 		Status:        result.Status,
 		Timestamp:     result.Timestamp,
@@ -150,22 +157,36 @@ func pingResultWithLivestreams(result pudanats.PingResult, refs []pudanats.Lives
 		MagicDNS:      result.MagicDNS,
 		LatencyMS:     result.LatencyMS,
 		Error:         result.Error,
+		TlmStreams:    tlmStreams,
 		Livestreams:   refs,
 	}
 }
 
-func writePingResults(w io.Writer, results []pudanats.PingResult, byMachine map[string][]pudanats.LivestreamRef, human bool) error {
+func formatTlmStreamHuman(stream pudanats.TlmStream) string {
+	line := "tlm_stream " + stream.Name
+	if stream.Interval != nil {
+		line += fmt.Sprintf(" every %gs", *stream.Interval)
+	} else {
+		line += " (no fixed interval)"
+	}
+	if stream.Description != "" {
+		line += ": " + stream.Description
+	}
+	return line + "\n    subject: " + stream.Subject
+}
+
+func writeInfoResults(w io.Writer, results []pudanats.PingResult, byMachine map[string][]pudanats.LivestreamRef, human bool) error {
 	if !human {
 		responded := 0
-		payload := make([]pingResultJSON, 0, len(results))
+		payload := make([]infoResultJSON, 0, len(results))
 		for _, result := range results {
 			if result.Status == "pong" {
 				responded++
 			}
-			payload = append(payload, pingResultWithLivestreams(result, byMachine[result.MachineID]))
+			payload = append(payload, infoResultWithLivestreams(result, byMachine[result.MachineID]))
 		}
 		return writeJSON(w, struct {
-			Results   []pingResultJSON `json:"results"`
+			Results   []infoResultJSON `json:"results"`
 			Count     int              `json:"count"`
 			Responded int              `json:"responded"`
 			Failed    int              `json:"failed"`
@@ -188,6 +209,9 @@ func writePingResults(w io.Writer, results []pudanats.PingResult, byMachine map[
 				fmt.Fprintf(w, "  %s\n", result.Description)
 			}
 		}
+		for _, stream := range result.TlmStreams {
+			fmt.Fprintf(w, "  %s\n", formatTlmStreamHuman(stream))
+		}
 		for _, stream := range pudanats.LivestreamsForMachine(byMachine, result.MachineID) {
 			fmt.Fprintf(w, "  %s\n", formatLivestreamRefHuman(stream))
 		}
@@ -205,6 +229,7 @@ type listedMachine struct {
 	TailscaleIP     string `json:"tailscale_ip,omitempty"`
 	MagicDNS        string `json:"magicdns,omitempty"`
 	LivestreamCount int    `json:"livestream_count"`
+	TlmStreamCount  int    `json:"tlm_stream_count"`
 }
 
 func pingNetworkLine(result pudanats.PingResult) string {
@@ -221,19 +246,29 @@ func pingNetworkLine(result pudanats.PingResult) string {
 	return strings.Join(parts, " ")
 }
 
+func pluralCount(n int, singular string) string {
+	if n == 1 {
+		return "1 " + singular
+	}
+	return fmt.Sprintf("%d %ss", n, singular)
+}
+
 func listedMachineLabel(pong pudanats.PingResult, livestreamCount int) string {
 	label := pong.MachineID
 	if pong.Description != "" {
 		label += ": " + pong.Description
 	}
-	switch livestreamCount {
-	case 0:
-		return label
-	case 1:
-		return label + " (1 registered livestream)"
-	default:
-		return fmt.Sprintf("%s (%d registered livestreams)", label, livestreamCount)
+	parts := make([]string, 0, 2)
+	if livestreamCount > 0 {
+		parts = append(parts, pluralCount(livestreamCount, "registered livestream"))
 	}
+	if n := len(pong.TlmStreams); n > 0 {
+		parts = append(parts, pluralCount(n, "tlm stream"))
+	}
+	if len(parts) == 0 {
+		return label
+	}
+	return label + " (" + strings.Join(parts, ", ") + ")"
 }
 
 func writeListResults(w io.Writer, pongs []pudanats.PingResult, byMachine map[string][]pudanats.LivestreamRef, human bool) error {
@@ -249,6 +284,7 @@ func writeListResults(w io.Writer, pongs []pudanats.PingResult, byMachine map[st
 			TailscaleIP:     pong.TailscaleIP,
 			MagicDNS:        pong.MagicDNS,
 			LivestreamCount: len(pudanats.LivestreamsForMachine(byMachine, pong.MachineID)),
+			TlmStreamCount:  len(pong.TlmStreams),
 		})
 	}
 	if !human {
@@ -424,37 +460,28 @@ Examples:
 }
 
 var machineWatchCmd = &cobra.Command{
-	Use:   "watch [--machines <machine_id1,machine_id2>] [--subjects <subject1,subject2>]",
+	Use:   "watch [subject...] [--machines <machine_id1,machine_id2>]",
 	Short: "Stream machine traffic as NDJSON",
-	Long: `Subscribe to puda.*.> by default, or puda.<machine_id>.> for each selected
-machine, and stream messages to stdout as newline-delimited JSON.
+	Long: `Stream NATS messages to stdout as NDJSON.
 
-Use --machines/-m to select machines. If omitted, all machines are included.
-Use --subjects/-s to filter with category.topic prefixes. If omitted, all
-subjects are included (except heartbeats).
+Pass subjects as arguments: puda.<machine_id>.<category>.<topic>, as printed by
+puda machine info. Wildcards: * matches one token, > matches the rest. Quote them in the shell.
+  puda machine watch puda.balance.tlm.stream.weight
+  puda machine watch 'puda.*.tlm.stream.>'
 
-Available subject filters:
-  tlm               all telemetry
-  tlm.heartbeat     heartbeat telemetry (requires --include-heartbeat)
-  tlm.pos           position telemetry
-  tlm.health        system-vitals telemetry
-  cmd               all command messages
-  cmd.queue         queued commands
-  cmd.immediate     immediate commands
-  cmd.response      all command responses
-  cmd.response.queue
-  cmd.response.immediate
-  evt               all events
-  evt.log           log events
-  evt.alert         alert events
-  evt.media         media events
-  update            update messages
-  update.response   update responses
+Topics:
+  tlm: heartbeat, health, stream.<name>
+  cmd: queue, immediate, response.queue, response.immediate
+  evt: log, alert, media; update: update, update.response
 
-Use --timeout to auto-stop after N seconds, or Ctrl-C to stop.
-Use --human for a text line per event instead of NDJSON.`,
-	Args: cobra.NoArgs,
+With no subject arguments, watches puda.<machine_id>.> for each --machines ID,
+or puda.*.> for all machines. Subject arguments and --machines cannot be combined.
+Heartbeats are excluded unless --include-heartbeat is set or a subject names tlm.heartbeat.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		subjects, err := pudanats.WatchSubjects(watchMachines, args)
+		if err != nil {
+			return err
+		}
 		nc, err := connectMachineNATS()
 		if err != nil {
 			return err
@@ -477,17 +504,8 @@ Use --human for a text line per event instead of NDJSON.`,
 			defer timeoutCancel()
 		}
 
-		opts := pudanats.WatchOpts{
-			IncludeHeartbeat: watchIncludeHeartbeat,
-		}
-		if len(watchSubjects) > 0 {
-			opts.Subjects = make(map[string]struct{}, len(watchSubjects))
-			for _, t := range watchSubjects {
-				opts.Subjects[t] = struct{}{}
-			}
-		}
-
-		events, err := pudanats.SubscribeMachineSubjects(ctx, nc, watchMachines, opts)
+		opts := pudanats.WatchOpts{IncludeHeartbeat: watchIncludeHeartbeat}
+		events, err := pudanats.SubscribeMachineSubjects(ctx, nc, subjects, opts)
 		if err != nil {
 			return err
 		}
@@ -519,16 +537,13 @@ func init() {
 	machineCmd.PersistentFlags().BoolVar(&machineHuman, "human", false, "Output as human-readable text instead of JSON")
 	machineCmd.PersistentFlags().BoolVarP(&machineYes, "yes", "y", false, "Skip safety confirmation prompts")
 	machineListCmd.Flags().DurationVar(&machineListTimeout, "timeout", defaultPingDiscoveryTimeout, "How long to collect pong replies")
-	machinePingCmd.Flags().DurationVar(&machinePingTimeout, "timeout", 2*time.Second, "Timeout for each ping request")
+	machineInfoCmd.Flags().DurationVar(&machineInfoTimeout, "timeout", 2*time.Second, "Timeout for each ping request")
 	machineCommandsCmd.Flags().StringVar(&machineCommandName, "command", "", "Show only these advertised commands (comma-separated)")
 	machineWatchCmd.Flags().StringSliceVarP(&watchMachines, "machines", "m", nil, "Comma-separated list of machine IDs to watch (default: all machines)")
-	machineWatchCmd.Flags().StringSliceVar(&watchMachines, "targets", nil, "Deprecated alias for --machines")
-	machineWatchCmd.Flags().MarkHidden("targets")
 	machineWatchCmd.Flags().IntVar(&watchTimeout, "timeout", 0, "Auto-stop after N seconds (0 = run until interrupted)")
-	machineWatchCmd.Flags().StringSliceVarP(&watchSubjects, "subjects", "s", nil, "Comma-separated category.topic prefixes to include (default: all subjects)")
 	machineWatchCmd.Flags().BoolVar(&watchIncludeHeartbeat, "include-heartbeat", false, "Include heartbeat messages (excluded by default)")
 	machineCmd.AddCommand(machineListCmd)
-	machineCmd.AddCommand(machinePingCmd)
+	machineCmd.AddCommand(machineInfoCmd)
 	machineCmd.AddCommand(machineCommandsCmd)
 	machineCmd.AddCommand(machineWatchCmd)
 }

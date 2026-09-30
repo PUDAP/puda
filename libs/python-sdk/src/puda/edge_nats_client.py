@@ -10,9 +10,11 @@ puda.{machine_id}.update subject is subscribed by EdgeUpdater.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 import logging
 import time
+from dataclasses import dataclass, field
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Awaitable, Callable, Dict, Optional
 
@@ -36,6 +38,7 @@ from .constants import (
 from .command_processor import CommandProcessor
 from .models import CommandResponse, MachineState, NATSMessage, _get_current_timestamp
 from .host_addresses import HostAddresses, discover_host_addresses
+from .tlm_stream import validate_tlm_stream_name
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +62,25 @@ def _normalize_description(value: Optional[str]) -> Optional[str]:
         return None
     collapsed = " ".join(value.split())
     return collapsed or None
+
+
+@dataclass
+class _TlmStream:
+    name: str
+    subject: str
+    interval: Optional[float]
+    description: Optional[str]
+    throttle: bool
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    last_at: Optional[float] = None
+
+    def advertised(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "subject": self.subject,
+            "interval": self.interval,
+            "description": self.description,
+        }
 
 
 class EdgeNatsClient:
@@ -112,8 +134,8 @@ class EdgeNatsClient:
 
         self._heartbeat_lock = asyncio.Lock()
         self._last_heartbeat_at: float | None = None
-        self._position_lock = asyncio.Lock()
-        self._last_position_at: float | None = None
+        self._tlm_streams: dict[str, _TlmStream] = {}
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._host_addresses_lock = asyncio.Lock()
         self._host_addresses_loaded = False
         self._cached_host_addresses = HostAddresses()
@@ -137,7 +159,8 @@ class EdgeNatsClient:
         prefix = f"{NAMESPACE}.{mid}"
 
         self.tlm_heartbeat = f"{prefix}.tlm.heartbeat"
-        self.tlm_pos = f"{prefix}.tlm.pos"
+        self.tlm_stream_prefix = f"{prefix}.tlm.stream"
+        self.tlm_pos = f"{self.tlm_stream_prefix}.pos"
         self.tlm_health = f"{prefix}.tlm.health"
 
         self.cmd_queue = f"{prefix}.cmd.queue"
@@ -264,7 +287,8 @@ class EdgeNatsClient:
         self._ping_sub = None
         self._ping_broadcast_sub = None
         self._last_heartbeat_at = None
-        self._last_position_at = None
+        for stream in self._tlm_streams.values():
+            stream.last_at = None
         self._host_addresses_loaded = False
 
     async def _setup_jetstream(self) -> None:
@@ -288,6 +312,7 @@ class EdgeNatsClient:
             )
             await self._setup_jetstream()
             self._is_connected = True
+            self._loop = asyncio.get_running_loop()
             self._schedule_host_addresses_refresh()
             logger.info("Connected to NATS servers: %s", self.servers)
             return True
@@ -381,6 +406,7 @@ class EdgeNatsClient:
         }
         if self.description:
             payload["description"] = self.description
+        payload["tlm_streams"] = [s.advertised() for s in self._tlm_streams.values()]
         addresses = await self._host_addresses()
         if addresses.local_ip:
             payload["local_ip"] = addresses.local_ip
@@ -417,16 +443,57 @@ class EdgeNatsClient:
         )
         return published
 
-    async def publish_position(self, coords: Dict[str, float]) -> bool:
-        """Publish position telemetry at most once every POSITION_INTERVAL seconds."""
-        published, self._last_position_at = await self._publish_throttled(
-            self._position_lock,
-            self._last_position_at,
-            self.POSITION_INTERVAL,
-            self.tlm_pos,
-            coords,
+    def declare_tlm_stream(
+        self,
+        name: str,
+        interval: Optional[float] = None,
+        description: Optional[str] = None,
+        throttle: bool = False,
+    ) -> None:
+        """Register a telemetry stream on puda.{machine_id}.tlm.stream.{name}.
+
+        Declared streams are advertised in ping replies as ``tlm_streams``.
+        ``interval`` is advertised; it only limits publishing when ``throttle``
+        is True.
+        """
+        validate_tlm_stream_name(name)
+        self._tlm_streams[name] = _TlmStream(
+            name=name,
+            subject=f"{self.tlm_stream_prefix}.{name}",
+            interval=interval,
+            description=_normalize_description(description),
+            throttle=throttle,
+        )
+
+    async def publish_tlm_stream(self, name: str, data: Dict[str, Any]) -> bool:
+        """Publish one sample; undeclared names are declared without an interval."""
+        stream = self._tlm_streams.get(name)
+        if stream is None:
+            self.declare_tlm_stream(name)
+            stream = self._tlm_streams[name]
+        if not (stream.throttle and stream.interval):
+            return await self._publish(stream.subject, data)
+        published, stream.last_at = await self._publish_throttled(
+            stream.lock, stream.last_at, stream.interval, stream.subject, data
         )
         return published
+
+    def publish_tlm_stream_threadsafe(
+        self, name: str, data: Dict[str, Any]
+    ) -> Optional[concurrent.futures.Future]:
+        """Schedule publish_tlm_stream from a non-event-loop thread (e.g. a driver reader)."""
+        if self._loop is None or self._loop.is_closed():
+            logger.debug("Event loop not available, skipping tlm stream %s", name)
+            return None
+        return asyncio.run_coroutine_threadsafe(self.publish_tlm_stream(name, data), self._loop)
+
+    async def publish_position(self, coords: Dict[str, float]) -> bool:
+        """Publish position telemetry at most once every POSITION_INTERVAL seconds."""
+        if "pos" not in self._tlm_streams:
+            self.declare_tlm_stream(
+                "pos", self.POSITION_INTERVAL, "Machine position", throttle=True
+            )
+        return await self.publish_tlm_stream("pos", coords)
 
     async def publish_health(self, vitals: Dict[str, Any]) -> None:
         """Publish system health vitals (CPU, memory, temperature, etc.)."""

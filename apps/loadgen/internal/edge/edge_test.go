@@ -10,7 +10,7 @@ func TestSubjectsMatchPUDAProtocol(t *testing.T) {
 	if got := HeartbeatSubject(id); got != "puda.test-1.tlm.heartbeat" {
 		t.Fatalf("heartbeat=%q", got)
 	}
-	if got := PositionSubject(id); got != "puda.test-1.tlm.pos" {
+	if got := PositionSubject(id); got != "puda.test-1.tlm.stream.pos" {
 		t.Fatalf("position=%q", got)
 	}
 	if got := HealthSubject(id); got != "puda.test-1.tlm.health" {

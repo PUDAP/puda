@@ -28,15 +28,19 @@ func TestMachineListCommandMetadata(t *testing.T) {
 	}
 }
 
-func TestMachinePingCommandMetadata(t *testing.T) {
-	if got, want := machinePingCmd.Use, "ping <machine_ids>"; got != want {
+func TestMachineInfoCommandMetadata(t *testing.T) {
+	if got, want := machineInfoCmd.Use, "info <machine_ids>"; got != want {
 		t.Fatalf("Use=%q want=%q", got, want)
 	}
-	if !strings.Contains(machinePingCmd.Long, "comma-separated") {
-		t.Fatalf("Long=%q", machinePingCmd.Long)
+	if !strings.Contains(machineInfoCmd.Long, "comma-separated") || !strings.Contains(machineInfoCmd.Long, "tlm_streams") {
+		t.Fatalf("Long=%q", machineInfoCmd.Long)
 	}
-	if machinePingCmd.Flags().Lookup("timeout") == nil {
-		t.Fatal("ping command must expose --timeout")
+	if machineInfoCmd.Flags().Lookup("timeout") == nil {
+		t.Fatal("info command must expose --timeout")
+	}
+	found, _, err := machineCmd.Find([]string{"ping"})
+	if err != nil || found != machineInfoCmd {
+		t.Fatalf("ping must alias info: found=%v err=%v", found, err)
 	}
 	if machineCmd.PersistentFlags().Lookup("human") == nil {
 		t.Fatal("machine command must expose --human")
@@ -54,7 +58,7 @@ func TestParseMachineIDsAcceptsCommaSeparatedAndMultipleArgs(t *testing.T) {
 	}
 }
 
-func TestWritePingResultsHuman(t *testing.T) {
+func TestWriteInfoResultsHuman(t *testing.T) {
 	results := []pudanats.PingResult{
 		{
 			MachineID:     "first",
@@ -71,7 +75,7 @@ func TestWritePingResultsHuman(t *testing.T) {
 		{MachineID: "offline", Status: "error", Error: "timeout"},
 	}
 	var buf bytes.Buffer
-	writePingResults(&buf, results, nil, true)
+	writeInfoResults(&buf, results, nil, true)
 	output := buf.String()
 	for _, want := range []string{
 		"first: pong",
@@ -90,13 +94,13 @@ func TestWritePingResultsHuman(t *testing.T) {
 	}
 }
 
-func TestWritePingResultsJSONIsDefault(t *testing.T) {
+func TestWriteInfoResultsJSONIsDefault(t *testing.T) {
 	results := []pudanats.PingResult{
 		{MachineID: "first", Status: "pong", RunStatus: "busy", LatencyMS: 2.5, SDKVersion: "0.0.17", UptimeSeconds: 12.5, Description: "Liquid-handling robot."},
 		{MachineID: "offline", Status: "error", Error: "timeout"},
 	}
 	var buf bytes.Buffer
-	if err := writePingResults(&buf, results, nil, false); err != nil {
+	if err := writeInfoResults(&buf, results, nil, false); err != nil {
 		t.Fatal(err)
 	}
 	var payload struct {
@@ -116,7 +120,7 @@ func TestWritePingResultsJSONIsDefault(t *testing.T) {
 	}
 }
 
-func TestWritePingResultsJSONIncludesHostAddresses(t *testing.T) {
+func TestWriteInfoResultsJSONIncludesHostAddresses(t *testing.T) {
 	results := []pudanats.PingResult{
 		{
 			MachineID:   "first",
@@ -127,11 +131,11 @@ func TestWritePingResultsJSONIncludesHostAddresses(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	if err := writePingResults(&buf, results, nil, false); err != nil {
+	if err := writeInfoResults(&buf, results, nil, false); err != nil {
 		t.Fatal(err)
 	}
 	var payload struct {
-		Results []pingResultJSON `json:"results"`
+		Results []infoResultJSON `json:"results"`
 	}
 	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
 		t.Fatalf("default output is not JSON: %v\n%s", err, buf.String())
@@ -215,6 +219,73 @@ func TestWriteListResultsHuman(t *testing.T) {
 	}
 }
 
+func TestWriteInfoResultsIncludesTlmStreams(t *testing.T) {
+	interval := 0.25
+	results := []pudanats.PingResult{
+		{
+			MachineID: "balance",
+			Status:    "pong",
+			TlmStreams: []pudanats.TlmStream{
+				{Name: "weight", Subject: "puda.balance.tlm.stream.weight", Interval: &interval, Description: "Mass in grams"},
+				{Name: "ctrl", Subject: "puda.balance.tlm.stream.ctrl"},
+			},
+		},
+		{MachineID: "old", Status: "pong"},
+	}
+	var jsonBuf bytes.Buffer
+	if err := writeInfoResults(&jsonBuf, results, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Results []infoResultJSON `json:"results"`
+	}
+	if err := json.Unmarshal(jsonBuf.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	got := payload.Results[0].TlmStreams
+	if len(got) != 2 || got[0].Name != "weight" || got[0].Interval == nil || *got[0].Interval != 0.25 || got[1].Interval != nil {
+		t.Fatalf("tlm_streams=%+v", got)
+	}
+	if payload.Results[1].TlmStreams == nil || len(payload.Results[1].TlmStreams) != 0 {
+		t.Fatalf("old edge tlm_streams=%v", payload.Results[1].TlmStreams)
+	}
+
+	var humanBuf bytes.Buffer
+	if err := writeInfoResults(&humanBuf, results, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"tlm_stream weight every 0.25s: Mass in grams",
+		"subject: puda.balance.tlm.stream.weight",
+		"tlm_stream ctrl (no fixed interval)",
+	} {
+		if !strings.Contains(humanBuf.String(), want) {
+			t.Fatalf("output missing %q: %s", want, humanBuf.String())
+		}
+	}
+}
+
+func TestWriteListResultsTlmStreamCount(t *testing.T) {
+	pongs := []pudanats.PingResult{
+		{MachineID: "balance", Status: "pong", TlmStreams: []pudanats.TlmStream{{Name: "weight"}}},
+		{MachineID: "first", Status: "pong"},
+	}
+	var jsonBuf bytes.Buffer
+	if err := writeListResults(&jsonBuf, pongs, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(jsonBuf.String(), `"tlm_stream_count": 1`) || !strings.Contains(jsonBuf.String(), `"tlm_stream_count": 0`) {
+		t.Fatalf("list JSON must include tlm_stream_count for every machine:\n%s", jsonBuf.String())
+	}
+	var humanBuf bytes.Buffer
+	if err := writeListResults(&humanBuf, pongs, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := humanBuf.String(), "2 machines found:\n  balance (1 tlm stream)\n  first\n"; got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
 func TestWriteListResultsLivestreamCount(t *testing.T) {
 	byMachine := map[string][]pudanats.LivestreamRef{
 		"first": {
@@ -258,7 +329,7 @@ func TestWriteListResultsLivestreamCount(t *testing.T) {
 	}
 }
 
-func TestWritePingResultsJoinsLivestreams(t *testing.T) {
+func TestWriteInfoResultsJoinsLivestreams(t *testing.T) {
 	byMachine := map[string][]pudanats.LivestreamRef{
 		"first": {{Name: "deck", Host: "first", Description: "Deck view", URLs: pudanats.DeriveLivestreamURLs("first", "deck")}},
 	}
@@ -267,11 +338,11 @@ func TestWritePingResultsJoinsLivestreams(t *testing.T) {
 		{MachineID: "offline", Status: "error", Error: "timeout"},
 	}
 	var jsonBuf bytes.Buffer
-	if err := writePingResults(&jsonBuf, results, byMachine, false); err != nil {
+	if err := writeInfoResults(&jsonBuf, results, byMachine, false); err != nil {
 		t.Fatal(err)
 	}
 	var payload struct {
-		Results []pingResultJSON `json:"results"`
+		Results []infoResultJSON `json:"results"`
 	}
 	if err := json.Unmarshal(jsonBuf.Bytes(), &payload); err != nil {
 		t.Fatal(err)
@@ -284,7 +355,7 @@ func TestWritePingResultsJoinsLivestreams(t *testing.T) {
 	}
 
 	var humanBuf bytes.Buffer
-	if err := writePingResults(&humanBuf, results, byMachine, true); err != nil {
+	if err := writeInfoResults(&humanBuf, results, byMachine, true); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"first: pong", "Gantry.", "livestream deck: Deck view", "host: first", "hls: http://first:8888/deck/", "rtsp: rtsp://first:8554/deck", "offline: failed: timeout"} {

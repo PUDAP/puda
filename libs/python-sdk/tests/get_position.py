@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 MACHINE_ID = "first"
 NAMESPACE = "puda"
-POSITION_SUBJECT = f"{NAMESPACE}.{MACHINE_ID}.tlm.pos"
+POSITION_SUBJECT = f"{NAMESPACE}.{MACHINE_ID}.tlm.stream.pos"
 
 
 async def handle_position(msg):

@@ -235,14 +235,14 @@ graph TB
 
     subgraph "Core NATS Subjects (Fire-and-Forget, No JetStream)"
         TLM_HEARTBEAT[puda.{machine_id}.tlm.heartbeat]
-        TLM_POS[puda.{machine_id}.tlm.pos]
+        TLM_STREAM[puda.{machine_id}.tlm.stream.{name}]
         TLM_HEALTH[puda.{machine_id}.tlm.health]
         EVT_LOG[puda.{machine_id}.evt.log]
         EVT_ALERT[puda.{machine_id}.evt.alert]
         EVT_MEDIA[puda.{machine_id}.evt.media]
         
         NATS --> TLM_HEARTBEAT
-        NATS --> TLM_POS
+        NATS --> TLM_STREAM
         NATS --> TLM_HEALTH
         NATS --> EVT_LOG
         NATS --> EVT_ALERT
@@ -394,7 +394,7 @@ This system uses **5 types of messages**, each optimized for its purpose:
 
 **Subjects**:
 - `puda.{machine_id}.tlm.heartbeat` - Periodic heartbeat (machine is alive)
-- `puda.{machine_id}.tlm.pos` - Position coordinates (where the machine is)
+- `puda.{machine_id}.tlm.stream.{name}` - Telemetry streams declared by the driver with `@tlm_stream(interval=...)`, e.g. `tlm.stream.pos` (position) or `tlm.stream.weight`. Each stream has its own rate. Subscribe to `puda.{machine_id}.tlm.stream.>` for all of a machine's streams; `puda machine info` lists them.
 - `puda.{machine_id}.tlm.health` - System health vitals (CPU, memory, temperature)
 
 **Example Flow**:
