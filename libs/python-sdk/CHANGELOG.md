@@ -5,20 +5,21 @@ All notable changes to the PUDA Python SDK are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-SDK versions are independent of the PUDA CLI. CLI v0.1.0 expects this SDK.
+SDK versions are independent of the PUDA CLI. CLI v0.1.2 expects this SDK.
 
 ## [Unreleased]
 
+## [0.0.18] - 2026-09-30
+
 ### Breaking
 
-- Position telemetry moved from `puda.<machine_id>.tlm.pos` to `puda.<machine_id>.tlm.stream.pos`. Subscribers to the old subject stop receiving position. `publish_position` still works and keeps its 3s throttle.
+- `puda.<machine_id>.tlm.pos` is removed. Position is a telemetry stream on `puda.<machine_id>.tlm.stream.pos`; declare it on the driver with `@tlm_stream(interval=..., name="pos")`.
 
 ### Added
 
 - `@tlm_stream(interval=..., name=...)` decorator. `EdgeRunner` polls each marked driver method at its own interval and publishes non-`None` results to `puda.<machine_id>.tlm.stream.<name>`.
 - `EdgeNatsClient.declare_tlm_stream`, `publish_tlm_stream`, and `publish_tlm_stream_threadsafe` for streams published outside the decorator.
 - Pong replies include `tlm_streams` (name, subject, interval, description) for `puda machine info`.
-
 - `@machine_state` decorator. The marked driver method's dict is merged into every `MACHINE_STATE` update. An explicit `state_handler` still takes precedence.
 
 ### Changed

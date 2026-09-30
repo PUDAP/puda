@@ -210,7 +210,7 @@ A Core NATS request with payload `ping` receives structured JSON:
   "status": "pong",
   "machine_id": "first",
   "timestamp": "2026-08-27T07:23:56Z",
-  "sdk_version": "0.0.17",
+  "sdk_version": "0.0.18",
   "uptime_seconds": 12.5,
   "run_status": "idle",
   "description": "Cartesian gantry for well-plate liquid handling.",
