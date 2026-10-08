@@ -132,6 +132,9 @@ type infoResultJSON struct {
 	MagicDNS      string                   `json:"magicdns,omitempty"`
 	LatencyMS     float64                  `json:"latency_ms,omitempty"`
 	Error         string                   `json:"error,omitempty"`
+	EncryptKID    string                   `json:"e2e_encrypt_kid,omitempty"`
+	DecryptKIDs   []string                 `json:"e2e_decrypt_kids,omitempty"`
+	Persist       *bool                    `json:"e2e_persist,omitempty"`
 	TlmStreams    []pudanats.TlmStream     `json:"tlm_streams"`
 	Livestreams   []pudanats.LivestreamRef `json:"livestreams"`
 }
@@ -157,6 +160,9 @@ func infoResultWithLivestreams(result pudanats.PingResult, refs []pudanats.Lives
 		MagicDNS:      result.MagicDNS,
 		LatencyMS:     result.LatencyMS,
 		Error:         result.Error,
+		EncryptKID:    result.EncryptKID,
+		DecryptKIDs:   result.DecryptKIDs,
+		Persist:       result.Persist,
 		TlmStreams:    tlmStreams,
 		Livestreams:   refs,
 	}
@@ -214,6 +220,9 @@ func writeInfoResults(w io.Writer, results []pudanats.PingResult, byMachine map[
 		}
 		for _, stream := range pudanats.LivestreamsForMachine(byMachine, result.MachineID) {
 			fmt.Fprintf(w, "  %s\n", formatLivestreamRefHuman(stream))
+		}
+		if result.EncryptKID != "" {
+			fmt.Fprintf(w, "  e2e encrypt %s\n", result.EncryptKID)
 		}
 		if line := pingNetworkLine(result); line != "" {
 			fmt.Fprintf(w, "  %s\n", line)
@@ -583,7 +592,7 @@ func connectNATS(override string) (*natsio.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	nc, err := natsio.Connect(servers, natsio.MaxReconnects(3), natsio.ReconnectWait(2*time.Second))
+	nc, err := pudanats.Connect(servers, natsio.MaxReconnects(3), natsio.ReconnectWait(2*time.Second))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
 	}

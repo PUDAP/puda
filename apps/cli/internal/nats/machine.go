@@ -20,18 +20,21 @@ const (
 
 // PingResult is the outcome of a direct Core NATS ping request.
 type PingResult struct {
-	MachineID     string  `json:"machine_id"`
-	Status        string  `json:"status"`
-	Timestamp     string  `json:"timestamp,omitempty"`
-	SDKVersion    string  `json:"sdk_version,omitempty"`
-	UptimeSeconds float64 `json:"uptime_seconds,omitempty"`
-	RunStatus     string  `json:"run_status,omitempty"`
-	Description   string  `json:"description,omitempty"`
-	LocalIP       string  `json:"local_ip,omitempty"`
-	TailscaleIP   string  `json:"tailscale_ip,omitempty"`
-	MagicDNS      string  `json:"magicdns,omitempty"`
-	LatencyMS     float64 `json:"latency_ms,omitempty"`
-	Error         string  `json:"error,omitempty"`
+	MachineID     string   `json:"machine_id"`
+	Status        string   `json:"status"`
+	Timestamp     string   `json:"timestamp,omitempty"`
+	SDKVersion    string   `json:"sdk_version,omitempty"`
+	UptimeSeconds float64  `json:"uptime_seconds,omitempty"`
+	RunStatus     string   `json:"run_status,omitempty"`
+	Description   string   `json:"description,omitempty"`
+	LocalIP       string   `json:"local_ip,omitempty"`
+	TailscaleIP   string   `json:"tailscale_ip,omitempty"`
+	MagicDNS      string   `json:"magicdns,omitempty"`
+	LatencyMS     float64  `json:"latency_ms,omitempty"`
+	Error         string   `json:"error,omitempty"`
+	EncryptKID    string   `json:"e2e_encrypt_kid,omitempty"`
+	DecryptKIDs   []string `json:"e2e_decrypt_kids,omitempty"`
+	Persist       *bool    `json:"e2e_persist,omitempty"`
 	// TlmStreams is nil for edges on SDK versions that predate telemetry streams.
 	TlmStreams []TlmStream `json:"tlm_streams,omitempty"`
 }
@@ -103,6 +106,14 @@ func parsePong(data []byte) (PingResult, bool) {
 	return pong, true
 }
 
+func parsePongReply(msg *natsio.Msg) (PingResult, bool) {
+	plain, err := Open(msg.Subject, msg.Data)
+	if err != nil {
+		return PingResult{}, false
+	}
+	return parsePong(plain)
+}
+
 func machineIDFromPong(data []byte) (string, bool) {
 	pong, ok := parsePong(data)
 	return pong.MachineID, ok
@@ -132,10 +143,14 @@ func watchEventFromMsg(msg *natsio.Msg) (WatchEvent, bool) {
 	}
 
 	var data json.RawMessage
-	if json.Valid(msg.Data) {
-		data = msg.Data
+	payload, err := Open(msg.Subject, msg.Data)
+	if err != nil {
+		return WatchEvent{}, false
+	}
+	if json.Valid(payload) {
+		data = payload
 	} else {
-		data, _ = json.Marshal(string(msg.Data))
+		data, _ = json.Marshal(string(payload))
 	}
 
 	return WatchEvent{
@@ -214,13 +229,18 @@ func PingMachines(nc *natsio.Conn, machineIDs []string, timeout time.Duration) [
 		go func() {
 			defer wg.Done()
 			started := time.Now()
-			msg, err := nc.Request(machinePingSubject(machineID), []byte("ping"), timeout)
+			body, err := Seal(machinePingSubject(machineID), []byte("ping"))
+			if err != nil {
+				results[i] = PingResult{MachineID: machineID, Status: "error", Error: err.Error()}
+				return
+			}
+			msg, err := nc.Request(machinePingSubject(machineID), body, timeout)
 			latencyMS := float64(time.Since(started)) / float64(time.Millisecond)
 			if err != nil {
 				results[i] = PingResult{MachineID: machineID, Status: "error", LatencyMS: latencyMS, Error: err.Error()}
 				return
 			}
-			pong, ok := parsePong(msg.Data)
+			pong, ok := parsePongReply(msg)
 			if !ok {
 				results[i] = PingResult{MachineID: machineID, Status: "error", LatencyMS: latencyMS, Error: "invalid pong response"}
 				return
@@ -290,7 +310,11 @@ func ListMachinePongs(nc *natsio.Conn, timeout time.Duration) ([]PingResult, err
 	if err := nc.Flush(); err != nil {
 		return nil, fmt.Errorf("failed to activate ping reply inbox: %w", err)
 	}
-	if err := nc.PublishRequest(fleetPingSubject, inbox, []byte("ping")); err != nil {
+	body, err := Seal(fleetPingSubject, []byte("ping"))
+	if err != nil {
+		return nil, err
+	}
+	if err := nc.PublishRequest(fleetPingSubject, inbox, body); err != nil {
 		return nil, fmt.Errorf("failed to publish fleet ping: %w", err)
 	}
 	if err := nc.Flush(); err != nil {
@@ -310,7 +334,7 @@ func ListMachinePongs(nc *natsio.Conn, timeout time.Duration) ([]PingResult, err
 		if err != nil {
 			return nil, fmt.Errorf("failed while collecting ping replies: %w", err)
 		}
-		pong, ok := parsePong(msg.Data)
+		pong, ok := parsePongReply(msg)
 		if !ok {
 			continue
 		}
@@ -378,7 +402,11 @@ func GetMachineCommands(nc *natsio.Conn, machineID string) (MachineCommands, err
 	if err != nil {
 		return MachineCommands{}, fmt.Errorf("failed to get %s commands: %w", machineID, err)
 	}
-	return parseMachineCommands(entry.Value())
+	plain, err := OpenKV(kvBucketMachineCommands, machineID, entry.Value())
+	if err != nil {
+		return MachineCommands{}, err
+	}
+	return parseMachineCommands(plain)
 }
 
 func parseMachineCommands(data []byte) (MachineCommands, error) {
@@ -452,7 +480,11 @@ func GetMachineState(nc *natsio.Conn, machineID string) (json.RawMessage, error)
 		return nil, fmt.Errorf("failed to get machine state: %w", err)
 	}
 
-	state := append(json.RawMessage(nil), entry.Value()...)
+	plain, err := OpenKV(kvBucketMachineState, machineID, entry.Value())
+	if err != nil {
+		return nil, err
+	}
+	state := append(json.RawMessage(nil), plain...)
 	if !json.Valid(state) {
 		return nil, fmt.Errorf("failed to parse state JSON")
 	}

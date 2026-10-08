@@ -23,9 +23,11 @@ from nats.aio.msg import Msg
 from nats.js.api import ConsumerConfig, StreamConfig
 from nats.js.client import JetStreamContext
 from nats.js.errors import Error as NATSError
+from nats.errors import TimeoutError as NATSTimeoutError
 from nats.js.errors import NotFoundError
 from nats.js.kv import KeyValue
 
+from . import e2e
 from .constants import (
     KV_BUCKET_COMMANDS,
     KV_BUCKET_STATE,
@@ -131,6 +133,8 @@ class EdgeNatsClient:
         self._is_connected = False
         self._queue_handler = None
         self._immediate_handler = None
+        self._keyring_listener: Optional[Callable[[], Awaitable[None]]] = None
+        self._keyring_task: Optional[asyncio.Task] = None
 
         self._heartbeat_lock = asyncio.Lock()
         self._last_heartbeat_at: float | None = None
@@ -190,7 +194,8 @@ class EdgeNatsClient:
             return False
         try:
             message = {"timestamp": self._format_timestamp(), **data}
-            await self.nc.publish(subject=subject, payload=json.dumps(message).encode())
+            payload = e2e.seal(subject, json.dumps(message).encode())
+            await self.nc.publish(subject=subject, payload=payload)
             logger.debug("Published to %s", subject)
             return True
         except Exception as e:
@@ -277,6 +282,9 @@ class EdgeNatsClient:
         self._ping_broadcast_sub = None
 
     def _reset_connection_state(self) -> None:
+        if self._keyring_task is not None:
+            self._keyring_task.cancel()
+            self._keyring_task = None
         self._is_connected = False
         self.js = None
         self.kv_state = None
@@ -309,10 +317,12 @@ class EdgeNatsClient:
                 disconnected_cb=self._disconnected_callback,
                 reconnected_cb=self._reconnected_callback,
                 closed_cb=self._closed_callback,
+                **e2e.connect_kwargs(self.servers),
             )
             await self._setup_jetstream()
             self._is_connected = True
             self._loop = asyncio.get_running_loop()
+            self._start_keyring_watch()
             self._schedule_host_addresses_refresh()
             logger.info("Connected to NATS servers: %s", self.servers)
             return True
@@ -334,6 +344,7 @@ class EdgeNatsClient:
         self._schedule_host_addresses_refresh()
         if self.nc:
             await self._setup_jetstream()
+            self._start_keyring_watch()
             await self._resubscribe_handlers()
 
     async def _resubscribe_handlers(self) -> None:
@@ -341,6 +352,61 @@ class EdgeNatsClient:
             await self.subscribe_queue(self._queue_handler)
         if self._immediate_handler:
             await self.subscribe_immediate(self._immediate_handler)
+
+    def set_keyring_listener(self, listener: Callable[[], Awaitable[None]]) -> None:
+        """Run after the shared keyring record changes the local keys."""
+        self._keyring_listener = listener
+
+    def _start_keyring_watch(self) -> None:
+        if self._keyring_task is not None:
+            self._keyring_task.cancel()
+        if self._loop is None:
+            return
+        self._keyring_task = self._loop.create_task(self._watch_keyring())
+
+    async def _watch_keyring(self) -> None:
+        if not e2e.enabled() or self.js is None:
+            return
+        try:
+            kv = await self._get_or_create_kv_bucket(e2e.KEYRING_BUCKET)
+            await self._apply_keyring(kv)
+            watcher = await kv.watch(e2e.KEYRING_KEY)
+            while True:
+                try:
+                    entry = await watcher.updates(timeout=30)
+                except (asyncio.TimeoutError, NATSTimeoutError):
+                    continue
+                if entry is None or getattr(entry, "operation", None) in ("DEL", "PURGE"):
+                    if entry is not None:
+                        e2e.drop_previous()
+                    continue
+                await self._apply_keyring_entry(entry)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Keyring watch stopped: %s", exc)
+
+    async def _apply_keyring(self, kv: KeyValue) -> None:
+        try:
+            entry = await kv.get(e2e.KEYRING_KEY)
+        except NotFoundError:
+            e2e.drop_previous()
+            return
+        await self._apply_keyring_entry(entry)
+
+    async def _apply_keyring_entry(self, entry: Any) -> None:
+        value = getattr(entry, "value", None)
+        if value is None:
+            e2e.drop_previous()
+            return
+        try:
+            plain = e2e.open_payload(e2e.kv_aad(e2e.KEYRING_BUCKET, e2e.KEYRING_KEY), value)
+            changed = e2e.adopt_record(plain)
+        except e2e.E2EError as exc:
+            logger.error("Failed to adopt keyring: %s", exc)
+            return
+        if changed and self._keyring_listener is not None:
+            await self._keyring_listener()
 
     async def _closed_callback(self) -> None:
         logger.info("NATS connection closed")
@@ -414,11 +480,21 @@ class EdgeNatsClient:
             payload["tailscale_ip"] = addresses.tailscale_ip
         if addresses.magicdns:
             payload["magicdns"] = addresses.magicdns
+        ring = e2e.current()
+        if ring is not None:
+            payload["e2e_encrypt_kid"] = e2e.kid_hex(ring.encrypt_kid())
+            payload["e2e_decrypt_kids"] = [e2e.kid_hex(item) for item in ring.decrypt_kids()]
+            payload["e2e_persist"] = ring.persistent
         return payload
 
     async def _handle_ping(self, msg: Msg) -> None:
         """Reply to ping with a structured pong payload."""
-        if msg.data.strip().lower() == b"ping":
+        try:
+            plain = e2e.open_payload(msg.subject, msg.data)
+        except e2e.E2EError as exc:
+            logger.error("Failed to open ping on %s: %s", msg.subject, exc)
+            return
+        if plain.strip().lower() == b"ping":
             payload = await self._pong_payload()
         else:
             payload = {
@@ -428,7 +504,8 @@ class EdgeNatsClient:
                 "message": "expected ping",
             }
         try:
-            await msg.respond(json.dumps(payload).encode())
+            body = e2e.seal(msg.reply or msg.subject, json.dumps(payload).encode())
+            await msg.respond(body)
         except Exception as e:
             logger.error("Failed to reply to ping on %s: %s", self.ping, e)
 
@@ -510,10 +587,21 @@ class EdgeNatsClient:
                 message.update(self.state_handler())
             if isinstance(message.get("state"), MachineState):
                 message["state"] = message["state"].value
-            await self.kv_state.put(self.machine_id, json.dumps(message).encode())
+            await self.kv_state.put(
+                self.machine_id,
+                e2e.seal(e2e.kv_aad(self.kv_bucket_state, self.machine_id), json.dumps(message).encode()),
+            )
             logger.info("Updated state in KV store: %s", message)
+            self._last_state_data = dict(data)
         except Exception as e:
             logger.error("Error updating status in KV store: %s", e)
+
+    async def republish_state(self) -> None:
+        """Write the last state again after the lab key changes."""
+        data = getattr(self, "_last_state_data", None)
+        if data is None:
+            return
+        await self.publish_state(dict(data))
 
     async def publish_commands(self, data: Dict[str, Any]) -> None:
         """Publish the command catalog to the KV store."""
@@ -521,7 +609,10 @@ class EdgeNatsClient:
             logger.warning("KV store not available, skipping command update")
             return
         try:
-            await self.kv_commands.put(self.machine_id, json.dumps(data).encode())
+            await self.kv_commands.put(
+                self.machine_id,
+                e2e.seal(e2e.kv_aad(self.kv_bucket_commands, self.machine_id), json.dumps(data).encode()),
+            )
             logger.info("Published commands to KV store")
         except Exception as e:
             logger.error("Error publishing command to KV store: %s", e)

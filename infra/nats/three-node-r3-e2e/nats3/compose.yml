@@ -1,0 +1,41 @@
+services:
+  nats3:
+    image: nats:2.14.5
+    container_name: nats3
+    restart: always
+    ulimits:
+      nofile:
+        soft: 524288
+        hard: 524288
+    ports:
+      - "${NATS_PORT:-4222}:4222"
+      - "6222:6222"
+      - "8883:8883"
+    volumes:
+      - nats3:/data
+      - ./nats.conf:/etc/nats/nats.conf:ro
+      - ./certs:/etc/nats/certs:ro
+    environment:
+      - SERVER_NAME=nats3
+      - NATS_PORT=${NATS_PORT:-4222}
+      - NATS1_ROUTE=nats-route://${NATS1_HOST}:6222
+      - NATS2_ROUTE=nats-route://${NATS2_HOST}:6222
+      - NATS3_ROUTE=nats-route://${HOST_IP}:6222
+    command: "-c /etc/nats/nats.conf --client_advertise ${HOST_IP}:${NATS_PORT:-4222}"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "nats",
+          "--server",
+          "tls://localhost:4222",
+          "--tlsca",
+          "/etc/nats/certs/ca.pem",
+          "server",
+          "check",
+          "jetstream",
+        ]
+      start_period: 10s
+
+volumes:
+  nats3:

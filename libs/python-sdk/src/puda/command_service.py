@@ -16,6 +16,7 @@ from typing import Dict, Any, Optional
 import nats
 from nats.js.client import JetStreamContext
 from nats.aio.msg import Msg
+from . import e2e
 from .constants import (
     NAMESPACE,
     STREAM_RESPONSE_QUEUE,
@@ -81,7 +82,7 @@ class ResponseHandler:
     async def _handle_message(self, msg: Msg):
         """Handle incoming response messages."""
         try:
-            message = NATSMessage.model_validate_json(msg.data)
+            message = NATSMessage.model_validate_json(e2e.open_payload(msg.subject, msg.data))
             command = message.command.name
             run_id = message.header.run_id
             step_number = message.command.step_number
@@ -280,7 +281,8 @@ class CommandService:
                         servers=self.servers,
                         connect_timeout=connect_timeout,
                         reconnect_time_wait=2,
-                        max_reconnect_attempts=0  # No reconnection during initial connection
+                        max_reconnect_attempts=0,  # No reconnection during initial connection
+                        **e2e.connect_kwargs(self.servers),
                     ),
                     timeout=connect_timeout + 1  # Slightly longer timeout for the wait_for
                 )
@@ -388,7 +390,7 @@ class CommandService:
             # Publish to JetStream
             pub_ack = await self.js.publish(
                 subject,
-                payload.model_dump_json().encode()
+                e2e.seal(subject, payload.model_dump_json().encode()),
             )
             
             logger.info("Command published (step_number: %s), waiting for response...", request.step_number)
@@ -744,7 +746,7 @@ class CommandService:
             # Publish to JetStream
             pub_ack = await self.js.publish(
                 subject,
-                payload.model_dump_json().encode()
+                e2e.seal(subject, payload.model_dump_json().encode()),
             )
             
             logger.info("Command published, waiting for response...")

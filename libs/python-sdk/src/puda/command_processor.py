@@ -19,6 +19,7 @@ from .models import (
     NATSMessage,
     _get_current_timestamp,
 )
+from . import e2e
 from .run_manager import RunManager
 
 if TYPE_CHECKING:
@@ -88,7 +89,7 @@ class CommandProcessor:
         if not js:
             return
         try:
-            original = NATSMessage.model_validate_json(msg.data)
+            original = NATSMessage.model_validate_json(e2e.open_payload(msg.subject, msg.data))
             header = original.header.model_copy(
                 update={
                     "message_type": MessageType.RESPONSE,
@@ -96,7 +97,8 @@ class CommandProcessor:
                 }
             )
             payload = original.model_copy(update={"header": header, "response": response})
-            await js.publish(subject=subject, payload=payload.model_dump_json().encode())
+            body = e2e.seal(subject, payload.model_dump_json().encode())
+            await js.publish(subject=subject, payload=body)
             logger.info("Published command response to JetStream: %s", payload.model_dump_json())
         except Exception as e:
             logger.error("Error publishing command response: %s", e)
@@ -124,7 +126,7 @@ class CommandProcessor:
         step_number = None
         command = None
         try:
-            message = NATSMessage.model_validate_json(msg.data)
+            message = NATSMessage.model_validate_json(e2e.open_payload(msg.subject, msg.data))
             run_id = message.header.run_id
             step_number = message.command.step_number if message.command else None
             command = message.command.name if message.command else None
@@ -200,7 +202,7 @@ class CommandProcessor:
     async def process_immediate(self, msg: Msg, handler: CommandHandler) -> None:
         """Process immediate commands (start, pause, cancel, resume, etc.)."""
         try:
-            message = NATSMessage.model_validate_json(msg.data)
+            message = NATSMessage.model_validate_json(e2e.open_payload(msg.subject, msg.data))
             await msg.ack()
             if message.command is None:
                 logger.error("Received message with no command")

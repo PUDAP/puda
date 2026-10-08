@@ -42,7 +42,7 @@ var configGetCmd = &cobra.Command{
 var configSetCmd = &cobra.Command{
 	Use:   "set <nats_servers|gateway_servers|user.user_id|user.username> <value>",
 	Short: "Set a PUDA CLI configuration value",
-	Long:  "Set NATS server URLs, gateway remote-cluster URLs, user ID, or username. Login still generates a user ID when none exists; use this command to change identity afterward.",
+	Long:  "Set NATS server URLs, gateway remote-cluster URLs, user ID, or username. Login still generates a user ID when none exists; use this command to change identity afterward. A tls:// URL takes its CA from PUDA_NATS_CA.",
 	Args:  cobra.ExactArgs(2),
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {

@@ -74,11 +74,19 @@ func SendUpdateCommand(
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal update payload: %w", err)
 	}
+	payloadJSON, err = Seal(updateSubject, payloadJSON)
+	if err != nil {
+		return nil, err
+	}
 
 	replies := make(chan *puda.NATSMessage, 1)
 	sub, err := nc.Subscribe(responseSubject, func(msg *natsio.Msg) {
+		plain, err := Open(msg.Subject, msg.Data)
+		if err != nil {
+			return
+		}
 		var reply puda.NATSMessage
-		if err := json.Unmarshal(msg.Data, &reply); err != nil {
+		if err := json.Unmarshal(plain, &reply); err != nil {
 			return
 		}
 		if reply.Header.RunID == nil || *reply.Header.RunID != runID {

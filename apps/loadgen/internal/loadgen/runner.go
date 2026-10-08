@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/PUDAP/puda/apps/loadgen/internal/config"
+	"github.com/PUDAP/puda/apps/loadgen/internal/e2e"
 	"github.com/PUDAP/puda/apps/loadgen/internal/edge"
 	"github.com/PUDAP/puda/apps/loadgen/internal/fleet"
 	"github.com/PUDAP/puda/apps/loadgen/internal/metrics"
@@ -115,7 +116,7 @@ func (r *Runner) connect(ctx context.Context) error {
 		default:
 		}
 		name := fmt.Sprintf("puda-loadgen-%d", i+1)
-		nc, err := nats.Connect(
+		opts, err := e2e.OptionsForServers(
 			url,
 			nats.Name(name),
 			nats.Timeout(r.cfg.ConnectTimeout),
@@ -124,6 +125,11 @@ func (r *Runner) connect(ctx context.Context) error {
 			nats.NoEcho(),
 			nats.ReconnectHandler(func(_ *nats.Conn) { r.metrics.Reconnect() }),
 		)
+		if err != nil {
+			r.metrics.Error("connect")
+			return err
+		}
+		nc, err := nats.Connect(url, opts...)
 		if err != nil {
 			r.metrics.Error("connect")
 			return fmt.Errorf("connect %d/%d: %w", i+1, count, err)
@@ -317,13 +323,25 @@ func (r *Runner) pullLoop(ctx context.Context, e virtualEdge, sub *nats.Subscrip
 }
 
 func (r *Runner) handleCommand(e virtualEdge, msg *nats.Msg, metricType, responseSubject string) {
-	payload, err := edge.SuccessResponse(msg.Data)
+	plain, err := e2e.Open(msg.Subject, msg.Data)
 	if err != nil {
 		r.metrics.Error("command_decode")
 		_ = msg.Term()
 		return
 	}
-	if _, err := e.js.Publish(responseSubject, payload); err != nil {
+	payload, err := edge.SuccessResponse(plain)
+	if err != nil {
+		r.metrics.Error("command_decode")
+		_ = msg.Term()
+		return
+	}
+	sealed, err := e2e.Seal(responseSubject, payload)
+	if err != nil {
+		r.metrics.Error("response_publish")
+		_ = msg.Nak()
+		return
+	}
+	if _, err := e.js.Publish(responseSubject, sealed); err != nil {
 		r.metrics.Error("response_publish")
 		_ = msg.Nak()
 		return
@@ -380,12 +398,24 @@ func (r *Runner) publishCommandBatch(ctx context.Context) {
 					r.metrics.Error("command_encode")
 					continue
 				}
-				if _, err := e.js.Publish(edge.QueueSubject(e.id), payload); err != nil {
+				subject := edge.QueueSubject(e.id)
+				sealed, err := e2e.Seal(subject, payload)
+				if err != nil {
+					r.metrics.Error("command_encode")
+					continue
+				}
+				if _, err := e.js.Publish(subject, sealed); err != nil {
 					r.metrics.Error("queue_command_publish")
 				} else {
 					r.metrics.MessageSent("queue_command")
 				}
-				if _, err := e.js.Publish(edge.ImmediateSubject(e.id), payload); err != nil {
+				subject = edge.ImmediateSubject(e.id)
+				sealed, err = e2e.Seal(subject, payload)
+				if err != nil {
+					r.metrics.Error("command_encode")
+					continue
+				}
+				if _, err := e.js.Publish(subject, sealed); err != nil {
 					r.metrics.Error("immediate_command_publish")
 				} else {
 					r.metrics.MessageSent("immediate_command")
@@ -441,7 +471,13 @@ func (r *Runner) publishHealth() {
 func (r *Runner) publish(kind string, payload []byte, subject func(string) string) {
 	for i := range r.edges {
 		e := &r.edges[i]
-		if err := e.nc.Publish(subject(e.id), payload); err != nil {
+		subj := subject(e.id)
+		body, err := e2e.Seal(subj, payload)
+		if err != nil {
+			r.metrics.Error("publish_" + kind)
+			continue
+		}
+		if err := e.nc.Publish(subj, body); err != nil {
 			r.metrics.Error("publish_" + kind)
 			continue
 		}

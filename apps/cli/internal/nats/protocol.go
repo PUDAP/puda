@@ -403,7 +403,7 @@ func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string, stepRanges
 	log.Printf("Connecting to NATS servers: %v", finalNatsServers)
 
 	// Connect to NATS
-	nc, err := nats.Connect(finalNatsServers, nats.MaxReconnects(3), nats.ReconnectWait(2*time.Second))
+	nc, err := Connect(finalNatsServers, nats.MaxReconnects(3), nats.ReconnectWait(2*time.Second))
 	if err != nil {
 		return fmt.Errorf("failed to connect to NATS: %w", err)
 	}

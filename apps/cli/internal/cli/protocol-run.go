@@ -142,7 +142,7 @@ func connectProtocolRunNATS(servers string) (*natsio.Conn, error) {
 	if servers == "" {
 		return nil, fmt.Errorf("NATS servers not configured; run 'puda config set nats_servers <url>'")
 	}
-	nc, err := natsio.Connect(servers, natsio.MaxReconnects(3), natsio.ReconnectWait(2*time.Second))
+	nc, err := nats.Connect(servers, natsio.MaxReconnects(3), natsio.ReconnectWait(2*time.Second))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
 	}

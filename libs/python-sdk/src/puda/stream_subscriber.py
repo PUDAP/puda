@@ -16,6 +16,8 @@ import nats
 from nats.js.client import JetStreamContext
 from nats.aio.msg import Msg
 
+from . import e2e
+
 logger = logging.getLogger(__name__)
 
 
@@ -94,7 +96,8 @@ class StreamSubscriber:
                 error_cb=self._error_callback,
                 disconnected_cb=self._disconnected_callback,
                 reconnected_cb=self._reconnected_callback,
-                closed_cb=self._closed_callback
+                closed_cb=self._closed_callback,
+                **e2e.connect_kwargs(self.servers),
             )
             self.js = self.nc.jetstream()
             self._is_connected = True
@@ -160,6 +163,7 @@ class StreamSubscriber:
         # Create callback wrapper
         async def message_wrapper(msg: Msg):
             try:
+                msg.data = e2e.open_payload(msg.subject, msg.data)
                 await callback(msg, stream, subject)
             except Exception as e:
                 logger.error(

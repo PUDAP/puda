@@ -149,12 +149,17 @@ func firstJetStream(results []probe) JetStreamHealth {
 // ProbeServer connects to a single NATS URL without failing over to other nodes.
 func ProbeServer(serverURL string, timeout time.Duration) (ServerHealth, JetStreamHealth) {
 	health := ServerHealth{URL: serverURL, Status: "error"}
-	nc, err := natsio.Connect(serverURL,
+	opts, err := OptionsForServers(serverURL,
 		natsio.Name("puda-healthcheck"),
 		natsio.Timeout(timeout),
 		natsio.MaxReconnects(0),
 		natsio.DontRandomize(),
 	)
+	if err != nil {
+		health.Error = err.Error()
+		return health, JetStreamHealth{Error: err.Error()}
+	}
+	nc, err := natsio.Connect(serverURL, opts...)
 	if err != nil {
 		health.Error = err.Error()
 		return health, JetStreamHealth{Error: err.Error()}

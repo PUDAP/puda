@@ -48,8 +48,14 @@ func NewResponseDispatcher(js nats.JetStreamContext, userID string) *ResponseDis
 // The server will delete them automatically after a period of inactivity.
 func (d *ResponseDispatcher) Start() error {
 	handler := func(msg *nats.Msg) {
+		plain, err := Open(msg.Subject, msg.Data)
+		if err != nil {
+			log.Printf("Failed to open response: %v", err)
+			msg.Ack()
+			return
+		}
 		var response puda.NATSMessage
-		if err := json.Unmarshal(msg.Data, &response); err != nil {
+		if err := json.Unmarshal(plain, &response); err != nil {
 			log.Printf("Failed to unmarshal response: %v", err)
 			msg.Ack()
 			return

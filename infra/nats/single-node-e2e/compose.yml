@@ -1,0 +1,43 @@
+services:
+  nats:
+    image: nats:2.14.5
+    container_name: nats-e2e
+    restart: always
+    ulimits:
+      nofile:
+        soft: 524288
+        hard: 524288
+    ports:
+      - "${EXTERNAL_PORT:-4222}:4222"
+      - "8883:8883"
+    networks:
+      - puda
+    volumes:
+      - nats:/data
+      - ./nats.conf:/etc/nats/nats.conf:ro
+      - ./certs:/etc/nats/certs:ro
+    environment:
+      - SERVER_NAME=nats
+      - EXTERNAL_PORT=${EXTERNAL_PORT:-4222}
+    command: "-c /etc/nats/nats.conf --client_advertise ${HOST_IP}:${EXTERNAL_PORT:-4222}"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "nats",
+          "--server",
+          "tls://localhost:4222",
+          "--tlsca",
+          "/etc/nats/certs/ca.pem",
+          "server",
+          "check",
+          "jetstream",
+        ]
+      start_period: 10s
+
+networks:
+  puda:
+    driver: bridge
+
+volumes:
+  nats:

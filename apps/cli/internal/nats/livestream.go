@@ -237,7 +237,11 @@ func ListLivestreams(nc *natsio.Conn) ([]Livestream, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to get livestream %s: %w", key, err)
 		}
-		stream, err := parseLivestream(entry.Value(), key)
+		plain, err := OpenKV(kvBucketLivestreams, key, entry.Value())
+		if err != nil {
+			return nil, err
+		}
+		stream, err := parseLivestream(plain, key)
 		if err != nil {
 			return nil, err
 		}
@@ -272,7 +276,11 @@ func GetLivestream(nc *natsio.Conn, name string) (Livestream, error) {
 		}
 		return Livestream{}, fmt.Errorf("failed to get livestream %s: %w", normalized, err)
 	}
-	return parseLivestream(entry.Value(), normalized)
+	plain, err := OpenKV(kvBucketLivestreams, normalized, entry.Value())
+	if err != nil {
+		return Livestream{}, err
+	}
+	return parseLivestream(plain, normalized)
 }
 
 func putLivestreamRecord(kv natsio.KeyValue, stream Livestream) (Livestream, error) {
@@ -289,7 +297,11 @@ func putLivestreamRecord(kv natsio.KeyValue, stream Livestream) (Livestream, err
 	if err != nil {
 		return Livestream{}, fmt.Errorf("failed to encode livestream %s: %w", stream.Name, err)
 	}
-	if _, err := kv.Put(stream.Name, payload); err != nil {
+	sealed, err := SealKV(kvBucketLivestreams, stream.Name, payload)
+	if err != nil {
+		return Livestream{}, err
+	}
+	if _, err := kv.Put(stream.Name, sealed); err != nil {
 		return Livestream{}, fmt.Errorf("failed to store livestream %s: %w", stream.Name, err)
 	}
 	return stream, nil

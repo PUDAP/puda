@@ -222,6 +222,7 @@ class EdgeRunner:
 
     async def run(self) -> None:
         """Subscribe to commands and run the main loop."""
+        self.nats_client.set_keyring_listener(self._republish_after_keyring)
         await self._setup_subscriptions()
         # publish commands to KV store (only need to do this once on startup)
         await self._publish_commands()
@@ -412,6 +413,9 @@ class EdgeRunner:
         # only default values here. EdgeNatsClient.publish_state() adds the registered state_handler fields.
         payload: dict[str, Any] = {"state": state, "run_id": run_id}
         await self.nats_client.publish_state(payload)
+
+    async def _republish_after_keyring(self) -> None:
+        await self.nats_client.republish_state()
         
     async def _publish_commands(self) -> None:
         text, catalog = build_command_catalog(self.machine_driver)

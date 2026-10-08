@@ -58,6 +58,10 @@ func sendImmediateCommandWithContext(ctx context.Context, interlock *sync.Mutex,
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal command payload: %w", err)
 	}
+	payloadJSON, err = Seal(subject, payloadJSON)
+	if err != nil {
+		return nil, err
+	}
 
 	responseCh := dispatcher.Register(runID, request.StepNumber, request.MachineID)
 	defer dispatcher.Unregister(runID, request.StepNumber, request.MachineID)
@@ -111,6 +115,10 @@ func SendQueueCommandWithContext(ctx context.Context, interlock *sync.Mutex, js 
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal command payload: %w", err)
+	}
+	payloadJSON, err = Seal(subject, payloadJSON)
+	if err != nil {
+		return nil, err
 	}
 
 	responseCh := dispatcher.Register(runID, request.StepNumber, request.MachineID)
