@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var livestreamNatsServers string
 var livestreamHuman bool
 var livestreamAddName string
 var livestreamAddHost string
@@ -277,11 +276,10 @@ func formatLivestreamRefHuman(stream pudanats.LivestreamRef) string {
 }
 
 func connectLivestreamNATS() (*natsio.Conn, error) {
-	return connectNATS(livestreamNatsServers)
+	return connectNATS()
 }
 
 func init() {
-	livestreamCmd.PersistentFlags().StringVar(&livestreamNatsServers, "nats-servers", "", "Comma-separated NATS server URLs (overrides active env)")
 	livestreamCmd.PersistentFlags().BoolVar(&livestreamHuman, "human", false, "Output as human-readable text instead of JSON")
 	livestreamAddCmd.Flags().StringVar(&livestreamAddName, "name", "", "MediaMTX stream name and registry key")
 	livestreamAddCmd.Flags().StringVar(&livestreamAddHost, "host", "", "Hostname or IP address")

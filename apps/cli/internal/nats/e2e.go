@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/PUDAP/puda/apps/cli/internal/puda"
 	natsio "github.com/nats-io/nats.go"
 )
 
@@ -35,10 +36,21 @@ type Ring struct {
 	Path       string
 }
 
+// Session selects the lab key and CA for this process.
+// Explicit means a profile decided encryption. Otherwise the environment is used.
+type Session struct {
+	Explicit bool
+	E2E      bool
+	CA       string
+	KeyFile  string
+}
+
 var (
-	ringMu   sync.RWMutex
-	ring     *Ring
-	ringLoad bool
+	ringMu    sync.RWMutex
+	ring      *Ring
+	ringLoad  bool
+	sessionMu sync.RWMutex
+	session   Session
 )
 
 func kidFor(key []byte) []byte {
@@ -130,6 +142,42 @@ func ResetRing() {
 	defer ringMu.Unlock()
 	ring = nil
 	ringLoad = false
+}
+
+// ConfigureSession installs connection settings and drops the cached lab key.
+func ConfigureSession(next Session) {
+	sessionMu.Lock()
+	session = next
+	sessionMu.Unlock()
+	ResetRing()
+}
+
+// ResetSession restores environment-based encryption and CA lookup.
+func ResetSession() {
+	ConfigureSession(Session{})
+}
+
+func currentSession() Session {
+	sessionMu.RLock()
+	defer sessionMu.RUnlock()
+	return session
+}
+
+// ApplyConnection installs the CA and lab key for a resolved profile.
+// A plaintext profile turns encryption off even when a default key file exists.
+func ApplyConnection(conn puda.Connection) error {
+	ConfigureSession(Session{
+		Explicit: conn.ExplicitE2E,
+		E2E:      conn.E2E,
+		CA:       conn.CA,
+		KeyFile:  conn.KeyFile,
+	})
+	if conn.ExplicitE2E && conn.E2E {
+		if _, err := ReloadRing(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Seal frames plaintext when a lab key is set and returns it unchanged otherwise.
@@ -235,8 +283,11 @@ func OptionsForServers(servers string, extra ...natsio.Option) ([]natsio.Option,
 	if !tlsURL {
 		return opts, nil
 	}
-	ca := strings.TrimSpace(os.Getenv("PUDA_NATS_CA"))
+	ca := configuredCA()
 	if ca == "" {
+		if currentSession().Explicit {
+			return nil, fmt.Errorf("encrypted profile has no CA file; a tls:// NATS URL needs the path to the server CA file (ca.pem)")
+		}
 		return nil, fmt.Errorf("PUDA_NATS_CA is not set; a tls:// NATS URL needs the path to the server CA file (ca.pem)")
 	}
 	opts = append(opts, natsio.RootCAs(ca))
@@ -248,6 +299,23 @@ func isFrame(data []byte) bool {
 }
 
 func readRing() (*Ring, error) {
+	if current := currentSession(); current.Explicit {
+		if !current.E2E {
+			return nil, nil
+		}
+		path := strings.TrimSpace(current.KeyFile)
+		if path == "" {
+			return nil, fmt.Errorf("encrypted profile has no key file")
+		}
+		encrypt, previous, err := readKeyFile(path)
+		if err != nil {
+			return nil, err
+		}
+		if len(encrypt) != e2eKeyLen {
+			return nil, fmt.Errorf("lab key file %s has no encrypt key", path)
+		}
+		return &Ring{Encrypt: encrypt, Previous: previous, Persistent: true, Path: path}, nil
+	}
 	path := configuredKeyPath()
 	if path == "" {
 		path = defaultKeyFileIfExists()
@@ -270,8 +338,28 @@ func readRing() (*Ring, error) {
 	return &Ring{Encrypt: fileEncrypt, Previous: filePrevious, Persistent: persistent, Path: path}, nil
 }
 
+func configuredCA() string {
+	current := currentSession()
+	if current.Explicit {
+		return strings.TrimSpace(current.CA)
+	}
+	return strings.TrimSpace(os.Getenv("PUDA_NATS_CA"))
+}
+
 func configuredKeyPath() string {
 	return strings.TrimSpace(os.Getenv("PUDA_E2E_KEY_FILE"))
+}
+
+// ValidateKeyFile checks that path contains a 32-byte encrypt key.
+func ValidateKeyFile(path string) error {
+	encrypt, _, err := readKeyFile(path)
+	if err != nil {
+		return err
+	}
+	if len(encrypt) != e2eKeyLen {
+		return fmt.Errorf("lab key file %s has no encrypt key", path)
+	}
+	return nil
 }
 
 func defaultKeyFile() string {

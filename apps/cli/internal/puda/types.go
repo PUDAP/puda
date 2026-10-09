@@ -131,12 +131,23 @@ type ConfigDatabase struct {
 	Path string `json:"path"`
 }
 
+// Profile is one named NATS connection. A plaintext broker and an encrypted
+// broker are different profiles.
+type Profile struct {
+	NATSServers    string `json:"nats_servers"`
+	GatewayServers string `json:"gateway_servers,omitempty"`
+	E2E            bool   `json:"e2e"`
+	CA             string `json:"ca,omitempty"`
+	KeyFile        string `json:"key_file,omitempty"`
+}
+
 // GlobalConfig represents the structure of the global PUDA CLI configuration file.
-// This is stored in the user's config directory and only contains user identity.
+// This is stored in the user's config directory. User identity is shared.
+// NATS connection settings live on the active profile.
 type GlobalConfig struct {
-	User           ConfigUser `json:"user"`
-	NATSServers    string     `json:"nats_servers,omitempty"`
-	GatewayServers string     `json:"gateway_servers,omitempty"`
+	User          ConfigUser         `json:"user"`
+	ActiveProfile string             `json:"active_profile,omitempty"`
+	Profiles      map[string]Profile `json:"profiles,omitempty"`
 }
 
 // ProjectConfig represents the structure of the project-level PUDA CLI config.json file.

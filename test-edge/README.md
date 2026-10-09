@@ -47,16 +47,17 @@ From `test-edge/` the same command is `uv run python main.py`.
 
 In another terminal.
 
-**PUDA CLI** (pass `--nats-servers` or `puda config set nats_servers nats://localhost:4222`):
+**PUDA CLI** (select a profile whose servers are `nats://localhost:4222`):
 
 ```bash
-puda machine list --nats-servers nats://localhost:4222
-puda machine commands test-1 --nats-servers nats://localhost:4222
-puda machine home test-1 --nats-servers nats://localhost:4222
-puda machine run test-1 move_to '{"x":10,"y":20,"z":5}' --nats-servers nats://localhost:4222
-puda machine run test-1 echo '{"message":"hello"}' --nats-servers nats://localhost:4222
-puda machine run test-1 get_status --nats-servers nats://localhost:4222
-puda machine state --nats-servers nats://localhost:4222
+puda profile add local --servers nats://localhost:4222
+puda machine list
+puda machine commands test-1
+puda machine home test-1
+puda machine run test-1 move_to '{"x":10,"y":20,"z":5}'
+puda machine run test-1 echo '{"message":"hello"}'
+puda machine run test-1 get_status
+puda machine state
 ```
 
 ### 5. Clock sync (edge hosts)

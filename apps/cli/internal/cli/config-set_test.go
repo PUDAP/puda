@@ -66,6 +66,16 @@ func TestConfigSetSyncsProjectUserID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadProjectConfig: %v", err)
 	}
+	if got.User.UserID != "generated-id" {
+		t.Fatalf("project user_id=%q, want generated-id", got.User.UserID)
+	}
+	if err := runProjectConfigSet(newConfigSetCommand(), []string{projectConfigKeyUserID, "project-user-id"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = puda.LoadProjectConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got.User.UserID != "project-user-id" {
 		t.Fatalf("project user_id=%q, want project-user-id", got.User.UserID)
 	}
@@ -135,6 +145,16 @@ func TestConfigSetSyncsProjectUsername(t *testing.T) {
 	got, err := puda.LoadProjectConfig()
 	if err != nil {
 		t.Fatalf("LoadProjectConfig: %v", err)
+	}
+	if got.User.Username != "zhao" {
+		t.Fatalf("project username=%q, want zhao", got.User.Username)
+	}
+	if err := runProjectConfigSet(newConfigSetCommand(), []string{projectConfigKeyUsername, "bearspuda"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = puda.LoadProjectConfig()
+	if err != nil {
+		t.Fatal(err)
 	}
 	if got.User.Username != "bearspuda" {
 		t.Fatalf("project username=%q, want bearspuda", got.User.Username)

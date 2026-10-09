@@ -384,7 +384,7 @@ func kidOfEncoded(value string) string {
 // Rotate starts or joins a key rotation. Retire drops the previous key.
 func Rotate(nc *natsio.Conn, retire bool, yes bool, in io.Reader, out io.Writer) error {
 	if !Enabled() {
-		return fmt.Errorf("encryption is off; set PUDA_E2E_KEY_FILE first")
+		return fmt.Errorf("payload encryption is off. Use a profile with e2ee enabled. Setup: https://github.com/pudap/puda/blob/main/infra/nats/single-node-e2e/README.md")
 	}
 	if retire {
 		return retireRotation(nc, out)

@@ -17,8 +17,8 @@ var defaultSkillsRepos = []string{
 // skillsCmd is the parent for skills-related subcommands
 var skillsCmd = &cobra.Command{
 	Use:   "skills",
-	Short: "Manage puda agent skills",
-	Long:  `Install and update agent skills for this project. Requires Node.js and npx.`,
+	Short: "Official PUDA skills for AI agents",
+	Long:  `Install and update the official PUDA skills for AI agents. Requires Node.js and npx.`,
 }
 
 // skillsInstallCmd installs skills from a repo

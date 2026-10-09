@@ -9,8 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var healthcheckNatsServers string
-var healthcheckGatewayServers string
 var healthcheckHuman bool
 var healthcheckTimeout time.Duration
 
@@ -22,7 +20,7 @@ var healthcheckCmd = &cobra.Command{
 A down cluster node is reported even when another node still accepts connections.
 A successful check also verifies JetStream account access.
 
-Optional --gateway-servers (or config gateway_servers) are client URLs in a
+The active profile's gateway_servers are client URLs in a
 remote cluster expected through a NATS gateway. Those remotes are probed and
 reported separately; a different cluster name is expected and is not degraded.
 JetStream is reported per cluster, not blended.
@@ -35,21 +33,17 @@ an expected gateway remote is not fully healthy.`,
 }
 
 func init() {
-	healthcheckCmd.Flags().StringVar(&healthcheckNatsServers, "nats-servers", "", "Comma-separated NATS server URLs (overrides global config)")
-	healthcheckCmd.Flags().StringVar(&healthcheckGatewayServers, "gateway-servers", "", "Comma-separated remote cluster URLs expected through a NATS gateway")
 	healthcheckCmd.Flags().BoolVar(&healthcheckHuman, "human", false, "Output as human-readable text instead of JSON")
 	healthcheckCmd.Flags().DurationVar(&healthcheckTimeout, "timeout", 2*time.Second, "Timeout for each server probe")
 }
 
 func runHealthcheck(cmd *cobra.Command, args []string) error {
-	servers, err := resolveNATSServers(healthcheckNatsServers)
+	conn, err := prepareConnection()
 	if err != nil {
 		return err
 	}
-	gateways, err := resolveGatewayServers(healthcheckGatewayServers)
-	if err != nil {
-		return err
-	}
+	servers := conn.Servers
+	gateways := conn.GatewayServers
 
 	report, err := pudanats.CheckHealth(servers, gateways, healthcheckTimeout)
 	if err != nil {

@@ -24,7 +24,6 @@ const (
 	defaultPingDiscoveryTimeout = 1 * time.Second
 )
 
-var machineNatsServers string
 var machineHuman bool
 var machineYes bool
 var machineCommandName string
@@ -542,7 +541,6 @@ Heartbeats are excluded unless --include-heartbeat is set or a subject names tlm
 }
 
 func init() {
-	machineCmd.PersistentFlags().StringVar(&machineNatsServers, "nats-servers", "", "Comma-separated NATS server URLs (overrides active env)")
 	machineCmd.PersistentFlags().BoolVar(&machineHuman, "human", false, "Output as human-readable text instead of JSON")
 	machineCmd.PersistentFlags().BoolVarP(&machineYes, "yes", "y", false, "Skip safety confirmation prompts")
 	machineListCmd.Flags().DurationVar(&machineListTimeout, "timeout", defaultPingDiscoveryTimeout, "How long to collect pong replies")
@@ -558,41 +556,31 @@ func init() {
 }
 
 func connectMachineNATS() (*natsio.Conn, error) {
-	return connectNATS(machineNatsServers)
+	return connectNATS()
 }
 
-func resolveGatewayServers(override string) (string, error) {
-	if override != "" {
-		return override, nil
-	}
+// prepareConnection resolves the active profile and installs its CA and lab key.
+func prepareConnection() (puda.Connection, error) {
 	cfg, err := puda.LoadGlobalConfig()
 	if err != nil {
-		return "", nil
+		return puda.Connection{}, fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
 	}
-	return cfg.GatewayServers, nil
+	conn, err := puda.ResolveConnection(cfg)
+	if err != nil {
+		return puda.Connection{}, err
+	}
+	if err := pudanats.ApplyConnection(conn); err != nil {
+		return puda.Connection{}, err
+	}
+	return conn, nil
 }
 
-func resolveNATSServers(override string) (string, error) {
-	servers := override
-	if servers == "" {
-		cfg, err := puda.LoadGlobalConfig()
-		if err != nil {
-			return "", fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
-		}
-		servers = cfg.NATSServers
-	}
-	if servers == "" {
-		return "", fmt.Errorf("NATS servers not configured; run 'puda config set nats_servers <url>'")
-	}
-	return servers, nil
-}
-
-func connectNATS(override string) (*natsio.Conn, error) {
-	servers, err := resolveNATSServers(override)
+func connectNATS() (*natsio.Conn, error) {
+	conn, err := prepareConnection()
 	if err != nil {
 		return nil, err
 	}
-	nc, err := pudanats.Connect(servers, natsio.MaxReconnects(3), natsio.ReconnectWait(2*time.Second))
+	nc, err := pudanats.Connect(conn.Servers, natsio.MaxReconnects(3), natsio.ReconnectWait(2*time.Second))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
 	}

@@ -352,7 +352,7 @@ func SendQueueCommands(js nats.JetStreamContext, dispatcher *ResponseDispatcher,
 // RunProtocol executes a protocol. confirmation is invoked immediately before
 // each selected step is dispatched; nil skips the gate.
 // stepRanges selects inclusive step ranges; nil or empty means the full protocol.
-func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string, stepRanges []StepRange, confirmation StepConfirmationFunc) error {
+func RunProtocol(protocolFile *puda.ProtocolFile, stepRanges []StepRange, confirmation StepConfirmationFunc) error {
 	// Initialize database connection (optional - if it fails, database operations will be skipped gracefully)
 	store, err := db.Connect()
 	if err != nil {
@@ -368,14 +368,14 @@ func RunProtocol(protocolFile *puda.ProtocolFile, natsServers string, stepRanges
 		return fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
 	}
 
-	// if natsServers is not provided, use nats_servers from the global config
-	finalNatsServers := natsServers
-	if finalNatsServers == "" {
-		finalNatsServers = globalCfg.NATSServers
+	conn, err := puda.ResolveConnection(globalCfg)
+	if err != nil {
+		return err
 	}
-	if finalNatsServers == "" {
-		return fmt.Errorf("NATS servers not configured; run 'puda config set nats_servers <url>'")
+	if err := ApplyConnection(conn); err != nil {
+		return err
 	}
+	finalNatsServers := conn.Servers
 
 	// Fetch user identity from config
 	finalUserID := globalCfg.User.UserID

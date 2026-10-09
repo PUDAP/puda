@@ -18,8 +18,8 @@ var lookPath = exec.LookPath
 // configEditCmd opens the PUDA configuration file in the user's default editor.
 var configEditCmd = &cobra.Command{
 	Use:   "edit",
-	Short: "Edit PUDA CLI configuration",
-	Long: `Open the PUDA CLI configuration file in a terminal editor.
+	Short: "Edit user config",
+	Long: `Open the user config file in a terminal editor.
 
 Uses $EDITOR, then $VISUAL, then a terminal editor on PATH (editor, nano, vim, or vi).
 On Windows, notepad is used when no editor environment variable is set.`,

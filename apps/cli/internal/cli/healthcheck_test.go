@@ -13,17 +13,11 @@ func TestHealthcheckCommandMetadata(t *testing.T) {
 	if got, want := healthcheckCmd.Use, "healthcheck"; got != want {
 		t.Fatalf("Use=%q want=%q", got, want)
 	}
-	if healthcheckCmd.Flags().Lookup("nats-servers") == nil {
-		t.Fatal("healthcheck command must expose --nats-servers")
-	}
 	if healthcheckCmd.Flags().Lookup("human") == nil {
 		t.Fatal("healthcheck command must expose --human")
 	}
 	if healthcheckCmd.Flags().Lookup("timeout") == nil {
 		t.Fatal("healthcheck command must expose --timeout")
-	}
-	if healthcheckCmd.Flags().Lookup("gateway-servers") == nil {
-		t.Fatal("healthcheck command must expose --gateway-servers")
 	}
 }
 

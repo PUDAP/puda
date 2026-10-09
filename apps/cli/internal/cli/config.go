@@ -5,8 +5,8 @@ import "github.com/spf13/cobra"
 // configCmd manages PUDA CLI configuration.
 var configCmd = &cobra.Command{
 	Use:   "config",
-	Short: "Manage PUDA CLI configuration",
-	Long:  "Manage PUDA CLI configuration. Use subcommands to list or edit configuration.",
+	Short: "Manage user config",
+	Long:  "Manage the logged-in user. Project settings are 'puda project config'.",
 }
 
 // init registers all config subcommands

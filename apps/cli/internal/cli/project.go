@@ -6,9 +6,9 @@ import "github.com/spf13/cobra"
 var projectCmd = &cobra.Command{
 	Use:   "project",
 	Short: "Project operations",
-	Long: `Commands for working with projects.
+	Long: `Commands for working with a project.
 
-For help on subcommands, add --help after: "puda project hash --help"`,
+Project settings are 'puda project config'.`,
 }
 
 // init registers all project subcommands.

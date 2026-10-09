@@ -2,8 +2,13 @@ package nats
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/hex"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/PUDAP/puda/apps/cli/internal/puda"
 )
 
 func TestSealOpenRoundTrip(t *testing.T) {
@@ -78,12 +83,85 @@ func TestFrameWithoutKey(t *testing.T) {
 }
 
 func TestTLSURLRequiresCA(t *testing.T) {
+	ResetSession()
+	t.Cleanup(ResetSession)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("PUDA_NATS_CA", "")
 	if _, err := OptionsForServers("tls://127.0.0.1:4222"); err == nil {
 		t.Fatal("expected missing CA error")
 	}
 	if _, err := OptionsForServers("nats://127.0.0.1:4222"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPlainProfileIgnoresDefaultKey(t *testing.T) {
+	ResetSession()
+	t.Cleanup(ResetSession)
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("PUDA_E2E_KEY_FILE", "")
+	writeTestKey(t, filepath.Join(dir, "puda", "e2e.key"), bytes.Repeat([]byte{0x11}, 32))
+
+	if err := ApplyConnection(puda.Connection{ExplicitE2E: true, Servers: "nats://127.0.0.1:4222"}); err != nil {
+		t.Fatal(err)
+	}
+	if Enabled() {
+		t.Fatal("plaintext profile turned encryption on")
+	}
+	plain, err := Seal("puda.test.cmd.ping", []byte("ping"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(plain) != "ping" {
+		t.Fatalf("sealed plaintext profile payload: %x", plain)
+	}
+}
+
+func TestEncryptedProfileUsesItsKeyAndCA(t *testing.T) {
+	ResetSession()
+	t.Cleanup(ResetSession)
+	dir := t.TempDir()
+	envKey := filepath.Join(dir, "env.key")
+	profileKey := filepath.Join(dir, "profile.key")
+	ca := filepath.Join(dir, "ca.pem")
+	writeTestKey(t, envKey, bytes.Repeat([]byte{0x11}, 32))
+	profileKeyBytes := bytes.Repeat([]byte{0x22}, 32)
+	writeTestKey(t, profileKey, profileKeyBytes)
+	if err := os.WriteFile(ca, []byte("ca"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PUDA_E2E_KEY_FILE", envKey)
+	t.Setenv("PUDA_NATS_CA", "")
+
+	if err := ApplyConnection(puda.Connection{
+		ExplicitE2E: true,
+		E2E:         true,
+		CA:          ca,
+		KeyFile:     profileKey,
+		Servers:     "tls://127.0.0.1:4222",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OptionsForServers("tls://127.0.0.1:4222"); err != nil {
+		t.Fatal(err)
+	}
+	frame, err := Seal("puda.test.cmd.ping", []byte("ping"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(frame[2:6], kidFor(profileKeyBytes)) {
+		t.Fatal("profile sealed with the environment key")
+	}
+}
+
+func writeTestKey(t *testing.T, path string, key []byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "encrypt=" + base64.StdEncoding.EncodeToString(key) + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

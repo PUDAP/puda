@@ -8,12 +8,10 @@ import (
 	"io"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/PUDAP/puda/apps/cli/internal/db"
 	"github.com/PUDAP/puda/apps/cli/internal/nats"
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
-	natsio "github.com/nats-io/nats.go"
 	"github.com/spf13/cobra"
 )
 
@@ -32,8 +30,6 @@ Before a step containing a command with safety.confirm=true, the complete
 command and safety context are displayed and execution blocks until "yes" is entered.
 Use --yes/-y to skip confirmation.
 
-Optional: --nats-servers to override NATS server URLs in config file.
-
 Example:
   puda protocol run --file protocol.json --steps 2-5
   puda protocol run --file protocol.json --steps 2-
@@ -45,7 +41,6 @@ Example:
 // Protocol run flags
 var (
 	protocolFilePath string
-	natsServers      string
 	protocolSteps    string
 	protocolYes      bool
 )
@@ -53,7 +48,6 @@ var (
 // init registers flags for the run command
 func init() {
 	protocolRunCmd.Flags().StringVarP(&protocolFilePath, "file", "f", "", "Path to JSON file containing protocol (required)")
-	protocolRunCmd.Flags().StringVar(&natsServers, "nats-servers", "", "Optional: Comma-separated NATS server URLs - overrides active env")
 	protocolRunCmd.Flags().StringVar(&protocolSteps, "steps", "", "Optional: comma-separated steps or inclusive ranges to run (e.g. 3, 2-5, 2-, 4,6-7,10-)")
 	protocolRunCmd.Flags().BoolVarP(&protocolYes, "yes", "y", false, "Skip safety confirmation prompts")
 	protocolRunCmd.MarkFlagRequired("file")
@@ -80,7 +74,7 @@ func runProtocol(cmd *cobra.Command, args []string) error {
 
 	// Resolve safety from the live catalog immediately before execution. The
 	// protocol copy is editable planning context and is never authoritative.
-	nc, err := connectProtocolRunNATS(natsServers)
+	nc, err := connectNATS()
 	if err != nil {
 		return fmt.Errorf("failed to resolve live command safety: %w", err)
 	}
@@ -111,7 +105,7 @@ func runProtocol(cmd *cobra.Command, args []string) error {
 	}
 
 	confirmation := safetyConfirmation(cmd, protocolYes)
-	if err := nats.RunProtocol(&protocolFile, natsServers, stepRanges, confirmation); err != nil {
+	if err := nats.RunProtocol(&protocolFile, stepRanges, confirmation); err != nil {
 		return fmt.Errorf("failed to run protocol: %w", err)
 	}
 	return nil
@@ -129,24 +123,6 @@ func authoritativeProtocolForRun(protocol *puda.ProtocolFile, fetchCatalog func(
 		resolved.Commands[index].Safety = validated.Commands[index].Safety
 	}
 	return &resolved, nil
-}
-
-func connectProtocolRunNATS(servers string) (*natsio.Conn, error) {
-	if servers == "" {
-		cfg, err := puda.LoadGlobalConfig()
-		if err != nil {
-			return nil, fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
-		}
-		servers = cfg.NATSServers
-	}
-	if servers == "" {
-		return nil, fmt.Errorf("NATS servers not configured; run 'puda config set nats_servers <url>'")
-	}
-	nc, err := nats.Connect(servers, natsio.MaxReconnects(3), natsio.ReconnectWait(2*time.Second))
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
-	}
-	return nc, nil
 }
 
 func safetyConfirmation(cmd *cobra.Command, skip bool) nats.StepConfirmationFunc {

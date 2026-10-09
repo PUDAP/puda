@@ -7,22 +7,23 @@ Top-level order matches `puda --help` (alphabetical). Nested order matches each 
 ```
 puda
 ├── completion               Generate the autocompletion script for the specified shell
-├── config
-│   ├── edit                 Edit PUDA CLI configuration
-│   └── list                 List PUDA CLI configuration values
+├── config                   Manage user config
+│   ├── edit                 Edit the user config file
+│   ├── get <key>            Read user.user_id or user.username
+│   ├── list                 List the logged-in user
+│   └── set <key> <value>    Set user.user_id or user.username
 ├── db
 │   ├── exec [sql]           Execute SQL commands on the database
 │   └── schema               Display the database schema
-├── healthcheck              Check NATS server/cluster/gateway health [--nats-servers] [--gateway-servers] (JSON; --human for text)
+├── encryption               Check or rotate payload encryption on an encrypted profile
+│   ├── rotate               Install a new lab key
+│   └── status               Show which edges have the current lab key
+├── healthcheck              Check NATS server/cluster/gateway health (JSON; --human for text)
 ├── help                     Help about any command
 ├── init [path]              Initialize a new PUDA project (requires --name)
 ├── login                    Log in to a PUDA account
 ├── logout                   Log out of a PUDA account
-├── env                      NATS connection environments (bears, imre, ntu)
-│   ├── current              Show the active env
-│   ├── list                 List envs; * marks active
-│   └── switch <env>         Set the active env
-├── machine                  Optional: --nats-servers (overrides active env)
+├── machine                  Machine operations (JSON; --human for text)
 │   ├── commands <machine_id>  List commands the machine exposes [--command names] (JSON; --human for text)
 │   ├── home <machine_id> [machine_id...]  Home machine(s)
 │   ├── list                 Broadcast puda.cmd.ping and list pong responders with description, livestream_count, and tlm_stream_count (JSON; --human for text)
@@ -31,12 +32,24 @@ puda
 │   ├── state <machine_id>   Get the state of a machine as JSON
 │   ├── update <machine_id>  Tell a PUDA edge to pull (git/docker) and restart
 │   └── watch [subject...]   Stream NATS subjects as NDJSON (wildcards allowed; -m <ids> for whole machines)
+├── profile                  Named NATS connections (JSON; --human for text)
+│   ├── add <name>           Save a profile (--servers, optional --gateway-servers, --ca and --key together for e2e)
+│   ├── current              Show the active profile
+│   ├── list                 List profiles; * marks the active one in text output
+│   ├── remove <name>        Delete a profile
+│   ├── set <field> <value>  Change nats_servers, gateway_servers, ca, or key on the active profile
+│   └── switch <name>        Select the active profile
 ├── project
+│   ├── config               Manage project config (puda.config)
+│   │   ├── edit             Edit puda.config
+│   │   ├── get <key>        Read a project config value
+│   │   ├── list             List project config
+│   │   └── set <key> <value>  Set a project config value
 │   └── hash                 SHA-256 hash of project-linked DB rows (--id)
 ├── protocol
 │   ├── run                  Run a protocol on machines via NATS
 │   └── validate             Validate a protocol JSON file
-├── skills                   Requires Node.js / npx
+├── skills                   Official PUDA skills for AI agents (requires Node.js / npx)
 │   ├── install [repo...]    Add default + optional skill repos, then sync
 │   └── update               Refresh installed skills (npx skills update)
 ├── update                   Upgrade or pin the puda CLI from GitHub releases
