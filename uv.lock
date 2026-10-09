@@ -261,7 +261,7 @@ wheels = [
 
 [[package]]
 name = "puda"
-version = "0.0.18"
+version = "0.0.19-rc1"
 source = { editable = "libs/python-sdk" }
 dependencies = [
     { name = "cryptography" },

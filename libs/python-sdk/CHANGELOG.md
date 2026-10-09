@@ -5,9 +5,23 @@ All notable changes to the PUDA Python SDK are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-SDK versions are independent of the PUDA CLI. CLI v0.1.2 expects this SDK.
+SDK versions are independent of the PUDA CLI. CLI v0.1.3-rc1 expects this SDK.
 
 ## [Unreleased]
+
+## [0.0.19-rc1] - 2026-10-09
+
+### Added
+
+- Optional AES-256-GCM payload encryption, shared with the CLI. It stays off unless `PUDA_E2E_KEY_FILE` points at a lab key. `tls://` brokers also need `PUDA_NATS_CA`.
+- `seal` and `open_payload` for that frame.
+- Edges adopt lab-key rotations from the shared keyring and republish machine state after the key changes.
+- Pong includes `e2e_encrypt_kid`, `e2e_decrypt_kids`, and `e2e_persist` when encryption is on.
+- `cryptography` is a dependency, used only when a lab key is set.
+
+### Changed
+
+- Publishes, machine state, the command catalog, and ping/pong are sealed when a lab key is configured.
 
 ## [0.0.18] - 2026-09-30
 
