@@ -9,6 +9,8 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
 
 ## [Unreleased]
 
+## [0.0.21] - 2026-10-14
+
 ### Breaking
 
 - Removed process-global encryption functions and environment lookup. Use an
@@ -22,6 +24,8 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
 - Removed a duplicate response-handler method and unused publish assignments.
 
 ## [0.0.20] - 2026-10-14
+
+Removed from PyPI; use 0.0.21 or later.
 
 ### Breaking
 
