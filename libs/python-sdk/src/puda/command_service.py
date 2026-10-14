@@ -41,8 +41,9 @@ class ResponseHandler:
     Routes responses to waiting commands based on run_id and step_number.
     """
     
-    def __init__(self, js: JetStreamContext, machine_id: str):
+    def __init__(self, js: JetStreamContext, machine_id: str, *, encryption: e2e.Context | None = None):
         self.js = js
+        self.encryption = encryption if encryption is not None else e2e.Context()
         self.machine_id = machine_id
         self._pending_responses: Dict[str, Dict[str, Any]] = {}  # {'event': asyncio.Event, 'response': Optional[NATSMessage]}
         self._queue_consumer = None
@@ -82,7 +83,7 @@ class ResponseHandler:
     async def _handle_message(self, msg: Msg):
         """Handle incoming response messages."""
         try:
-            message = NATSMessage.model_validate_json(e2e.open_payload(msg.subject, msg.data))
+            message = NATSMessage.model_validate_json(self.encryption.open_payload(msg.subject, msg.data))
             command = message.command.name
             run_id = message.header.run_id
             step_number = message.command.step_number
@@ -221,13 +222,18 @@ class CommandService:
     
     def __init__(
         self,
-        servers: list[str]
+        servers: list[str],
+        *,
+        ca_file: str | None = None,
+        e2e_key_file: str | None = None,
     ):
         """
         Initialize NATS service.
         
         Args:
             servers: List of NATS server URLs. Must be a non-empty list.
+            ca_file: Explicit CA certificate path for tls:// connections.
+            e2e_key_file: Optional payload key file; no environment lookup.
         
         Raises:
             ValueError: If servers is None or empty.
@@ -236,6 +242,8 @@ class CommandService:
             raise ValueError("Please provide a non-empty list of NATS server URLs")
         
         self.servers = servers
+        self._connect_kwargs = e2e.connect_kwargs(servers, ca_file)
+        self.encryption = e2e.Context(e2e_key_file)
         self.nc: Optional[nats.NATS] = None
         self.js: Optional[JetStreamContext] = None
         self._response_handlers: Dict[str, ResponseHandler] = {} # stores response handlers for each machine
@@ -282,7 +290,7 @@ class CommandService:
                         connect_timeout=connect_timeout,
                         reconnect_time_wait=2,
                         max_reconnect_attempts=0,  # No reconnection during initial connection
-                        **e2e.connect_kwargs(self.servers),
+                        **self._connect_kwargs,
                     ),
                     timeout=connect_timeout + 1  # Slightly longer timeout for the wait_for
                 )
@@ -307,23 +315,6 @@ class CommandService:
         
         self._connected = False
         return False
-    
-    async def _get_response_handler(self, machine_id: str) -> ResponseHandler:
-        """
-        Get or create a response handler for the specified machine.
-        
-        Args:
-            machine_id: Machine identifier
-        
-        Returns:
-            ResponseHandler instance for the machine
-        """
-        if machine_id not in self._response_handlers:
-            handler = ResponseHandler(self.js, machine_id)
-            await handler.initialize()
-            self._response_handlers[machine_id] = handler
-        
-        return self._response_handlers[machine_id]
     
     async def disconnect(self):
         """Disconnect from NATS servers and cleanup."""
@@ -388,9 +379,9 @@ class CommandService:
 
         try:
             # Publish to JetStream
-            pub_ack = await self.js.publish(
+            await self.js.publish(
                 subject,
-                e2e.seal(subject, payload.model_dump_json().encode()),
+                self.encryption.seal(subject, payload.model_dump_json().encode()),
             )
             
             logger.info("Command published (step_number: %s), waiting for response...", request.step_number)
@@ -744,9 +735,9 @@ class CommandService:
 
         try:
             # Publish to JetStream
-            pub_ack = await self.js.publish(
+            await self.js.publish(
                 subject,
-                e2e.seal(subject, payload.model_dump_json().encode()),
+                self.encryption.seal(subject, payload.model_dump_json().encode()),
             )
             
             logger.info("Command published, waiting for response...")
@@ -806,7 +797,7 @@ class CommandService:
             ResponseHandler instance for the machine
         """
         if machine_id not in self._response_handlers:
-            handler = ResponseHandler(self.js, machine_id)
+            handler = ResponseHandler(self.js, machine_id, encryption=self.encryption)
             await handler.initialize()
             self._response_handlers[machine_id] = handler
         

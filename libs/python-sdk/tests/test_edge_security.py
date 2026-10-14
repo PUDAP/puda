@@ -102,6 +102,75 @@ def test_rotation_persists_only_to_own_file(tmp_path):
     assert client(str(tmp_path / "a.key")).encryption.current().previous is None
 
 
+def test_rotation_write_failure_keeps_active_key(tmp_path):
+    edge = client(key_file(tmp_path, "key", 1))
+    original = edge.encryption.current()
+    record = json.dumps({
+        "new_key": base64.b64encode(bytes([3]) * 32).decode(),
+        "old_key": base64.b64encode(original.encrypt).decode(),
+        "encrypt_kid": e2e.kid_hex(e2e.kid_for(bytes([3]) * 32)),
+    }).encode()
+    with patch.object(e2e, "_write_key_file", side_effect=PermissionError("read-only")):
+        with pytest.raises(PermissionError):
+            edge.encryption.adopt_record(record)
+    assert edge.encryption.current() == original
+
+
+def test_command_service_and_subscriber_use_explicit_security(tmp_path, monkeypatch):
+    from puda import CommandService, StreamSubscriber
+
+    key = key_file(tmp_path, "key", 1)
+    monkeypatch.setenv("PUDA_E2E_KEY_FILE", key)
+    monkeypatch.setenv("PUDA_NATS_CA", "/ignored/ca")
+    with patch.object(CommandService, "_register_signal_handlers"):
+        for cls in (CommandService, StreamSubscriber):
+            with patch.object(ssl, "create_default_context") as create:
+                secured = cls(["tls://broker:4222"], ca_file="/explicit/ca", e2e_key_file=key)
+                create.assert_called_once_with(cafile="/explicit/ca")
+                assert secured.encryption.enabled()
+                assert secured._connect_kwargs == {"tls": create.return_value}
+            assert not cls(["nats://broker:4222"]).encryption.enabled()
+            with pytest.raises(e2e.E2EError):
+                cls(["tls://broker:4222"])
+
+
+def test_response_handler_shares_service_context(tmp_path):
+    import asyncio
+    from types import SimpleNamespace
+    from puda import CommandService
+    from puda.command_service import ResponseHandler
+    from puda.models import CommandRequest, MessageHeader, MessageType, NATSMessage
+
+    async def exercise():
+        with patch.object(CommandService, "_register_signal_handlers"):
+            service = CommandService(
+                ["nats://broker:4222"], e2e_key_file=key_file(tmp_path, "key", 1),
+            )
+        service.js = SimpleNamespace()
+        with patch.object(ResponseHandler, "initialize", AsyncMock()):
+            handler = await service._get_response_handler("test")
+        assert handler.encryption is service.encryption
+        event = handler.register_pending("run", 1)
+        message = NATSMessage(
+            header=MessageHeader(
+                message_type=MessageType.RESPONSE, machine_id="test",
+                user_id="test", username="test", run_id="run",
+            ),
+            command=CommandRequest(name="move", machine_id="test", step_number=1),
+            response={"status": "success"},
+        )
+        subject = "puda.test.cmd.response.queue"
+        msg = SimpleNamespace(
+            subject=subject, ack=AsyncMock(), nak=AsyncMock(),
+            data=service.encryption.seal(subject, message.model_dump_json().encode()),
+        )
+        await handler._handle_message(msg)
+        assert event.is_set()
+        assert handler.get_response("run", 1).command.name == "move"
+
+    asyncio.run(exercise())
+
+
 def test_telemetry_and_ping_use_client_context(tmp_path):
     import asyncio
     from types import SimpleNamespace

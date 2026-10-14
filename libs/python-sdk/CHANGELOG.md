@@ -9,6 +9,18 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
 
 ## [Unreleased]
 
+### Breaking
+
+- Removed process-global encryption functions and environment lookup. Use an
+  explicit `puda.e2e.Context` for standalone framing, or pass file paths to clients.
+- `CommandService` and `StreamSubscriber` now accept `ca_file` and
+  `e2e_key_file`; response handlers share the owning service's context.
+
+### Changed
+
+- Rotation updates are owned by the context, with immutable keyring snapshots.
+- Removed a duplicate response-handler method and unused publish assignments.
+
 ## [0.0.20] - 2026-10-14
 
 ### Breaking

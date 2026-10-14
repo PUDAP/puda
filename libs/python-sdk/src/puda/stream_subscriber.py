@@ -52,7 +52,10 @@ class StreamSubscriber:
         servers: List[str],
         connect_timeout: int = 10,
         reconnect_time_wait: int = 2,
-        max_reconnect_attempts: int = -1
+        max_reconnect_attempts: int = -1,
+        *,
+        ca_file: str | None = None,
+        e2e_key_file: str | None = None,
     ):
         """
         Initialize the stream subscriber.
@@ -62,11 +65,15 @@ class StreamSubscriber:
             connect_timeout: Timeout for initial connection in seconds
             reconnect_time_wait: Wait time between reconnection attempts in seconds
             max_reconnect_attempts: Maximum reconnection attempts (-1 for unlimited)
+            ca_file: Explicit CA certificate path for tls:// connections.
+            e2e_key_file: Optional payload key file; no environment lookup.
         """
         if not servers:
             raise ValueError("servers must be a non-empty list")
         
         self.servers = servers
+        self._connect_kwargs = e2e.connect_kwargs(servers, ca_file)
+        self.encryption = e2e.Context(e2e_key_file)
         self.connect_timeout = connect_timeout
         self.reconnect_time_wait = reconnect_time_wait
         self.max_reconnect_attempts = max_reconnect_attempts
@@ -97,7 +104,7 @@ class StreamSubscriber:
                 disconnected_cb=self._disconnected_callback,
                 reconnected_cb=self._reconnected_callback,
                 closed_cb=self._closed_callback,
-                **e2e.connect_kwargs(self.servers),
+                **self._connect_kwargs,
             )
             self.js = self.nc.jetstream()
             self._is_connected = True
@@ -163,7 +170,7 @@ class StreamSubscriber:
         # Create callback wrapper
         async def message_wrapper(msg: Msg):
             try:
-                msg.data = e2e.open_payload(msg.subject, msg.data)
+                msg.data = self.encryption.open_payload(msg.subject, msg.data)
                 await callback(msg, stream, subject)
             except Exception as e:
                 logger.error(
@@ -389,4 +396,3 @@ class StreamSubscriber:
         """Async context manager exit."""
         await self.disconnect()
         return False  # Don't suppress exceptions
-

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import os
 import ssl
 import threading
@@ -15,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.exceptions import InvalidTag
 
 MAGIC = 0xE2
 VERSION = 0x01
@@ -31,7 +33,7 @@ class E2EError(Exception):
     """A payload could not be sealed or opened."""
 
 
-@dataclass
+@dataclass(frozen=True)
 class Ring:
     """The key that seals new messages, plus at most one other key."""
 
@@ -57,11 +59,6 @@ class Ring:
         raise E2EError("unknown key id")
 
 
-_lock = threading.Lock()
-_ring: Ring | None = None
-_loaded = False
-
-
 def kid_for(key: bytes) -> bytes:
     return hashlib.sha256(key).digest()[:4]
 
@@ -74,46 +71,6 @@ def kv_aad(bucket: str, key: str) -> str:
     return f"kv:{bucket}:{key}"
 
 
-def enabled() -> bool:
-    return current() is not None
-
-
-def current() -> Ring | None:
-    global _loaded, _ring
-    with _lock:
-        if not _loaded:
-            _ring = _load_from_env()
-            _loaded = True
-        return _ring
-
-
-def reload() -> Ring | None:
-    global _loaded, _ring
-    with _lock:
-        _ring = _load_from_env()
-        _loaded = True
-        return _ring
-
-
-def set_ring(ring: Ring | None) -> None:
-    """Install a ring for this process. Tests use this to avoid the environment."""
-    global _loaded, _ring
-    with _lock:
-        _ring = ring
-        _loaded = True
-
-
-def reset() -> None:
-    global _loaded, _ring
-    with _lock:
-        _ring = None
-        _loaded = False
-
-
-def seal(subject: str, plaintext: bytes, *, nonce: bytes | None = None) -> bytes:
-    return _seal(current(), subject, plaintext, nonce=nonce)
-
-
 def _seal(ring: Ring | None, subject: str, plaintext: bytes, *, nonce: bytes | None = None) -> bytes:
     if ring is None:
         return plaintext
@@ -124,10 +81,6 @@ def _seal(ring: Ring | None, subject: str, plaintext: bytes, *, nonce: bytes | N
     key_id = ring.encrypt_kid()
     ciphertext = AESGCM(ring.encrypt).encrypt(nonce, plaintext, subject.encode())
     return bytes([MAGIC, VERSION]) + key_id + nonce + ciphertext
-
-
-def open_payload(subject: str, data: bytes) -> bytes:
-    return _open_payload(current(), subject, data)
 
 
 def _open_payload(ring: Ring | None, subject: str, data: bytes) -> bytes:
@@ -143,7 +96,7 @@ def _open_payload(ring: Ring | None, subject: str, data: bytes) -> bytes:
     key = ring.key_for(key_id)
     try:
         return AESGCM(key).decrypt(nonce, data[_HEADER_LEN:], subject.encode())
-    except Exception as exc:
+    except InvalidTag as exc:
         raise E2EError("failed to open payload") from exc
 
 
@@ -168,9 +121,8 @@ def connect_kwargs(servers: list[str], ca_file: str | os.PathLike | None = None)
     return {"tls": tls}
 
 
-def adopt_record(payload: bytes, *, context: Context | None = None) -> bool:
-    """Apply a keyring record. Returns True when the local ring changed."""
-    import json
+def _rotated_ring(payload: bytes, path: Path | None) -> Ring:
+    """Decode a rotation without mutating either a context or the filesystem."""
 
     record = json.loads(payload)
     new_key = _decode_key(record["new_key"])
@@ -182,32 +134,12 @@ def adopt_record(payload: bytes, *, context: Context | None = None) -> bool:
         encrypt, extra = old_key, new_key
     else:
         raise E2EError("keyring encrypt id does not match either key")
-    ring = current() if context is None else context.current()
-    path = ring.path if ring is not None else (_key_path() if context is None else None)
-    persistent = path is not None
-    updated = Ring(encrypt=encrypt, previous=extra, persistent=persistent, path=path)
-    if ring is not None and ring.encrypt == updated.encrypt and ring.previous == updated.previous:
-        return False
-    if path is not None:
-        _write_key_file(path, updated)
-    if context is None:
-        set_ring(updated)
-    else:
-        context._ring = updated
-    return True
+    return Ring(encrypt=encrypt, previous=extra, persistent=path is not None, path=path)
 
 
-def drop_previous(*, context: Context | None = None) -> None:
-    ring = current() if context is None else context.current()
-    if ring is None or ring.previous is None:
-        return
-    updated = Ring(encrypt=ring.encrypt, previous=None, persistent=ring.persistent, path=ring.path)
+def _persist_ring(ring: Ring) -> None:
     if ring.path is not None:
-        _write_key_file(ring.path, updated)
-    if context is None:
-        set_ring(updated)
-    else:
-        context._ring = updated
+        _write_key_file(ring.path, ring)
 
 
 class Context:
@@ -221,7 +153,7 @@ class Context:
         raw = "" if key_file is None else os.fspath(key_file)
         raw = raw.strip()
         self._ring: Ring | None = None
-        self._lock = threading.RLock()
+        self._lock = threading.Lock()
         if raw:
             path = Path(raw)
             try:
@@ -229,7 +161,7 @@ class Context:
                 if encrypt is None:
                     raise E2EError("missing encrypt key")
                 self._ring = Ring(encrypt, previous, persistent=True, path=path)
-            except Exception as exc:
+            except (OSError, ValueError, E2EError) as exc:
                 raise E2EError(f"Cannot load E2EE key file {path}: {exc}") from exc
 
     def current(self) -> Ring | None:
@@ -247,32 +179,26 @@ class Context:
 
     def adopt_record(self, payload: bytes) -> bool:
         with self._lock:
-            return adopt_record(payload, context=self)
+            ring = self._ring
+            updated = _rotated_ring(payload, ring.path if ring else None)
+            if updated == ring:
+                return False
+            _persist_ring(updated)
+            self._ring = updated
+            return True
 
     def drop_previous(self) -> None:
         with self._lock:
-            drop_previous(context=self)
+            ring = self._ring
+            if ring is None or ring.previous is None:
+                return
+            updated = Ring(ring.encrypt, persistent=ring.persistent, path=ring.path)
+            _persist_ring(updated)
+            self._ring = updated
 
 
 def _is_frame(data: bytes) -> bool:
     return len(data) >= _HEADER_LEN + _TAG_LEN and data[0] == MAGIC and data[1] == VERSION
-
-
-def _load_from_env() -> Ring | None:
-    path = _key_path()
-    if path is None or not path.is_file():
-        return None
-    encrypt, previous = _read_key_file(path)
-    if encrypt is None:
-        return None
-    return Ring(encrypt=encrypt, previous=previous, persistent=True, path=path)
-
-
-def _key_path() -> Path | None:
-    raw = os.environ.get("PUDA_E2E_KEY_FILE", "").strip()
-    if not raw:
-        return None
-    return Path(raw)
 
 
 def _decode_key(value: str) -> bytes:
@@ -314,14 +240,3 @@ def _write_key_file(path: Path, ring: Ring) -> None:
 
         id_path.write_text(uuid.uuid4().hex + "\n")
         os.chmod(id_path, 0o600)
-
-
-def key_file_id(path: Path | None = None) -> str | None:
-    ring = current()
-    target = path or (ring.path if ring else None)
-    if target is None:
-        return None
-    id_path = target.with_name(target.name + ".id")
-    if not id_path.is_file():
-        return None
-    return id_path.read_text().strip()

@@ -7,7 +7,6 @@ from .machine_state import machine_state
 from .edge_nats_client import EdgeNatsClient
 from .edge_runner import EdgeRunner
 from .edge_updater import EdgeUpdater
-from .e2e import open_payload, seal
 from .execution_state import ExecutionState
 from .command_service import CommandService
 from .stream_subscriber import StreamSubscriber
@@ -21,8 +20,6 @@ __all__ = [
     "EdgeRunner",
     "EdgeUpdater",
     "ExecutionState",
-    "open_payload",
-    "seal",
     "CommandService",
     "StreamSubscriber",
     "models",

@@ -206,6 +206,11 @@ or invalid key raises an error instead of silently enabling plaintext.
 Each edge owns its encryption context, including rotation and persistence.
 The key file must be writable for rotations; the CA can be read-only.
 
+`CommandService` and `StreamSubscriber` accept the same explicit security
+arguments. For standalone framing, construct `puda.e2e.Context(key_file)`
+and use its `seal` and `open_payload` methods. There is no process-global
+keyring or automatic environment lookup.
+
 Basic default NATS client for generic machines. Handles commands, telemetry, and events following the `puda.{machine_id}.{category}.{sub_category}` pattern. Provides:
 - Subscribing to command streams (queue and immediate) via JetStream with exactly-once delivery
 - Processing incoming commands and sending command responses
