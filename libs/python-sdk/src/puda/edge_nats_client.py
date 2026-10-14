@@ -112,10 +112,10 @@ class EdgeNatsClient:
             machine_id: Machine identifier (e.g. "opentron").
             description: Optional one-sentence summary advertised on ping.
                 EdgeRunner fills this from the driver class docstring when omitted.
-            ca_file: CA certificate path for tls:// servers. None falls back to
-                PUDA_NATS_CA; "" disables the fallback. URLs are never rewritten.
-            e2e_key_file: Payload key path, independent of TLS. None falls back to
-                PUDA_E2E_KEY_FILE; "" disables encryption for this client.
+            ca_file: CA certificate path, required for tls:// servers.
+                URLs are never rewritten. Environment variables are not read.
+            e2e_key_file: Payload key path, independent of TLS. None or ""
+                disables encryption for this client; no environment lookup.
         """
         self.servers = servers
         self._connect_kwargs = e2e.connect_kwargs(servers, ca_file)

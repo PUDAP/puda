@@ -10,7 +10,8 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
 ## [Unreleased]
 
 - Optional `EdgeNatsClient(ca_file=..., e2e_key_file=...)` arguments with
-  environment fallbacks and independent TLS/payload encryption settings.
+  explicit configuration and independent TLS/payload encryption settings.
+  Edge clients do not automatically read security paths from the environment.
 - Edge encryption keys are isolated per client, including commands, updates,
   telemetry, KV state, and key rotation. Invalid configured files fail early.
 

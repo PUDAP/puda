@@ -61,7 +61,7 @@ def test_frame_without_key_reports_encryption():
 
 def test_tls_url_requires_ca(monkeypatch):
     monkeypatch.delenv("PUDA_NATS_CA", raising=False)
-    with pytest.raises(e2e.E2EError, match="PUDA_NATS_CA is not set"):
+    with pytest.raises(e2e.E2EError, match="ca_file is required"):
         e2e.connect_kwargs(["tls://127.0.0.1:4222"])
     assert e2e.connect_kwargs(["nats://127.0.0.1:4222"]) == {}
 

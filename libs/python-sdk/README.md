@@ -198,8 +198,9 @@ client = EdgeNatsClient(
 Both paths are optional and independent. The URL scheme controls transport TLS;
 the key file enables payload encryption. A TLS-only client needs a CA but no key.
 Plaintext uses `nats://` with no key. URLs are never rewritten.
-`None` (the default) falls back to `PUDA_NATS_CA` or `PUDA_E2E_KEY_FILE`;
-`""` explicitly disables that setting's environment fallback.
+The client does not read environment variables for these settings. Applications
+load their own configuration and pass the paths explicitly.
+`None` (the default) or `""` leaves the corresponding setting unset.
 Configured files are validated when the client is constructed; an unreadable
 or invalid key raises an error instead of silently enabling plaintext.
 Each edge owns its encryption context, including rotation and persistence.

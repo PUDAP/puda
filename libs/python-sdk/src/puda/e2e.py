@@ -148,7 +148,7 @@ def _open_payload(ring: Ring | None, subject: str, data: bytes) -> bytes:
 
 
 def connect_kwargs(servers: list[str], ca_file: str | os.PathLike | None = None) -> dict:
-    """TLS settings for nats-py. A tls:// URL without PUDA_NATS_CA is an error."""
+    """TLS settings for nats-py. A tls:// URL requires an explicit CA file."""
     schemes = set()
     for server in servers:
         if server.startswith("tls://"):
@@ -157,14 +157,14 @@ def connect_kwargs(servers: list[str], ca_file: str | os.PathLike | None = None)
             schemes.add("nats")
         else:
             raise E2EError(f"unsupported NATS URL {server}")
-    ca = os.environ.get("PUDA_NATS_CA", "").strip() if ca_file is None else os.fspath(ca_file).strip()
+    ca = "" if ca_file is None else os.fspath(ca_file).strip()
     tls = ssl.create_default_context(cafile=ca) if ca else None
     if not schemes or schemes == {"nats"}:
         return {}
     if schemes != {"tls"}:
         raise E2EError("NATS server URLs must all use tls:// or all use nats://")
     if not ca:
-        raise E2EError("PUDA_NATS_CA is not set; a tls:// NATS URL needs the path to the server CA file (ca.pem)")
+        raise E2EError("ca_file is required for a tls:// NATS URL")
     return {"tls": tls}
 
 
@@ -213,12 +213,12 @@ def drop_previous(*, context: Context | None = None) -> None:
 class Context:
     """An edge's independent payload keys, loaded once before connecting.
 
-    None reads PUDA_E2E_KEY_FILE; an empty string explicitly disables encryption.
+    None or an empty string disables encryption. Environment variables are not read.
     Configured files must contain a valid encrypt key; errors never enable plaintext.
     """
 
     def __init__(self, key_file: str | os.PathLike | None = None):
-        raw = os.environ.get("PUDA_E2E_KEY_FILE", "") if key_file is None else os.fspath(key_file)
+        raw = "" if key_file is None else os.fspath(key_file)
         raw = raw.strip()
         self._ring: Ring | None = None
         self._lock = threading.RLock()

@@ -26,11 +26,12 @@ def client(key="", **kwargs):
     return EdgeNatsClient(["nats://localhost:4222"], "test", e2e_key_file=key, **kwargs)
 
 
-def test_independent_clients_and_environment_override(tmp_path, monkeypatch):
+def test_independent_clients_ignore_environment(tmp_path, monkeypatch):
     first = key_file(tmp_path, "first.key", 1)
     second = key_file(tmp_path, "second.key", 2)
     monkeypatch.setenv("PUDA_E2E_KEY_FILE", first)
-    a, b, plain = client(None), client(second), client("")
+    a, b, plain = client(first), client(second), client(None)
+    assert not EdgeNatsClient(["nats://localhost:4222"], "omitted").encryption.enabled()
     subject = "puda.test.tlm.stream.pos"
     frame = a.encryption.seal(subject, b'{"x":1}')
     assert a.encryption.open_payload(subject, frame) == b'{"x":1}'
@@ -48,7 +49,8 @@ def test_invalid_keys_fail_without_plaintext_fallback(tmp_path, monkeypatch):
             client(str(path))
     monkeypatch.setenv("PUDA_E2E_KEY_FILE", str(tmp_path / "missing"))
     with pytest.raises(e2e.E2EError):
-        client(None)
+        client(str(tmp_path / "missing"))
+    assert not client(None).encryption.enabled()
     assert not client("").encryption.enabled()
 
 
@@ -60,8 +62,9 @@ def test_tls_independent_of_e2ee_and_environment(monkeypatch):
         assert tls._connect_kwargs == {"tls": create.return_value}
         assert not tls.encryption.enabled()
     with patch.object(ssl, "create_default_context") as create:
-        EdgeNatsClient(["tls://broker:4222"], "test")
-        create.assert_called_once_with(cafile="/environment/ca.pem")
+        with pytest.raises(e2e.E2EError, match="ca_file is required"):
+            EdgeNatsClient(["tls://broker:4222"], "test")
+        create.assert_not_called()
     with pytest.raises(e2e.E2EError):
         EdgeNatsClient(["tls://broker:4222"], "test", ca_file="")
     with pytest.raises(e2e.E2EError):
