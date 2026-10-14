@@ -9,6 +9,14 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
 
 ## [Unreleased]
 
+- Optional `EdgeNatsClient(ca_file=..., e2e_key_file=...)` arguments with
+  environment fallbacks and independent TLS/payload encryption settings.
+- Edge encryption keys are isolated per client, including commands, updates,
+  telemetry, KV state, and key rotation. Invalid configured files fail early.
+
+These changes retain the Git source version 0.0.19; the existing PyPI 0.0.19
+artifacts predate them and cannot be replaced.
+
 ## [0.0.19] - 2026-10-14
 
 ### Added

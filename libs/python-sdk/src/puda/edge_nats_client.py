@@ -102,6 +102,9 @@ class EdgeNatsClient:
         servers: list[str],
         machine_id: str,
         description: Optional[str] = None,
+        *,
+        ca_file: str | None = None,
+        e2e_key_file: str | None = None,
     ):
         """
         Args:
@@ -109,8 +112,14 @@ class EdgeNatsClient:
             machine_id: Machine identifier (e.g. "opentron").
             description: Optional one-sentence summary advertised on ping.
                 EdgeRunner fills this from the driver class docstring when omitted.
+            ca_file: CA certificate path for tls:// servers. None falls back to
+                PUDA_NATS_CA; "" disables the fallback. URLs are never rewritten.
+            e2e_key_file: Payload key path, independent of TLS. None falls back to
+                PUDA_E2E_KEY_FILE; "" disables encryption for this client.
         """
         self.servers = servers
+        self._connect_kwargs = e2e.connect_kwargs(servers, ca_file)
+        self.encryption = e2e.Context(e2e_key_file)
         self.machine_id = machine_id
         self.description = _normalize_description(description)
         self.sdk_version = _sdk_version()
@@ -194,7 +203,7 @@ class EdgeNatsClient:
             return False
         try:
             message = {"timestamp": self._format_timestamp(), **data}
-            payload = e2e.seal(subject, json.dumps(message).encode())
+            payload = self.encryption.seal(subject, json.dumps(message).encode())
             await self.nc.publish(subject=subject, payload=payload)
             logger.debug("Published to %s", subject)
             return True
@@ -317,7 +326,7 @@ class EdgeNatsClient:
                 disconnected_cb=self._disconnected_callback,
                 reconnected_cb=self._reconnected_callback,
                 closed_cb=self._closed_callback,
-                **e2e.connect_kwargs(self.servers),
+                **self._connect_kwargs,
             )
             await self._setup_jetstream()
             self._is_connected = True
@@ -365,7 +374,7 @@ class EdgeNatsClient:
         self._keyring_task = self._loop.create_task(self._watch_keyring())
 
     async def _watch_keyring(self) -> None:
-        if not e2e.enabled() or self.js is None:
+        if not self.encryption.enabled() or self.js is None:
             return
         try:
             kv = await self._get_or_create_kv_bucket(e2e.KEYRING_BUCKET)
@@ -378,7 +387,7 @@ class EdgeNatsClient:
                     continue
                 if entry is None or getattr(entry, "operation", None) in ("DEL", "PURGE"):
                     if entry is not None:
-                        e2e.drop_previous()
+                        self.encryption.drop_previous()
                     continue
                 await self._apply_keyring_entry(entry)
         except asyncio.CancelledError:
@@ -390,18 +399,18 @@ class EdgeNatsClient:
         try:
             entry = await kv.get(e2e.KEYRING_KEY)
         except NotFoundError:
-            e2e.drop_previous()
+            self.encryption.drop_previous()
             return
         await self._apply_keyring_entry(entry)
 
     async def _apply_keyring_entry(self, entry: Any) -> None:
         value = getattr(entry, "value", None)
         if value is None:
-            e2e.drop_previous()
+            self.encryption.drop_previous()
             return
         try:
-            plain = e2e.open_payload(e2e.kv_aad(e2e.KEYRING_BUCKET, e2e.KEYRING_KEY), value)
-            changed = e2e.adopt_record(plain)
+            plain = self.encryption.open_payload(e2e.kv_aad(e2e.KEYRING_BUCKET, e2e.KEYRING_KEY), value)
+            changed = self.encryption.adopt_record(plain)
         except e2e.E2EError as exc:
             logger.error("Failed to adopt keyring: %s", exc)
             return
@@ -480,7 +489,7 @@ class EdgeNatsClient:
             payload["tailscale_ip"] = addresses.tailscale_ip
         if addresses.magicdns:
             payload["magicdns"] = addresses.magicdns
-        ring = e2e.current()
+        ring = self.encryption.current()
         if ring is not None:
             payload["e2e_encrypt_kid"] = e2e.kid_hex(ring.encrypt_kid())
             payload["e2e_decrypt_kids"] = [e2e.kid_hex(item) for item in ring.decrypt_kids()]
@@ -490,7 +499,7 @@ class EdgeNatsClient:
     async def _handle_ping(self, msg: Msg) -> None:
         """Reply to ping with a structured pong payload."""
         try:
-            plain = e2e.open_payload(msg.subject, msg.data)
+            plain = self.encryption.open_payload(msg.subject, msg.data)
         except e2e.E2EError as exc:
             logger.error("Failed to open ping on %s: %s", msg.subject, exc)
             return
@@ -504,7 +513,7 @@ class EdgeNatsClient:
                 "message": "expected ping",
             }
         try:
-            body = e2e.seal(msg.reply or msg.subject, json.dumps(payload).encode())
+            body = self.encryption.seal(msg.reply or msg.subject, json.dumps(payload).encode())
             await msg.respond(body)
         except Exception as e:
             logger.error("Failed to reply to ping on %s: %s", self.ping, e)
@@ -589,7 +598,7 @@ class EdgeNatsClient:
                 message["state"] = message["state"].value
             await self.kv_state.put(
                 self.machine_id,
-                e2e.seal(e2e.kv_aad(self.kv_bucket_state, self.machine_id), json.dumps(message).encode()),
+                self.encryption.seal(e2e.kv_aad(self.kv_bucket_state, self.machine_id), json.dumps(message).encode()),
             )
             logger.info("Updated state in KV store: %s", message)
             self._last_state_data = dict(data)
@@ -611,7 +620,7 @@ class EdgeNatsClient:
         try:
             await self.kv_commands.put(
                 self.machine_id,
-                e2e.seal(e2e.kv_aad(self.kv_bucket_commands, self.machine_id), json.dumps(data).encode()),
+                self.encryption.seal(e2e.kv_aad(self.kv_bucket_commands, self.machine_id), json.dumps(data).encode()),
             )
             logger.info("Published commands to KV store")
         except Exception as e:

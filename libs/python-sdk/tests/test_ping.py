@@ -28,8 +28,8 @@ class FakeMessage:
     def __init__(self, data=b"ping", subject="puda.test-1.cmd.ping"):
         self.data = data
         self.subject = subject
-        self.reply = AsyncMock()
-        self.respond = self.reply
+        self.reply = "_INBOX.test"
+        self.respond = AsyncMock()
 
 
 class PingTests(unittest.IsolatedAsyncioTestCase):

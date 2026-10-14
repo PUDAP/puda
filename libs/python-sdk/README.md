@@ -184,6 +184,27 @@ See [Sending Commands](#sending-commands) section for usage examples.
 
 ### 3. EdgeNatsClient (`machine_client.py`)
 
+Connection security can be configured explicitly:
+
+```python
+client = EdgeNatsClient(
+    servers=["tls://broker:4222"],
+    machine_id="first",
+    ca_file="/path/to/ca.pem",
+    e2e_key_file="/path/to/e2e.key",
+)
+```
+
+Both paths are optional and independent. The URL scheme controls transport TLS;
+the key file enables payload encryption. A TLS-only client needs a CA but no key.
+Plaintext uses `nats://` with no key. URLs are never rewritten.
+`None` (the default) falls back to `PUDA_NATS_CA` or `PUDA_E2E_KEY_FILE`;
+`""` explicitly disables that setting's environment fallback.
+Configured files are validated when the client is constructed; an unreadable
+or invalid key raises an error instead of silently enabling plaintext.
+Each edge owns its encryption context, including rotation and persistence.
+The key file must be writable for rotations; the CA can be read-only.
+
 Basic default NATS client for generic machines. Handles commands, telemetry, and events following the `puda.{machine_id}.{category}.{sub_category}` pattern. Provides:
 - Subscribing to command streams (queue and immediate) via JetStream with exactly-once delivery
 - Processing incoming commands and sending command responses

@@ -31,7 +31,6 @@ from typing import Awaitable, Callable, Literal, Optional
 
 from nats.aio.msg import Msg
 
-from . import e2e
 from .edge_nats_client import EdgeNatsClient
 from .models import (
     CommandResponse,
@@ -142,7 +141,7 @@ class EdgeUpdater:
     async def _handle_message(self, msg: Msg) -> None:
         """Core NATS subscription callback for the update subject."""
         try:
-            message = NATSMessage.model_validate_json(e2e.open_payload(msg.subject, msg.data))
+            message = NATSMessage.model_validate_json(self.nats_client.encryption.open_payload(msg.subject, msg.data))
         except Exception as e:
             logger.error("Failed to parse update message: %s", e)
             return
@@ -186,7 +185,7 @@ class EdgeUpdater:
             )
             await nc.publish(
                 subject=self.nats_client.update_response,
-                payload=e2e.seal(
+                payload=self.nats_client.encryption.seal(
                     self.nats_client.update_response,
                     response_message.model_dump_json().encode(),
                 ),

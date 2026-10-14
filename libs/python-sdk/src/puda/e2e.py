@@ -111,7 +111,10 @@ def reset() -> None:
 
 
 def seal(subject: str, plaintext: bytes, *, nonce: bytes | None = None) -> bytes:
-    ring = current()
+    return _seal(current(), subject, plaintext, nonce=nonce)
+
+
+def _seal(ring: Ring | None, subject: str, plaintext: bytes, *, nonce: bytes | None = None) -> bytes:
     if ring is None:
         return plaintext
     if nonce is None:
@@ -124,8 +127,11 @@ def seal(subject: str, plaintext: bytes, *, nonce: bytes | None = None) -> bytes
 
 
 def open_payload(subject: str, data: bytes) -> bytes:
+    return _open_payload(current(), subject, data)
+
+
+def _open_payload(ring: Ring | None, subject: str, data: bytes) -> bytes:
     framed = _is_frame(data)
-    ring = current()
     if ring is None:
         if framed:
             raise E2EError("peer has encryption enabled")
@@ -141,7 +147,7 @@ def open_payload(subject: str, data: bytes) -> bytes:
         raise E2EError("failed to open payload") from exc
 
 
-def connect_kwargs(servers: list[str]) -> dict:
+def connect_kwargs(servers: list[str], ca_file: str | os.PathLike | None = None) -> dict:
     """TLS settings for nats-py. A tls:// URL without PUDA_NATS_CA is an error."""
     schemes = set()
     for server in servers:
@@ -151,17 +157,18 @@ def connect_kwargs(servers: list[str]) -> dict:
             schemes.add("nats")
         else:
             raise E2EError(f"unsupported NATS URL {server}")
+    ca = os.environ.get("PUDA_NATS_CA", "").strip() if ca_file is None else os.fspath(ca_file).strip()
+    tls = ssl.create_default_context(cafile=ca) if ca else None
     if not schemes or schemes == {"nats"}:
         return {}
     if schemes != {"tls"}:
         raise E2EError("NATS server URLs must all use tls:// or all use nats://")
-    ca = os.environ.get("PUDA_NATS_CA", "").strip()
     if not ca:
         raise E2EError("PUDA_NATS_CA is not set; a tls:// NATS URL needs the path to the server CA file (ca.pem)")
-    return {"tls": ssl.create_default_context(cafile=ca)}
+    return {"tls": tls}
 
 
-def adopt_record(payload: bytes) -> bool:
+def adopt_record(payload: bytes, *, context: Context | None = None) -> bool:
     """Apply a keyring record. Returns True when the local ring changed."""
     import json
 
@@ -175,26 +182,76 @@ def adopt_record(payload: bytes) -> bool:
         encrypt, extra = old_key, new_key
     else:
         raise E2EError("keyring encrypt id does not match either key")
-    ring = current()
-    path = ring.path if ring is not None else _key_path()
+    ring = current() if context is None else context.current()
+    path = ring.path if ring is not None else (_key_path() if context is None else None)
     persistent = path is not None
     updated = Ring(encrypt=encrypt, previous=extra, persistent=persistent, path=path)
     if ring is not None and ring.encrypt == updated.encrypt and ring.previous == updated.previous:
         return False
     if path is not None:
         _write_key_file(path, updated)
-    set_ring(updated)
+    if context is None:
+        set_ring(updated)
+    else:
+        context._ring = updated
     return True
 
 
-def drop_previous() -> None:
-    ring = current()
+def drop_previous(*, context: Context | None = None) -> None:
+    ring = current() if context is None else context.current()
     if ring is None or ring.previous is None:
         return
     updated = Ring(encrypt=ring.encrypt, previous=None, persistent=ring.persistent, path=ring.path)
     if ring.path is not None:
         _write_key_file(ring.path, updated)
-    set_ring(updated)
+    if context is None:
+        set_ring(updated)
+    else:
+        context._ring = updated
+
+
+class Context:
+    """An edge's independent payload keys, loaded once before connecting.
+
+    None reads PUDA_E2E_KEY_FILE; an empty string explicitly disables encryption.
+    Configured files must contain a valid encrypt key; errors never enable plaintext.
+    """
+
+    def __init__(self, key_file: str | os.PathLike | None = None):
+        raw = os.environ.get("PUDA_E2E_KEY_FILE", "") if key_file is None else os.fspath(key_file)
+        raw = raw.strip()
+        self._ring: Ring | None = None
+        self._lock = threading.RLock()
+        if raw:
+            path = Path(raw)
+            try:
+                encrypt, previous = _read_key_file(path)
+                if encrypt is None:
+                    raise E2EError("missing encrypt key")
+                self._ring = Ring(encrypt, previous, persistent=True, path=path)
+            except Exception as exc:
+                raise E2EError(f"Cannot load E2EE key file {path}: {exc}") from exc
+
+    def current(self) -> Ring | None:
+        with self._lock:
+            return self._ring
+
+    def enabled(self) -> bool:
+        return self.current() is not None
+
+    def seal(self, subject: str, plaintext: bytes, *, nonce: bytes | None = None) -> bytes:
+        return _seal(self.current(), subject, plaintext, nonce=nonce)
+
+    def open_payload(self, subject: str, data: bytes) -> bytes:
+        return _open_payload(self.current(), subject, data)
+
+    def adopt_record(self, payload: bytes) -> bool:
+        with self._lock:
+            return adopt_record(payload, context=self)
+
+    def drop_previous(self) -> None:
+        with self._lock:
+            drop_previous(context=self)
 
 
 def _is_frame(data: bytes) -> bool:
