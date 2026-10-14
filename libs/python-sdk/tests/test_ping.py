@@ -25,9 +25,11 @@ class FakeNATS:
 
 
 class FakeMessage:
-    def __init__(self, data=b"ping"):
+    def __init__(self, data=b"ping", subject="puda.test-1.cmd.ping"):
         self.data = data
-        self.respond = AsyncMock()
+        self.subject = subject
+        self.reply = AsyncMock()
+        self.respond = self.reply
 
 
 class PingTests(unittest.IsolatedAsyncioTestCase):
@@ -79,7 +81,7 @@ class PingTests(unittest.IsolatedAsyncioTestCase):
         client.nc.flush.assert_awaited_once()
 
         for subject in ("puda.test-1.cmd.ping", "puda.cmd.ping"):
-            msg = FakeMessage()
+            msg = FakeMessage(subject=subject)
             with patch("puda.edge_nats_client.time.monotonic", return_value=112.5):
                 await client.nc.callbacks[subject](msg)
 

@@ -1,6 +1,7 @@
 import asyncio
 import unittest
-from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
 
 from puda.command import command
 from puda.edge_nats_client import EdgeNatsClient
@@ -53,8 +54,9 @@ class RunnerHeartbeatTests(unittest.IsolatedAsyncioTestCase):
         client = EdgeNatsClient(["nats://localhost:4222"], "test-1")
         client._publish = AsyncMock(return_value=True)
         runner = EdgeRunner(client, Driver())
+        fake_time = SimpleNamespace(monotonic=Mock(side_effect=[100.0, 104.9, 105.0]))
         with patch("puda.edge_runner.read_host_health", return_value={}), patch(
-            "puda.edge_runner.time.monotonic", side_effect=[100.0, 104.9, 105.0]
+            "puda.edge_runner.time", fake_time
         ):
             for _ in range(3):
                 await runner._publish_host_health()
