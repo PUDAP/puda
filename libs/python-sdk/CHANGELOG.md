@@ -9,14 +9,21 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
 
 ## [Unreleased]
 
+## [0.0.20] - 2026-10-14
+
+### Breaking
+
+- Edges must pass security file paths explicitly to `EdgeNatsClient`.
+  Applications that previously relied on automatic environment lookup must
+  load their settings and supply `ca_file` and `e2e_key_file`.
+
+### Added
+
 - Optional `EdgeNatsClient(ca_file=..., e2e_key_file=...)` arguments with
   explicit configuration and independent TLS/payload encryption settings.
   Edge clients do not automatically read security paths from the environment.
 - Edge encryption keys are isolated per client, including commands, updates,
   telemetry, KV state, and key rotation. Invalid configured files fail early.
-
-These changes retain the Git source version 0.0.19; the existing PyPI 0.0.19
-artifacts predate them and cannot be replaced.
 
 ## [0.0.19] - 2026-10-14
 
