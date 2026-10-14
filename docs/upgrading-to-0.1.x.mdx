@@ -4,7 +4,7 @@ sidebar_position: 1.5
 
 # Upgrading to v0.1.x
 
-These steps take a **0.0.x** setup (CLI through **v0.0.36**, Python SDK through **0.0.16**) to **0.1.x**. This snapshot is **CLI v0.1.2** (Python SDK **0.0.18**). You do not need to land on v0.0.36 first.
+These steps take a **0.0.x** setup (CLI through **v0.0.36**, Python SDK through **0.0.16**) to **0.1.x**. This guide targets **CLI v0.1.3** and **Python SDK 0.0.21**. CLI and SDK versions are independent. You do not need to land on v0.0.36 first.
 
 See the [v0.1.0 release notes](https://github.com/PUDAP/puda/releases/tag/v0.1.0).
 
@@ -13,8 +13,11 @@ Here's what's updated in 0.1.x:
 - Agents get better machine context: `@command` allowlists, class descriptions on `puda machine list` / `info`, a structured command catalog, and `@safety` so they see what a machine is, what it can do, and what needs confirmation.
 - Livestreams join the fleet. `puda livestream` registers feeds and attaches machines, so agents retrieve livestream context from PUDA instead of copy-pasted URLs.
 - CLI output is JSON by default. Protocols get a client-side `wait`, `--yes` to skip confirms, and validate against live catalog types.
-- Scaling support for up to **1,000,000** machines/edges: shared `MACHINE_STATE` / `MACHINE_COMMANDS` KV, ping/pong discovery, throttled heartbeat, 10s immediate timeouts, and single-node or three-node NATS.
-- Telemetry streams: `@tlm_stream` publishes any live reading (position, weight, control signals) at its own rate on `tlm.stream.<name>`, `@machine_state` adds machine fields to state updates, and the edge publishes heartbeat and host health on its own.
+- Named connection profiles: `puda profile` manages NATS server URLs, security file paths, and switching between labs. `puda config` manages user identity; `puda project config` manages project settings.
+- Optional [end-to-end encryption](./setup/security#end-to-end-encryption-e2ee): clients seal payloads with a shared lab key, while TLS protects connections to the NATS server. Encryption is separate from authentication and authorization.
+- Fleet scaling: shared `MACHINE_STATE` / `MACHINE_COMMANDS` KV, ping/pong discovery, throttled heartbeat, and 10s immediate timeouts. Four NATS layouts cover single-node and three-node deployments, each with plaintext or TLS/E2EE variants.
+- Telemetry streams: `@tlm_stream` publishes live readings (position, weight, control signals) at their own rates on `puda.<machine_id>.tlm.stream.<name>`. `puda machine info` advertises full stream subjects, and `puda machine watch` subscribes to those subjects with NDJSON output and wildcard support.
+- Machine state and health: `@machine_state` adds machine fields to state updates, while the edge publishes heartbeat and host health automatically.
 - Optional clock sync so timestamps from many hosts stay in order.
 
 Upgrade in this order: CLI, NATS, every edge, skills, livestreams, then clock sync. Do not mix a 0.1.x CLI with a 0.0.16 edge, or the reverse: `puda machine commands` and protocol validate will fail.
@@ -28,11 +31,82 @@ puda update
 puda --version
 ```
 
+`puda update` excludes release candidates unless you explicitly request a prerelease version.
+
 CLI machine commands now print JSON by default (`list`, `info`, `state`, `commands`). Pass `--human` for the old text output.
 
-`puda machine list` discovers live edges from ping/pong and reports `machine_id`, `description`, and `livestream_count`. `puda machine info <machine_id>` (formerly `ping`, which still works as an alias) probes specific IDs and includes `sdk_version`, `run_status`, registered livestream URLs, and the machine's telemetry streams (`tlm_streams`).
+### Move NATS server settings to profiles
 
-`puda machine watch` takes full NATS subjects as arguments, for example `puda machine watch 'puda.<machine_id>.tlm.stream.>'`. With no arguments it watches every machine, or the IDs given with `--machines`/`-m`.
+`puda env` has been removed; use `puda profile` instead. `puda config` now manages user identity, not NATS connections. Before upgrading, back up your user config and record the existing NATS server URLs and security file paths. The user config is normally `~/.config/puda/config.json` on Linux, `~/Library/Application Support/puda/config.json` on macOS, or `%APPDATA%\puda\config.json` on Windows. Keep backups private; do not paste credentials or key contents into logs.
+
+Old top-level `nats_servers` / `gateway_servers` settings are not used as a fallback. Create and select a named profile after upgrading. If the CLI has no user config yet, first run `puda login -u <username>` with your own username.
+
+For a plaintext NATS server (replace the example host):
+
+```bash
+puda profile add lab --servers nats://nats.example:4222
+puda profile switch lab
+puda profile current
+```
+
+For a TLS NATS server with E2EE, use the CA and lab key supplied by your lab administrator. These are local paths on the machine running the CLI:
+
+```bash
+puda profile add secure-lab --servers tls://nats.example:4222 --ca /absolute/path/ca.pem --key /absolute/path/e2e.key
+puda profile switch secure-lab
+```
+
+The CLI requires `--ca` and `--key` together for an encrypted profile, and all server URLs must use `tls://`. Plaintext profiles use `nats://` without either file. Do not mix schemes. Profiles store file paths, not key contents. The first profile becomes active automatically if none is selected; adding another profile does not switch to it.
+
+| Old command | 0.1.3 command |
+| --- | --- |
+| `puda config get nats_servers` | `puda profile current` |
+| `puda config set nats_servers <urls>` | `puda profile set nats_servers <urls>` (active profile required) |
+| `puda config set gateway_servers <urls>` | `puda profile set gateway_servers <urls>` |
+| `puda config list` to inspect NATS server settings | `puda profile list` / `puda profile current` |
+
+Use `puda profile switch <name>` to select a connection; `profile set` edits the active one. Settable fields are `nats_servers`, `gateway_servers`, `ca`, and `key`. `ca` and `key` can only be changed on an already encrypted profile. Create a separate profile to change between plaintext and encrypted modes. Optional gateways can also be supplied with `profile add --gateway-servers`; they must use the same scheme as the main servers. `puda profile remove <name>` deletes a profile; removing the active one leaves no profile selected.
+
+Profile commands return JSON by default; use `--human` for text. `puda config list` prints only `user.user_id` and `user.username`, and `config get` / `config set` accept only those keys. Use `puda config edit` to open the user config file, and `puda project config` for project settings. Neither a project config nor old security environment variables replace the active CLI profile.
+
+### Discover machines and their telemetry subjects
+
+`puda machine list` broadcasts on `puda.cmd.ping` and lists responsive edges, including `machine_id`, `description`, `livestream_count`, and `tlm_stream_count`. `puda machine info` sends direct pings on `puda.<machine_id>.cmd.ping`. `ping` remains an alias for `info`.
+
+```bash
+puda machine list --timeout 3s
+puda machine info first,balance --timeout 3s
+puda machine info first --human
+```
+
+Info returns a JSON object with a `results` array. Each responsive machine reports `sdk_version`, `run_status`, and available network/description information (`local_ip`, `tailscale_ip`, and `magicdns`), plus registered `livestreams` and advertised `tlm_streams`. Each telemetry stream includes its `name`, full `subject`, interval in seconds, and optional description. Copy the advertised subject instead of assuming every machine provides position or weight. An unresponsive machine produces an error result and a nonzero exit status; discovery is not a persisted inventory.
+
+### Watch full NATS subjects
+
+`puda machine watch` subscribes to live traffic, not historical samples. The old `--subjects` / `-s` and `--targets` flags are removed; `--machines` / `-m` remains. Positional arguments are full NATS subjects, not machine IDs or short topic names:
+
+```bash
+puda machine watch puda.first.tlm.stream.pos --timeout 15
+puda machine watch puda.first.tlm.stream.pos puda.balance.tlm.stream.weight --timeout 15
+puda machine watch 'puda.*.tlm.stream.>' --timeout 15
+puda machine watch --machines first,balance --timeout 15
+```
+
+Do not combine subject arguments with `--machines` / `-m`. With no subjects, `--machines first,balance` subscribes to `puda.first.>` and `puda.balance.>`; without either it subscribes to `puda.*.>`. Quote wildcard subjects: `*` matches one token and a final `>` matches the remaining tokens.
+
+| Data | Subject |
+| --- | --- |
+| Driver telemetry | `puda.<machine_id>.tlm.stream.<name>` |
+| Host health | `puda.<machine_id>.tlm.health` |
+| Heartbeat | `puda.<machine_id>.tlm.heartbeat` |
+| Commands | `puda.<machine_id>.cmd.queue`, `puda.<machine_id>.cmd.immediate` |
+| Command responses | `puda.<machine_id>.cmd.response.queue`, `puda.<machine_id>.cmd.response.immediate` |
+| Events | `puda.<machine_id>.evt.log`, `puda.<machine_id>.evt.alert`, `puda.<machine_id>.evt.media` |
+| Edge updates | `puda.<machine_id>.update`, `puda.<machine_id>.update.response` |
+
+Watch emits NDJSON (one object per message), with `timestamp`, `subject`, `machine_id`, `category`, `topic`, and `data`. For a position stream, `topic` is `stream.pos`. The active encrypted profile handles decryption; do not parse ciphertext yourself. `--human` selects text output. Heartbeats are hidden unless `--include-heartbeat` is set or a supplied subject explicitly names `tlm.heartbeat`. Watch `--timeout` is an integer number of seconds, unlike info/list's duration (for example `3s`); `0` runs until interrupted.
+
+### Other CLI changes
 
 0.1.x adds `puda livestream` for agents (`add`, `list`, `attach`, `detach`, `rm`). Agents register camera streams in the fleet registry instead of relying on pasted URLs.
 
@@ -50,16 +124,20 @@ Pick one layout from [NATS Server](./setup/nats-server):
 
 - **Single-node** — one NATS server on one computer.
 - **Three-node** — one NATS server on each of three computers on the same network.
+- **Single-node with TLS/E2EE** — one TLS-enabled NATS server with payload encryption configured on clients.
+- **Three-node with TLS/E2EE** — a three-node TLS-enabled cluster with payload encryption configured on clients.
+
+See [Security](./setup/security) for the encrypted variants. Encryption remains optional.
 
 After the server is running, apply JetStream once with `REPLICAS=1` (single-node) or `REPLICAS=3` (three-node). Old per-machine KV buckets are unused.
 
-## 3. Upgrade every edge to SDK 0.0.18 or later
+## 3. Upgrade every edge to SDK 0.0.21
 
-On each edge, set the `puda` dependency in `pyproject.toml` to **0.0.18 or later**:
+On each edge, set the `puda` dependency in `pyproject.toml` to **0.0.21**:
 
 ```toml title="pyproject.toml"
 dependencies = [
-    "puda>=0.0.18",
+    "puda==0.0.21",
 ]
 ```
 
@@ -71,6 +149,10 @@ uv sync
 ```
 
 If the edge is managed with `puda machine update`, deploy after the driver changes below.
+
+### Optional end-to-end encryption
+
+End-to-end encryption (E2EE) is a new feature that you can optionally enable. It is not required for the upgrade. See [Security](./setup/security#end-to-end-encryption-e2ee) for setup instructions.
 
 Heartbeat is now published every **5s** instead of every second. Position is no longer published by default: the driver declares it, along with any other live reading, as a [telemetry stream](#move-telemetry-and-state-to-tlm_stream-and-machine_state) on `tlm.stream.<name>` at its own interval. `tlm.pos` is gone. Update dashboards that expected 1 Hz heartbeats or subscribed to `tlm.pos`.
 
@@ -173,12 +255,12 @@ On the agent host:
 puda skills update
 ```
 
-The updated skills cover livestream, clock sync, and the special client-side protocol `wait` command:
+The updated skills cover CLI configuration, live machine inspection, and protocol execution:
 
-- **puda**
-  - **Livestream** — given the camera source, stream name, description, host, and machine IDs, the agent brings up MediaMTX and ffmpeg and registers the stream with `puda livestream`.
-  - **Clock sync** — given the site NTP server IP, the agent runs `scripts/sync-clock.sh` or `scripts/sync-clock.ps1` from the puda skill on the edge host (Chrony on Linux, Windows Time on Windows).
+- **puda** — named connection profiles, user versus project config, `machine info` stream discovery, and `machine watch` subjects and filtering.
 - **puda-protocol** — agents can insert a special client-side `wait` command (`params.seconds`) to pause a protocol or a single machine in a parallel step. The CLI sleeps locally; `wait` is not sent to a machine.
+
+For infrastructure setup, follow [Livestream](./setup/livestream) and [Clock Sync](./setup/clock-sync). Clock-sync client scripts live in `infra/chrony/client` in the PUDA repository.
 
 ## 5. Livestreams
 
@@ -196,7 +278,7 @@ Clock sync is not required to finish the upgrade. It is still important in a dis
 
 ## 7. Re-validate protocols
 
-Protocol validate and run read safety and parameter types from the **live** command catalog. After the edge is on 0.0.17, run `puda protocol validate` again. Only commands named in the protocol are parsed; unused catalog signatures cannot fail the file. Unannotated parameters skip the type check.
+Protocol validate and run read safety and parameter types from the **live** command catalog. After upgrading the edge, run `puda protocol validate` again. Only commands named in the protocol are parsed; unused catalog signatures cannot fail the file. Unannotated parameters skip the type check.
 
 Commands with `safety.confirm=true` will make the AI agent prompt you for a manual confirmation unless you pass `--yes`.
 
@@ -206,7 +288,9 @@ If a protocol needs a pause, use the special client-side `wait` command (`params
 
 ## 8. PUDA Logger and database
 
-Command and response payloads did not change, so keep the [PUDA Logger](./observability/logging-service) and the database server running. The local SQLite database (`puda.db`) is unchanged. If you changed NATS URLs in step 2, point the logger's `NATS_SERVERS` at the new servers.
+Upgrade the [PUDA Logger](./observability/logging-service) to the Python-subscriber/Telegraf pipeline for telemetry streams and optional E2EE. Update `NATS_SERVERS` if NATS server URLs changed, and configure both security file paths if encryption is enabled. The subscriber initializes its response streams and consumers; the old separate `nats-stream-init` service is no longer needed.
+
+Before switching writers, stop the older logger and check the existing InfluxDB schema against the [migration notes](./observability/logging-service#migrate-an-existing-database). Back up incompatible tables before migrating; do not delete existing data as a routine upgrade step. Driver samples now share `telemetry_stream` with their JSON payload in `data`, so update dashboards to extract the values they need. Keep using an existing remote InfluxDB server if you have one; a second database server on the logger host is unnecessary. The local SQLite database (`puda.db`) is unchanged.
 
 ## 9. Confirm the fleet
 
@@ -217,6 +301,6 @@ puda machine commands <machine_id>
 puda livestream list --machines <machine_id>
 ```
 
-`puda machine list` should show `description` and `livestream_count`. `puda machine info` should show `sdk_version` `0.0.18` or later, any registered livestream URLs, and the machine's `tlm_streams`. `puda machine commands` should list only `@command` methods.
+`puda machine list` should show `description`, `livestream_count`, and `tlm_stream_count`. `puda machine info` should show `sdk_version` `0.0.21`, any registered livestream URLs, and the machine's `tlm_streams`. Watch an advertised telemetry subject to verify live samples, including decryption when using an encrypted profile. `puda machine commands` should list only `@command` methods.
 
-More driver detail: [Integrating a New Machine](./setup/integrating-a-new-machine). SDK notes: [Python SDK 0.0.18](https://pypi.org/project/puda/0.0.18/).
+More driver detail: [Integrating a New Machine](./setup/integrating-a-new-machine). SDK package: [Python SDK 0.0.21](https://pypi.org/project/puda/0.0.21/).

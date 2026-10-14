@@ -8,7 +8,7 @@ By default, the PUDA CLI uses SQLite for local storage. This is enough for a loc
 
 For backups, persistent storage, and a more reliable record of the whole runtime environment, run the PUDA logger. It should run 24/7 on an always-on machine, in a Docker container.
 
-The recommended template is [PUDAP/puda-logger](https://github.com/PUDAP/puda-logger). It uses Telegraf to stream PUDA command and health telemetry from NATS into a central database.
+This version of the guide uses [PUDAP/puda-logger at commit `0299c8f`](https://github.com/PUDAP/puda-logger/commit/0299c8fbf047f6c332849c6056cde9443b4159d7), not the current main branch. It uses Telegraf to stream PUDA command and health telemetry from NATS into a central database.
 
 The template includes two database backends. Both use the same NATS subscription pattern; choose the one that matches how you query your logs.
 
@@ -34,7 +34,9 @@ On the machine that will host the database—for example, a NAS—clone the temp
 
 ```bash
 git clone https://github.com/PUDAP/puda-logger.git
-cd puda-logger/influxdb/server
+cd puda-logger
+git checkout --detach 0299c8fbf047f6c332849c6056cde9443b4159d7
+cd influxdb/server
 ```
 
 Create an admin token file for InfluxDB:
@@ -71,7 +73,9 @@ On the machine that will run the logger—for example, a mini PC on the lab netw
 
 ```bash
 git clone https://github.com/PUDAP/puda-logger.git
-cd puda-logger/influxdb/logger
+cd puda-logger
+git checkout --detach 0299c8fbf047f6c332849c6056cde9443b4159d7
+cd influxdb/logger
 cp .env.example .env
 ```
 
@@ -113,7 +117,7 @@ The InfluxDB logger uses [Telegraf](https://docs.influxdata.com/telegraf/) to st
 Command **requests** use a plain core NATS subscription. Command **responses** use Telegraf's ephemeral JetStream push consumer on the `RESPONSE_QUEUE` and `RESPONSE_IMMEDIATE` streams. Telegraf requires version **1.39+**.
 
 :::tip
-For the full field and tag schema, see the [influxdb-logger README](https://github.com/PUDAP/puda-logger/blob/main/influxdb/logger/README.md).
+For the full field and tag schema, see the [pinned influxdb-logger README](https://github.com/PUDAP/puda-logger/blob/0299c8fbf047f6c332849c6056cde9443b4159d7/influxdb/logger/README.md).
 :::
 
 ## Verify logging

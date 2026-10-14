@@ -6,10 +6,14 @@ sidebar_position: 3
 
 The NATS server is the central communication point for PUDA. The CLI, edge services, and logger services all depend on it for commands, telemetry, events, and logs.
 
-v0.1.0 uses one of two layouts from [`infra/nats`](https://github.com/PUDAP/puda/tree/main/infra/nats) in the PUDA repository:
+Choose one of four layouts from [`infra/nats`](https://github.com/PUDAP/puda/tree/main/infra/nats) in the PUDA repository:
 
-- **Single-node** — one NATS server on one always-on computer. No failover.
-- **Three-node** — one NATS server on each of three computers on the same network (LAN or Tailscale). The cluster survives one host going down.
+- **Single-node** (`single-node`) — one plaintext NATS server on one always-on computer. No failover.
+- **Three-node** (`three-node-r3`) — one plaintext NATS server on each of three computers on the same network (LAN or Tailscale). The cluster survives one host going down.
+- **Single-node with TLS and E2EE** (`single-node-e2e`) — one TLS-enabled NATS server, with clients configured for payload encryption. No failover.
+- **Three-node with TLS and E2EE** (`three-node-r3-e2e`) — a three-server TLS-enabled cluster, with clients configured for payload encryption. The cluster survives one host going down.
+
+The plaintext layouts are covered below. For the encrypted variants and client configuration, see [Security](./security).
 
 After the server is running, apply the JetStream streams and KV buckets once from [`infra/nats/jetstream`](https://github.com/PUDAP/puda/tree/main/infra/nats/jetstream). Do not skip that step.
 
@@ -100,3 +104,7 @@ NATS_SERVERS=nats://<nats1-host>:<port>,nats://<nats2-host>:<port>,nats://<nats3
 Once this is done, you can start integrating a new machine.
 
 Optional: sync host clocks with [Clock Sync](./clock-sync) so timestamps agree across the NATS host and every edge.
+
+## Security
+
+The layouts above remain the plaintext defaults. See [Security](./security) for authentication, authorization, and optional end-to-end encryption, including encrypted NATS server layouts, client configuration, and key rotation.

@@ -8,7 +8,7 @@ By default, the PUDA CLI uses SQLite for local storage. This is enough for a loc
 
 For backups, persistent storage, and a more reliable record of the whole runtime environment, run the PUDA logger. It should run 24/7 on an always-on machine, in a Docker container.
 
-The recommended template is [PUDAP/puda-logger](https://github.com/PUDAP/puda-logger). It uses Telegraf to stream PUDA command and health telemetry from NATS into a central database.
+The recommended template is [PUDAP/puda-logger](https://github.com/PUDAP/puda-logger). A Python subscriber receives NATS messages, decrypts them when configured, and converts them to Influx line protocol. Telegraf receives that output through `inputs.execd`, then buffers, batches, and writes it to InfluxDB.
 
 The template uses InfluxDB. Most PUDA log queries are filtered by timestamp—runs, commands, telemetry, and events over a time window.
 
@@ -22,7 +22,7 @@ The database server and the logger do not need to run on the same machine. A com
 
 ### Start InfluxDB
 
-On the machine that will host the database—for example, a NAS—clone the template and start the server stack:
+If you already have an InfluxDB server, reuse it and skip to [Start the logger](#start-the-logger). Otherwise, on the machine that will host the database—for example, a NAS—clone the template and start the server stack:
 
 ```bash
 git clone https://github.com/PUDAP/puda-logger.git
@@ -74,7 +74,7 @@ cd puda-logger/influxdb/logger
 cp .env.example .env
 ```
 
-Edit `.env` and point the logger at your InfluxDB server and NATS broker. Use the same `INFLUXDB_TOKEN` from [Start InfluxDB](#start-influxdb). Set `NATS_SERVERS` to the NATS URL(s) the logger can reach—for example, `nats://<nats-host>:<port>`:
+Edit `.env` and point the logger at your InfluxDB server and NATS server. Use the same `INFLUXDB_TOKEN` from [Start InfluxDB](#start-influxdb). Set `NATS_SERVERS` to the NATS URL(s) the logger can reach—for example, `nats://<nats-host>:<port>`:
 
 ```env title=".env"
 INFLUXDB_URL=http://<influxdb-host>:8181
@@ -84,9 +84,20 @@ INFLUXDB_ORGANIZATION=bears
 NATS_SERVERS=nats://<nats-host>:<port>
 LOGGER_REPLICAS=1
 JS_MAX_ACK_PENDING=20000
+JS_RESPONSE_MAX_AGE=24h
 ```
 
-`LOGGER_REPLICAS` is how many Telegraf logger containers to run. They share NATS queue groups, so each message is ingested once. Start at **one replica per 10–20k machines**. Increase the value if Telegraf CPU is pegged or the logs show `metric buffer overflow` / discarded metrics. Extra replicas on a CPU-saturated host do not help — run the same logger stack on another host instead; the queue groups will split work across hosts.
+`LOGGER_REPLICAS` controls the number of logger containers sharing NATS queue groups. Start with one and monitor CPU, buffer pressure, and response acknowledgment backlog before scaling. Redelivery can produce duplicates; queue groups do not guarantee exactly-once storage. With multiple replicas, each replica aggregates its own health samples, so queries must combine those results by machine.
+
+For plaintext NATS, leave `PUDA_NATS_CA` and `PUDA_E2E_KEY_FILE` unset or empty. For an encrypted lab, set both to **local host file paths** and use only `tls://` server URLs:
+
+```env title=".env — optional E2EE"
+NATS_SERVERS=tls://<nats-host>:<port>
+PUDA_NATS_CA=/absolute/path/ca.pem
+PUDA_E2E_KEY_FILE=/absolute/path/e2e.key
+```
+
+There is no E2EE boolean. Setting only one path, mixing URL schemes, or providing invalid files fails startup rather than falling back to plaintext. Compose mounts the CA read-only and the key writable, and supplies the container paths automatically. Give the logger its own restricted-permission copy of the lab key so rotations persist. See [Security](../setup/security) for lab setup. The logger has its own locked SDK dependency; do not replace it with the edge SDK version as part of this setup.
 
 Start the logger with Docker Compose. Use `--build` on the first run, or after Dockerfile or entrypoint changes:
 
@@ -94,10 +105,9 @@ Start the logger with Docker Compose. Use `--build` on the first run, or after D
 docker compose up -d --build
 ```
 
-The `nats-stream-init` service creates the JetStream response streams and durable consumers, then starts the Telegraf-based `influxdb-logger` service (`LOGGER_REPLICAS` containers, default 1). After changing `nats-init.sh` or stream settings, recreate the init job so existing NATS resources are updated:
+The Python subscriber initializes the response streams and durable consumers using the same TLS settings as its subscriptions. There is no separate `nats-stream-init` service in the current Compose file. After changing `.env` or stream settings, recreate the logger:
 
 ```bash
-docker compose up -d --force-recreate nats-stream-init
 docker compose up -d --force-recreate influxdb-logger
 ```
 
@@ -107,40 +117,56 @@ If you change `telegraf.conf.template`, restart without rebuilding:
 docker compose restart influxdb-logger
 ```
 
-To run without Docker, export the same variables and run `./docker-entrypoint.sh` from `influxdb/logger`. This requires `telegraf` and `envsubst` (from `gettext`) on your PATH.
+To run without Docker, install Python 3.11+, `uv`, Telegraf, and `envsubst`. Run `uv sync --frozen`, export the variables above, and configure Telegraf's `inputs.execd.command` with absolute paths to `.venv/bin/python` and `subscriber.py`. Render the InfluxDB placeholders in the template and start Telegraf with that configuration. See the [local setup instructions](https://github.com/PUDAP/puda-logger/blob/main/influxdb/logger/README.md#local-without-docker); the container entrypoint uses container-specific paths.
 
 ## What the logger records
 
-The InfluxDB logger uses [Telegraf](https://docs.influxdata.com/telegraf/) to stream PUDA NATS traffic into two measurements:
+The subscriber and Telegraf pipeline writes three measurements:
 
 | Measurement | NATS subjects | Description |
 |---|---|---|
 | `commands` | `puda.*.cmd.*` (requests), `puda.*.cmd.response.*` (responses) | Command and response log |
 | `telemetry` | `puda.*.tlm.health` | Machine health metrics (`cpu`, `mem`, `temp`), stored as a 60s mean per machine |
+| `telemetry_stream` | `puda.*.tlm.stream.>` | Individual driver samples, tagged by `machine_id` and `stream`, with the complete JSON payload in the `data` string field |
 
-Health is still published at 1 Hz on NATS. The logger aggregates those samples and writes **one mean point per machine per 60 seconds** (`cpu`, `mem`, `temp`; `connected` as a 0–1 fraction). Command rows are stored 1:1.
+The SDK publishes host health every 5 seconds by default. The logger aggregates `cpu`, `mem`, and `temp` over 60-second windows. Optional `status` is a tag, so a status change can produce separate points within a window. `connected` is not extracted or averaged; use heartbeat or health freshness for availability. Command messages and driver telemetry samples are not averaged.
 
-Command **requests** use a plain core NATS subscription. Command **responses** use durable JetStream push consumers unique to the InfluxDB logger on `RESPONSE_QUEUE` and `RESPONSE_IMMEDIATE` (interest retention, 24h max-age). `nats-stream-init` creates those durables with `inactive-threshold` 0 so they are not deleted when the logger shuts down; responses published while it is down stay in the stream until the durable acks them. Telegraf requires version **1.39+**.
+Position, weight, and other driver streams share `telemetry_stream` without payload field-type conflicts: the JSON object is stored as a string in `data`, preserving nested values and types. Numeric dashboards must extract their values from that JSON. An optional RFC3339 payload `timestamp` supplies the point time; otherwise receipt time is used.
+
+Command **requests**, health, and driver telemetry use live Core NATS subscriptions. Command **responses** use shared durable push queue consumers on `RESPONSE_QUEUE` and `RESPONSE_IMMEDIATE` with limits retention (24 hours by default). The subscriber preserves existing delivery subjects and acknowledgment positions when initializing them. Responses can replay within retention after downtime; Core NATS traffic cannot.
+
+Acknowledgment happens after handing line protocol to Telegraf, not after confirmation of an InfluxDB write. Crashes or exhausted buffers can lose data, and redelivery can produce duplicates. Monitor both subscriber and Telegraf errors.
 
 :::tip
 For the full field and tag schema, see the [influxdb-logger README](https://github.com/PUDAP/puda-logger/blob/main/influxdb/logger/README.md).
 :::
 
+## Migrate an existing database
+
+Stop the old logger before switching writers. Inspect the existing table schema and back up historical data before any incompatible change:
+
+- `commands`: `run_id`, `username`, and `status` are tags. If an existing table stores one as a field, migrate the data or use a new table/database; do not assume a field can be changed into a tag in place.
+- `telemetry`: `machine_id` and optional `status` are tags; `cpu`, `mem`, and `temp` are float fields. Check for conflicting types. Old `connected` columns can remain, but new health samples do not populate them.
+- `telemetry_stream`: `machine_id` and `stream` are tags and `data` is a string field. Existing scalar columns such as `x`, `y`, or `mass_g` can retain historical rows; new samples populate `data` and leave those columns null. No deletion is needed if `data` is absent or already a string field. Historical rows are not automatically backfilled.
+
+Prefer preserving compatible tables. If rebuilding is necessary, verify the backup and migration plan before removing anything. Update Grafana queries for JSON-based telemetry and any migrated table/database names.
+
 ## Verify logging
 
-After the logger is running, send a command to a PUDA machine:
-
-```bash
-puda machine home <machine_id>
-```
-
-Then inspect the logger container:
+First inspect the container:
 
 ```bash
 docker compose logs -f influxdb-logger
 ```
 
-You should see the logger connected to NATS and InfluxDB, then processing machine health and command traffic as it arrives.
+Use read-only discovery to find a live stream, then watch its advertised subject:
+
+```bash
+puda machine info <machine_id>
+puda machine watch <advertised-subject> --timeout 15
+```
+
+Confirm recent rows in InfluxDB's `telemetry_stream` table, and allow a full aggregation window for health rows in `telemetry`. Watching NATS confirms publication, not database persistence. Check command rows after normal authorized machine activity; there is no need to home a machine merely to test logging.
 
 ## Next steps
 
