@@ -223,7 +223,7 @@ func runSingleMachineCommand(cmd *cobra.Command, machineID, commandName string, 
 		store = nil
 	} else {
 		defer store.Disconnect()
-		if err := store.InsertRun(runID, nil); err != nil {
+		if err := store.EnsureRun(runID); err != nil {
 			return fmt.Errorf("failed to create run for command: %w", err)
 		}
 	}

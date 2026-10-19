@@ -157,6 +157,20 @@ func (s *Store) InsertRun(runID string, protocolID *string) error {
 	return nil
 }
 
+// EnsureRun creates a standalone machine run if it does not already exist.
+// Existing run metadata and associated records are preserved.
+func (s *Store) EnsureRun(runID string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO run (run_id, protocol_id, created_at)
+		VALUES (?, NULL, ?)
+		ON CONFLICT(run_id) DO NOTHING
+	`, runID, time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to ensure run: %w", err)
+	}
+	return nil
+}
+
 // InsertSample inserts a new sample into the sample table.
 func (s *Store) InsertSample(runID string, dataPayload interface{}) (string, error) {
 	sampleID := uuid.New().String()
