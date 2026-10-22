@@ -405,6 +405,13 @@ func sendImmediateCommandToMachines(
 		defer store.Disconnect()
 	}
 
+	// Lifecycle responses are logged against this run before the sender returns.
+	if store != nil && runID != "" {
+		if err := store.EnsureRun(runID); err != nil {
+			return nil, fmt.Errorf("failed to create run for command: %w", err)
+		}
+	}
+
 	js, err := nc.JetStream()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get JetStream context: %w", err)
