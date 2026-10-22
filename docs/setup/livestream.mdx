@@ -121,17 +121,40 @@ Video feeds can be accessed at these URLs. For each stream name in `streams.conf
 
 With the example `streams.conf`, `livestream` is available at those URLs.
 
-## 7. Tell the AI agent about the machine livestream
+## 7. Register the livestream with the PUDA CLI
 
-After the stream is reachable, tell the AI agent which PUDA machine the livestream belongs to and provide both the RTSP stream and an HTTP stream. Use the machine ID from PUDA and the stream name from `streams.conf`.
+After the stream is reachable, tell the agent to register it with PUDA and attach it to every machine that uses the feed:
 
-```text
-You have access to the livestream for machine <machine_id>.
-
-<urls here>
-
-Use these URLs when you need to fetch frames or inspect the machine state in Python code.
+```bash
+puda livestream add --name STREAM_NAME --host HOST \
+  --description "Short visual context" --machines machine-a,machine-b
 ```
+
+Use the stream name from `streams.conf`. `HOST` must be the MediaMTX host that operators and agents can reach, such as its MagicDNS name, Tailscale IP, or machine IP. Do not include a URL scheme or port. The CLI derives the RTSP, RTMP, HLS, and WebRTC URLs from the host and stream name.
+
+Verify the registration and its machine association:
+
+```bash
+puda livestream list --machines machine-a
+puda machine info machine-a
+```
+
+The AI agent can now discover the livestream and its URLs through PUDA; you do not need to paste the URLs into a prompt.
+
+You can attach more machines later:
+
+```bash
+puda livestream attach STREAM_NAME --machines machine-c
+```
+
+To detach a machine or remove the livestream registration:
+
+```bash
+puda livestream detach STREAM_NAME --machines machine-c
+puda livestream rm STREAM_NAME
+```
+
+Adding or removing a livestream registration does not start or stop the MediaMTX or ffmpeg containers.
 
 ## Troubleshooting
 
