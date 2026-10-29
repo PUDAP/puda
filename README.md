@@ -1,12 +1,12 @@
 # PUDA
 
-The Runtime Enivronment for Physical AI
+The Runtime Environment for Physical AI
 
 ## Overview
 
-PUDA is a **hardware-agnostic**, **LLM-agnostic** modular platform — a **runtime for Physical AI** that lets software and AI agents plan, execute, and record operations on any physical machine, from lab instruments and robotic arms to pumps, sensors, and industrial equipment. 
+PUDA is a **hardware-agnostic**, **LLM-agnostic** modular platform — a **runtime for Physical AI** that lets software and AI agents plan, execute, and record operations on any physical machine, from lab instruments and robotic arms to pumps, sensors, and industrial equipment.
 
-It is **headless by design**: there is no bundled UI. The intended way to drive PUDA is with **AI agents** (e.g. Cursor, Claude Code, Hermes Agent, OpenClaw or your own) using our [agent skills at `pudap/skills`](https://github.com/pudap/skills) — ready-made playbooks for setting up projects, writing protocols, running experiments, and generating reports. When a human-facing view is useful, you can even just **build your own dashboard** on streamlit using your agent.
+It is **headless by design**: there is no bundled UI. The intended way to drive PUDA is with **AI agents** (e.g. Cursor, Claude Code, Hermes Agent, OpenClaw or your own) using our [agent skills at `PUDAP/skills`](https://github.com/PUDAP/skills) — ready-made playbooks for setting up projects, writing protocols, running experiments, and generating reports. When a human-facing view is useful, you can even just **build your own dashboard** on streamlit using your agent.
 
 Under the hood:
 
@@ -18,75 +18,72 @@ Under the hood:
 
 ## Design Goals
 
-PUDA is designed with two core principles:
+PUDA is designed with three core principles:
 
 1. **Modularity** - Distinct separation of concerns between the Driver, Communication, and Orchestration layers to ensure independent scalability, maintainability and interchangeability.
 2. **AI-Native** - Every capability is exposed as a stable, programmatic interface with low-level atomic commands on machines, so autonomous agents — not just humans — are first-class operators of the platform.
+3. **Scalability** - Designed to scale across many edges, from a single machine to a large fleet.
 
 ## Folder Structure
 
-This is a **monorepo** that manages multiple related packages and services in a single repository, enabling:
-- Shared code and dependencies across packages
-- Coordinated versioning and releases
-- Easier refactoring across package boundaries
-- Single lockfile for dependency management
-
 ```
 puda/
-├── pyproject.toml      # Root UV workspace configuration
-├── uv.lock             # Shared lockfile for all Python dependencies
-├── pnpm-workspace.yaml # pnpm workspace configuration
-├── services/           # Application services that run independently of physical machines
-├── infra/              # Infrastructure deployment and configuration files
-│   ├── nats/           # NATS messaging infrastructure setup and configuration
-│   └── postgres/       # PostgreSQL database setup
-├── libs/               # Shared libraries used across services and applications
-│   └── comms/          # NATS-based communication library for machine-to-machine messaging
-├── apps/               # Standalone applications and tools
-│   └── cli/            # Golang Command-line interface for agents to interact with PUDA
-└── docs/               # Documentation
+├── pyproject.toml      # UV workspace (Python)
+├── uv.lock             # Shared lockfile for Python workspace members
+├── package.json        # Nx workspace, installed with pnpm
+├── apps/               # Standalone applications
+│   ├── cli/            # Go CLI agents use to talk to PUDA
+│   └── loadgen/        # Go load generator for NATS and fleet-scale tests
+├── infra/              # Deployment for shared lab infrastructure
+│   ├── chrony/         # Site NTP server; edge hosts sync to it
+│   └── nats/           # NATS server topologies and JetStream resources
+├── libs/               # Shared libraries
+│   ├── db/             # PostgreSQL client (puda-db)
+│   └── python-sdk/     # Python SDK published as the puda package
+├── test-edge/          # Software-only edge for local testing
+└── docs/               # Architecture notes
 ```
-
 
 ## Monorepo Structure
 
-PUDA uses a monorepo architecture with:
+Python packages share one UV workspace. Go apps keep their own modules.
 
-- **UV Workspace** (Python): Manages Python packages and services
-  - Workspace members: `libs/*`, `services/*/*`
-  - Single `uv.lock` file at the root for all Python dependencies
-  - Workspace packages can depend on each other using `tool.uv.sources`
+- **UV workspace** ([`pyproject.toml`](pyproject.toml)): members are `libs/*`, `services/*`, and `test-edge`. This checkout contains:
+  - `libs/python-sdk` (`puda`)
+  - `libs/db` (`puda-db`)
+  - `test-edge`
+  There is no `services/` directory yet. A package added there is picked up by the `services/*` glob.
+- **Go modules**: `apps/cli` and `apps/loadgen` are not part of `uv.lock`.
+- **Nx**: task runner for the workspace, installed from `package.json` with pnpm.
 
-- **pnpm Workspace** (Node.js): Manages Node.js packages (if any)
-  - Configured via `pnpm-workspace.yaml`
-
-### Working with Workspace Dependencies
-
-Workspace packages automatically reference each other. 
+Workspace packages reference each other locally:
 
 ```toml
 [tool.uv.sources]
-puda = {workspace = true}
+puda = { workspace = true }
 ```
-
-See [`docs/uv.md`](docs/uv.md) for detailed information about working with UV workspaces.
 
 ## Development
 
 ### Prerequisites
 
-- Python >= 3.14
-- [uv](https://docs.astral.sh/uv/) package manager
-- Docker (for NATS services)
-- pnpm (for Node.js packages, if needed)
+- Python >= 3.12
+- [uv](https://docs.astral.sh/uv/)
+- Go 1.26+ to build `apps/cli` and `apps/loadgen`
+- Docker, for the NATS and Chrony stacks under `infra/`
+- Node.js and pnpm, for Nx
 
 ### Setup
 
-1. **Install all workspace dependencies** (from repository root):
-   ```bash
-   uv sync
-   ```
-   This installs dependencies for all workspace members and creates a shared virtual environment.
+From the repository root:
+
+```bash
+uv sync
+```
+
+That installs every UV workspace member into one virtual environment.
+
+The CLI is built from `apps/cli` (`just build`). See [`apps/cli/README.md`](apps/cli/README.md). Local machine testing without hardware is in [`test-edge/README.md`](test-edge/README.md). NATS layouts are in [`infra/nats/README.md`](infra/nats/README.md).
 
 ## License
 
