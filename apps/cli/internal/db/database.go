@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	_ "embed"
 	"encoding/json"
@@ -55,6 +56,14 @@ func Connect(dbPathOverride ...string) (*Store, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
+	// Keep connection-local pragmas effective for every operation and allow
+	// separate CLI processes to wait for concurrent SQLite writers.
+	conn.SetMaxOpenConns(1)
+	if _, err := conn.Exec("PRAGMA busy_timeout = 5000"); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to set busy timeout: %w", err)
+	}
+
 	// Enable foreign keys
 	if _, err := conn.Exec("PRAGMA foreign_keys = ON"); err != nil {
 		conn.Close()
@@ -80,12 +89,36 @@ func (s *Store) Disconnect() error {
 	return nil
 }
 
-// initSchema creates all tables if they don't exist.
+// initSchema creates tables and repeat-safely upgrades existing run rows.
 func (s *Store) initSchema() error {
-	if _, err := s.db.Exec(initSQL); err != nil {
+	ctx := context.Background()
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	// Serialize schema inspection and ALTER across concurrent CLI invocations.
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return err
+	}
+	defer conn.ExecContext(ctx, "ROLLBACK")
+	if _, err := conn.ExecContext(ctx, initSQL); err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
-	return nil
+	for _, column := range []string{"steps", "notes"} {
+		var count int
+		if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM pragma_table_info('run') WHERE name = ?", column).Scan(&count); err != nil {
+			return err
+		}
+		if count == 0 {
+			// column is exclusively from the fixed list above, never user input.
+			if _, err := conn.ExecContext(ctx, "ALTER TABLE run ADD COLUMN "+column+" TEXT"); err != nil {
+				return fmt.Errorf("failed to add run.%s: %w", column, err)
+			}
+		}
+	}
+	_, err = conn.ExecContext(ctx, "COMMIT")
+	return err
 }
 
 // marshalJSON safely marshals a value to JSON string, handling nil values.
@@ -142,19 +175,58 @@ func (s *Store) InsertProtocol(protocolFile puda.ProtocolFile) error {
 	return nil
 }
 
-// InsertRun inserts a new run into the run table.
-func (s *Store) InsertRun(runID string, protocolID *string) error {
+// InsertRun inserts a new run; nil steps means the full protocol.
+func (s *Store) InsertRun(runID string, protocolID *string, stepsExpr ...*string) error {
+	var steps *string
+	if len(stepsExpr) > 0 {
+		steps = stepsExpr[0]
+	}
 	query := `
-		INSERT INTO run (run_id, protocol_id, created_at)
-		VALUES (?, ?, ?)
+		INSERT INTO run (run_id, protocol_id, created_at, steps)
+		VALUES (?, ?, ?, ?)
 	`
 
-	_, err := s.db.Exec(query, runID, protocolID, time.Now())
+	_, err := s.db.Exec(query, runID, protocolID, time.Now(), steps)
 	if err != nil {
 		return fmt.Errorf("failed to insert run: %w", err)
 	}
 
 	return nil
+}
+
+// AppendProtocolNote atomically appends verbatim text to an existing protocol run.
+// The returned notes are read back in the same transaction as the append.
+func (s *Store) AppendProtocolNote(runID, text string) (string, error) {
+	if strings.TrimSpace(text) == "" {
+		return "", fmt.Errorf("note text cannot be blank")
+	}
+	entry := "[" + time.Now().UTC().Format(time.RFC3339Nano) + "] " + text
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+	result, err := tx.Exec(`UPDATE run
+		SET notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || char(10) || char(10) || ? END
+		WHERE run_id = ? AND EXISTS (SELECT 1 FROM protocol WHERE protocol.protocol_id = run.protocol_id)`, entry, entry, runID)
+	if err != nil {
+		return "", fmt.Errorf("failed to append note: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return "", err
+	}
+	if count != 1 {
+		return "", fmt.Errorf("run %q does not exist or is not associated with a protocol", runID)
+	}
+	var notes string
+	if err := tx.QueryRow("SELECT notes FROM run WHERE run_id = ?", runID).Scan(&notes); err != nil {
+		return "", fmt.Errorf("failed to read saved notes: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return notes, nil
 }
 
 // EnsureRun creates a standalone machine run if it does not already exist.

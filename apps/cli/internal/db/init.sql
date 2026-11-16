@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS protocol (
 CREATE TABLE IF NOT EXISTS run (
     run_id TEXT PRIMARY KEY,
     protocol_id TEXT REFERENCES protocol(protocol_id) ON DELETE SET NULL,
+    steps TEXT, -- Requested --steps selector; NULL means the full protocol, not completion
+    notes TEXT, -- Append-only UTC-stamped narrative, including verbatim Markdown links
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

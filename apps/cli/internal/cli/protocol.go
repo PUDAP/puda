@@ -10,9 +10,10 @@ import "github.com/spf13/cobra"
 var protocolCmd = &cobra.Command{
 	Use:   "protocol",
 	Short: "Protocol operations",
-	Long: `Commands for working with protocols via NATS.
+	Long: `Commands for running protocols via NATS and recording local run notes.
 
 Subcommands:
+  note     - Append a note to an existing protocol run in the project database
   run      - Run a puda protocol via NATS
   validate - Validate a protocol JSON file
 

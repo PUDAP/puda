@@ -24,14 +24,22 @@ Without a version, the latest release is installed. Pass a tag as [version] or
 confirmation unless --yes/-y is set.
 
 The binary is replaced in place at the path reported by 'which puda'
-(os.Executable). Use --yes/-y to skip confirmation prompts.`,
+(os.Executable). Use --yes/-y to skip confirmation prompts.
+
+Before confirmation, a nonblocking Python SDK preflight checks live responding
+edges against compatibility.json from the target release's exact tag, pinned to
+its commit. It warns on stderr with machine IDs and supported SDK versions.
+Metadata/discovery failures are unknown, not compatible. Offline or late edges
+cannot be evaluated. --yes skips prompts, not these advisories.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		target, err := resolveUpdateVersion(updateTargetVersion, args)
 		if err != nil {
 			return err
 		}
-		return update.Run(cmd, target, updateYes, Version)
+		return update.Run(cmd, target, updateYes, Version, func(targetTag string) {
+			writeUpdateCompatibility(cmd, targetTag)
+		})
 	},
 }
 

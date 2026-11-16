@@ -39,8 +39,12 @@ func TestMachineInfoCommandMetadata(t *testing.T) {
 		t.Fatal("info command must expose --timeout")
 	}
 	found, _, err := machineCmd.Find([]string{"ping"})
+	if err == nil && found != machineCmd {
+		t.Fatalf("removed ping alias still resolves: found=%v", found)
+	}
+	found, _, err = machineCmd.Find([]string{"info"})
 	if err != nil || found != machineInfoCmd {
-		t.Fatalf("ping must alias info: found=%v err=%v", found, err)
+		t.Fatalf("info must remain available: found=%v err=%v", found, err)
 	}
 	if machineCmd.PersistentFlags().Lookup("human") == nil {
 		t.Fatal("machine command must expose --human")

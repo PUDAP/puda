@@ -2,7 +2,11 @@ module github.com/PUDAP/puda/apps/cli
 
 go 1.26.2
 
+// Embed the repository-root policy without generated copies.
+replace github.com/PUDAP/puda => ../..
+
 require (
+	github.com/PUDAP/puda v0.0.0
 	github.com/nats-io/nats.go v1.55.0
 	github.com/spf13/cobra v1.10.2
 	modernc.org/sqlite v1.61.0

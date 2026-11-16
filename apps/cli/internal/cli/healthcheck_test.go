@@ -19,6 +19,14 @@ func TestHealthcheckCommandMetadata(t *testing.T) {
 	if healthcheckCmd.Flags().Lookup("timeout") == nil {
 		t.Fatal("healthcheck command must expose --timeout")
 	}
+	for _, want := range []string{"Python SDK", "stderr", "responding"} {
+		if !strings.Contains(healthcheckCmd.Long, want) {
+			t.Fatalf("healthcheck help missing %q", want)
+		}
+	}
+	if !strings.Contains(healthcheckCmd.Flags().Lookup("timeout").Usage, "fleet") {
+		t.Fatal("timeout help must describe the fleet discovery window")
+	}
 }
 
 func TestWriteHealthReportJSONIsDefault(t *testing.T) {

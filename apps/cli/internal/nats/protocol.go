@@ -351,8 +351,13 @@ func SendQueueCommands(js nats.JetStreamContext, dispatcher *ResponseDispatcher,
 
 // RunProtocol executes a protocol. confirmation is invoked immediately before
 // each selected step is dispatched; nil skips the gate.
-// stepRanges selects inclusive step ranges; nil or empty means the full protocol.
-func RunProtocol(protocolFile *puda.ProtocolFile, stepRanges []StepRange, confirmation StepConfirmationFunc) error {
+// stepsExpr preserves the CLI selector verbatim; nil means a full run.
+func RunProtocol(protocolFile *puda.ProtocolFile, stepsExpr *string, confirmation StepConfirmationFunc) error {
+	stepRanges, err := parseProtocolSteps(stepsExpr)
+	if err != nil {
+		return err
+	}
+
 	// Initialize database connection (optional - if it fails, database operations will be skipped gracefully)
 	store, err := db.Connect()
 	if err != nil {
@@ -387,7 +392,7 @@ func RunProtocol(protocolFile *puda.ProtocolFile, stepRanges []StepRange, confir
 	// Insert run into database
 	runID := uuid.New().String()
 	if store != nil {
-		if err := store.InsertRun(runID, &protocolFile.ProtocolID); err != nil {
+		if err := store.InsertRun(runID, &protocolFile.ProtocolID, stepsExpr); err != nil {
 			// Log warning but don't fail - database logging is optional
 			log.Printf("Warning: failed to insert run into database: %v", err)
 		}

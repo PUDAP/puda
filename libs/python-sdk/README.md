@@ -288,8 +288,7 @@ many fleet `LIVESTREAMS` registry records attach to that machine. That count
 is registered PUDA livestreams only; unregistered cameras on the host may
 exist and are not included. Use `puda livestream list --machines <id>` for
 registered names, hosts, and URLs. It also reports `tlm_stream_count`.
-`puda machine info` (formerly `puda machine ping`, which still works as an
-alias) shows the full `tlm_streams` list and joins the full
+`puda machine info` shows the full `tlm_streams` list and joins the full
 registered records (host, stream name, derived protocol URLs). Those records
 store host and stream name; protocol URLs are derived and are not part of the
 edge pong payload.

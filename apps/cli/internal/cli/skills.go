@@ -4,14 +4,33 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
 
-// defaultSkillsRepos are installed by "puda skills install" and always included
-var defaultSkillsRepos = []string{
-	"PUDAP/skills",
-	"streamlit/agent-skills",
+// defaultSkillsRepos selects an explicit ref or the CLI's matching release.
+func defaultSkillsRepos(ref string) ([]string, error) {
+	if ref != "" {
+		// The installer treats /tree/<ref>/<subpath> as single path segments.
+		// Reject ambiguous or unsafe refs instead of escaping or rewriting them.
+		valid := regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+		if !valid.MatchString(ref) || strings.Contains(ref, "..") || strings.HasSuffix(ref, ".") || strings.HasSuffix(ref, ".lock") {
+			return nil, fmt.Errorf("invalid --ref %q: use a branch or tag with letters, digits, dots, underscores or hyphens, without slashes, '..', a trailing dot or '.lock'", ref)
+		}
+		return []string{"https://github.com/PUDAP/puda/tree/" + ref + "/skills"}, nil
+	}
+	version := strings.TrimPrefix(Version, "v")
+	release := regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$`)
+	pseudo := regexp.MustCompile(`[.-][0-9]{14}-[0-9a-f]+$`)
+	lower := strings.ToLower(version)
+	if !release.MatchString(version) || pseudo.MatchString(version) || strings.Contains(lower, "snapshot") || strings.Contains(lower, "dev") || strings.Contains(lower, "dirty") {
+		return nil, fmt.Errorf("CLI version %q is a development build; use --ref main explicitly for development skills, or install a released CLI", Version)
+	}
+	return []string{
+		"https://github.com/PUDAP/puda/tree/v" + strings.TrimPrefix(Version, "v") + "/skills",
+	}, nil
 }
 
 // skillsCmd is the parent for skills-related subcommands
@@ -27,26 +46,38 @@ var skillsInstallCmd = &cobra.Command{
 	Short: "Install skills from a repository",
 	Long: `Install skills from repositories
 
-With no arguments, installs default PUDAP/skills and streamlit/agent-skills.
-With one or more arguments, installs each given repo plus the defaults.
+With no arguments, installs PUDAP/puda's skills subtree at the installed CLI's
+release tag. --ref <git-reference> selects a branch or tag (for example main
+or v0.1.6); development binaries require an explicit ref. Refs must be simple
+names without slashes, URL metacharacters, or Git revision expressions.
+Missing tags/subtrees fail without falling back to main.
 
-Runs:
-  npx skills add <repo> --yes
-  npx skills update --yes`,
+Additional repositories are passed unchanged to npx after the defaults.
+Each source is installed globally with: npx skills add <source> -y -g
+No blanket skills update is run. Existing same-name skills are replaced.`,
 	RunE: runSkillsInstall,
 }
 
-// skillsUpdateCmd refreshes skills from repo and syncs AGENTS.md
+// skillsUpdateCmd re-adds selected sources, including migration from the old repo.
 var skillsUpdateCmd = &cobra.Command{
-	Use:   "update",
+	Use:   "update [repo...]",
 	Short: "Update agent skills",
-	Long: `Refresh installed skills from their repos
+	Long: `Reinstall the release-matched official PUDA skills.
 
-Runs: npx skills update`,
+This also migrates same-name global skills previously installed from PUDAP/skills
+to PUDAP/puda's skills subtree. --ref selects a branch or tag instead of the
+installed release (for example --ref main or --ref v0.1.6). Refs must be simple
+names without slashes, URL metacharacters, or Git revision expressions.
+Optional repositories are re-added unchanged, after the defaults. Unspecified
+custom skills and project-local installs are not refreshed or removed.
+Legacy-only skills (such as puda-memory) are not automatically removed.
+No blanket npx skills update is run.`,
 	RunE: runSkillsUpdate,
 }
 
 func init() {
+	skillsInstallCmd.Flags().String("ref", "", "Use a simple Git branch or tag instead of the installed CLI release (e.g. main or v0.1.6)")
+	skillsUpdateCmd.Flags().String("ref", "", "Use a simple Git branch or tag instead of the installed CLI release (e.g. main or v0.1.6)")
 	skillsCmd.AddCommand(skillsInstallCmd)
 	skillsCmd.AddCommand(skillsUpdateCmd)
 	rootCmd.AddCommand(skillsCmd)
@@ -69,8 +100,8 @@ func runNpx(args ...string) error {
 	return c.Run()
 }
 
-// Installs and syncs skills in the current working directory.
-func installSkillsInCwd(repos []string) error {
+// Installs globally; the current directory does not change the selected scope.
+func installSkillsGlobally(repos []string) error {
 	if err := ensureNpx(); err != nil {
 		return err
 	}
@@ -79,29 +110,31 @@ func installSkillsInCwd(repos []string) error {
 			return fmt.Errorf("skills add %s: %w", repo, err)
 		}
 	}
-	if err := runNpx("skills", "update", "-y", "-g"); err != nil {
-		return fmt.Errorf("skills update failed: %w", err)
-	}
 	return nil
 }
 
 func runSkillsInstall(cmd *cobra.Command, args []string) error {
-	repos := make([]string, 0, len(defaultSkillsRepos)+len(args))
-	repos = append(repos, defaultSkillsRepos...)
-	repos = append(repos, args...)
-	if err := installSkillsInCwd(repos); err != nil {
+	ref, err := cmd.Flags().GetString("ref")
+	if err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Skills installed and synced successfully.\n")
+	if cmd.Flags().Changed("ref") && ref == "" {
+		return fmt.Errorf("invalid --ref: reference must not be empty")
+	}
+	repos, err := defaultSkillsRepos(ref)
+	if err != nil {
+		return err
+	}
+	repos = append(repos, args...)
+	if err := installSkillsGlobally(repos); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Skills installed globally. Same-name skills replace old sources; legacy-only skills and project-local installs are unchanged.\n")
 	return nil
 }
 
 func runSkillsUpdate(cmd *cobra.Command, args []string) error {
-	if err := ensureNpx(); err != nil {
-		return err
-	}
-	if err := runNpx("skills", "update", "-y"); err != nil {
-		return fmt.Errorf("skills update failed: %w", err)
-	}
-	return nil
+	// Re-add the official source to migrate old PUDAP/skills lock entries.
+	// Never blanket-update unrelated skills or override the release pin.
+	return runSkillsInstall(cmd, args)
 }

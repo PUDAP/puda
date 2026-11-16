@@ -73,14 +73,13 @@ Use --human for a text summary.`,
 		if err != nil {
 			return err
 		}
-		return writeListResults(cmd.OutOrStdout(), pongs, byMachine, machineHuman)
+		return writeMachineDiscovery(cmd, pongs, byMachine, machineHuman, true)
 	},
 }
 
 var machineInfoCmd = &cobra.Command{
-	Use:     "info <machine_ids>",
-	Aliases: []string{"ping"},
-	Short:   "Show whether machines are online and what they advertise",
+	Use:   "info <machine_ids>",
+	Short: "Show whether machines are online and what they advertise",
 	Long: `Send Core NATS ping requests to machine(s) and report pong details as JSON, including each edge's advertised description, telemetry streams (tlm_streams), and livestreams attached in the fleet registry.
 Each tlm_stream lists the subject it publishes on (puda.<machine_id>.tlm.stream.<name>) and its interval in seconds.
 Machine IDs can be comma-separated, e.g. puda machine info first,biologic.
@@ -102,7 +101,7 @@ Use --human for a text summary.`,
 		if err != nil {
 			return err
 		}
-		if err := writeInfoResults(cmd.OutOrStdout(), results, byMachine, machineHuman); err != nil {
+		if err := writeMachineDiscovery(cmd, results, byMachine, machineHuman, false); err != nil {
 			return err
 		}
 		failed := 0

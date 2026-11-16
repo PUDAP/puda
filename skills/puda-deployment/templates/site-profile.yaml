@@ -1,0 +1,12 @@
+site: CHANGE_ME
+host:
+  name: CHANGE_ME
+  os: CHANGE_ME
+  internet_interface: CHANGE_ME
+  instrument_interface: CHANGE_ME
+nats:
+  endpoints: []
+  authentication: CHANGE_ME
+project_root: CHANGE_ME
+repositories: []
+security_owner: CHANGE_ME

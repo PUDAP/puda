@@ -1,0 +1,16 @@
+machine_id: CHANGE_ME
+model: CHANGE_ME
+edge:
+  repository: CHANGE_ME
+  compose_file: CHANGE_ME
+  service: CHANGE_ME
+controller:
+  transport: CHANGE_ME
+  address: CHANGE_ME
+  session_owner: edge
+readiness:
+  read_only_command: CHANGE_ME
+  expected_log_markers: []
+recovery:
+  supported_commands: []
+labware_reference: CHANGE_ME

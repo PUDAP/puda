@@ -6,7 +6,11 @@ The Runtime Environment for Physical AI
 
 PUDA is a **hardware-agnostic**, **LLM-agnostic** modular platform — a **runtime for Physical AI** that lets software and AI agents plan, execute, and record operations on any physical machine, from lab instruments and robotic arms to pumps, sensors, and industrial equipment.
 
-It is **headless by design**: there is no bundled UI. The intended way to drive PUDA is with **AI agents** (e.g. Cursor, Claude Code, Hermes Agent, OpenClaw or your own) using our [agent skills at `PUDAP/skills`](https://github.com/PUDAP/skills) — ready-made playbooks for setting up projects, writing protocols, running experiments, and generating reports. When a human-facing view is useful, you can even just **build your own dashboard** on streamlit using your agent.
+It is **headless by design**: there is no bundled UI. The intended way to drive PUDA is with **AI agents** (e.g. Cursor, Claude Code, Hermes Agent, OpenClaw or your own) using our [agent skills in `skills/`](skills/README.md) — ready-made playbooks for setting up projects, writing protocols, running experiments, and generating reports. When a human-facing view is useful, you can even just **build your own dashboard** on streamlit using your agent.
+
+Skills now live alongside the CLI and SDK as ordinary repository files, not a
+submodule. See the [skills migration guide](docs/skills-migration.md) for
+release-pinned installation and migration from `PUDAP/skills`.
 
 Under the hood:
 
@@ -41,6 +45,7 @@ puda/
 │   ├── db/             # PostgreSQL client (puda-db)
 │   └── python-sdk/     # Python SDK published as the puda package
 ├── test-edge/          # Software-only edge for local testing
+├── skills/             # Release-aligned agent skills (ordinary source files)
 └── docs/               # Architecture notes
 ```
 
@@ -53,7 +58,7 @@ Python packages share one UV workspace. Go apps keep their own modules.
   - `libs/db` (`puda-db`)
   - `test-edge`
   There is no `services/` directory yet. A package added there is picked up by the `services/*` glob.
-- **Go modules**: `apps/cli` and `apps/loadgen` are not part of `uv.lock`.
+- **Go modules**: `apps/cli` and `apps/loadgen` are not part of `uv.lock`. A small root Go module embeds the single [`compatibility.json`](compatibility.json) policy for the CLI; source builds need the full checkout. See [CLI / Python SDK compatibility](docs/compatibility.md) for advisory behavior and qualification status.
 - **Nx**: task runner for the workspace, installed from `package.json` with pnpm.
 
 Workspace packages reference each other locally:
