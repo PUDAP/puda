@@ -11,7 +11,7 @@ Before operating machines, follow the execution policy in **puda-protocol** (pro
 
 ## Before operating
 
-1. Check `puda --version` and relevant command `--help`; use the installed interface rather than assuming support. Run notes require CLI 0.1.6-rc1 or later.
+1. Check `puda --version` and relevant command `--help`; use the installed interface rather than assuming support.
 2. Confirm the intended lab and active connection profile. Obtain broker settings and credentials from the user or deployment configuration; never assume them. User identity belongs to `puda config`, broker settings to `puda profile`, and project settings to `puda project config`.
 3. For execution, locate the intended initialized project and work from its root. Initialize only when a project is genuinely missing; do not reinitialize an existing project to upgrade it. Read-only profile/machine inspection needs no project. Do not repeat login or setup when the environment already works.
 4. Read `project.md` for goals, durable decisions, and legacy history. Retrieve relevant prior run notes, requested steps, and command evidence through **puda-data** before continuing an experiment. Historical equipment observations are not current state.

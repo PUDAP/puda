@@ -1,4 +1,4 @@
-# CLI 0.1.x profiles, config, and telemetry
+# CLI profiles, config, and telemetry
 
 Check installed command help for the exact interface. CLI and Python SDK versions are independent.
 
