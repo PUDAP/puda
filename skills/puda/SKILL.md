@@ -31,7 +31,7 @@ Use `puda machine --help` and `puda healthcheck --help` for commands and flags.
 Read only the reference needed for the task:
 
 - **Installation, upgrades, login, project initialization, or skills:** [setup](references/setup.md).
-- **Connection profiles and detailed telemetry inspection:** [CLI profiles and telemetry](references/cli-profiles-and-telemetry.md).
+- **Connection profiles, identity, and telemetry:** [profiles and telemetry](references/profiles-and-telemetry.md).
 - **Clock synchronization:** [Chrony / NTP](references/chrony.md), with the [Linux](scripts/sync-clock.sh) or [Windows](scripts/sync-clock.ps1) helper. Obtain the site NTP IP first; configure Chrony on the host, not inside an edge container.
 - **Camera streaming:** [livestream setup](references/livestream.md). Obtain camera, feed name, description, MediaMTX host, and target machine IDs before publishing video.
 

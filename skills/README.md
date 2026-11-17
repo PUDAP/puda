@@ -29,7 +29,7 @@ The [Agent Skills specification](https://agentskills.io/specification) separates
 2. When a task matches, it reads that skill's `SKILL.md` for the workflow, essential constraints, and resource links.
 3. It reads only the linked references needed for the current operation, or executes the relevant bundled scripts. Do not preload every reference or every skill.
 
-For example, a telemetry inspection loads `puda/SKILL.md` and `puda/references/cli-profiles-and-telemetry.md`; it does not need camera, clock, or setup instructions. Run-note rules live in `puda-protocol`; run-data retrieval and analysis live in `puda-data`.
+For example, a telemetry inspection loads `puda/SKILL.md` and `puda/references/profiles-and-telemetry.md`; it does not need camera, clock, or setup instructions. Run-note rules live in `puda-protocol`; run-data retrieval and analysis live in `puda-data`.
 
 Skill packaging enables this loading pattern; the agent client controls what it actually loads. Keep descriptions concise, keep detailed examples and task-specific procedures in focused references, and link those references directly from `SKILL.md`. Preserve safety and lifecycle constraints in the entrypoint. Keep entrypoints below the specification's recommended 500 lines / 5,000 tokens.
 

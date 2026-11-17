@@ -1,4 +1,4 @@
-# CLI profiles, config, and telemetry
+# Profiles, identity, and telemetry
 
 Use `puda <command> --help` for commands and flags. These are the rules help doesn't cover.
 
