@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 # Known markers for project root
-PROJECT_MARKERS = ["puda.db", "puda.config", "project.md", "experiment.md", "protocols"]
+PROJECT_MARKERS = ["puda.db", "puda.config", "project.md", "protocols"]
 
 
 def find_project_root(start_path: Optional[Path] = None) -> Path:
@@ -43,8 +43,8 @@ def find_project_root(start_path: Optional[Path] = None) -> Path:
         # Check for puda.config
         if (path / "puda.config").exists():
             return path
-        # Check for project.md (or legacy experiment.md)
-        if (path / "project.md").exists() or (path / "experiment.md").exists():
+        # Check for project.md
+        if (path / "project.md").exists():
             return path
         # Check for protocols directory
         if (path / "protocols").is_dir():

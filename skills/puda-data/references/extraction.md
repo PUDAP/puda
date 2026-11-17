@@ -6,7 +6,7 @@ Automatically finds project root via:
 1. `PUDA_PROJECT_ROOT` env var
 2. `puda.db` in parent directories
 3. `puda.config` in parent directories
-4. `project.md` (or legacy `experiment.md`) in parent directories
+4. `project.md` in parent directories
 5. `protocols/` in parent directories
 6. `cwd()` fallback
 
