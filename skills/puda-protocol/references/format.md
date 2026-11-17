@@ -14,7 +14,7 @@ Top-level fields:
 Each command:
 - `step_number`: Sequential integer from 1; commands with the same value execute in parallel
 - `name`: Valid command name for the specified machine, or a special command (`wait`)
-- `machine_id`: Target machine id. For `wait`, omit to pause the whole protocol, or set it to pause only that machine while other machines in the same step run
+- `machine_id`: Target machine id (for `wait`, see below)
 - `params`: Required and optional parameters for the command
 - `safety`: Required when the live command catalog advertises safety metadata; copy the structured metadata into the command unchanged. Omit for special commands
 
@@ -31,17 +31,3 @@ CLI-only delay. `params.seconds` is required (`>= 0`, fractional OK; `0.5` = 500
 ```
 
 Omit `machine_id` and use its own step to pause every machine. Set `machine_id` (one wait per paused machine, same `step_number` as machines that keep working) to pause only those machines. Do not also command a waiting machine in that step.
-
-## Output Format (JSON)
-
-```json
-{
-  "project_id": "<project_id>",
-  "protocol_id": "<protocol_id>",
-  "description": "description for this protocol",
-  "timestamp": "<ISO 8601>",
-  "commands": []
-}
-```
-
-Each command: `step_number`, `name`, `machine_id`, `params`, plus `safety` whenever the live command catalog advertises it. For the special command `wait`, set `params.seconds`. Omit `machine_id` to pause every machine; set `machine_id` to pause only that machine while other machines at the same step run.

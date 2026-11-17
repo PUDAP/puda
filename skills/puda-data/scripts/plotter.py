@@ -307,29 +307,3 @@ def get_data_summary(run_id: str, command: str = "CV") -> Dict[str, Any]:
             summary[f"{col}_max"] = float(df[col].max())
 
     return summary
-
-
-# Quick test
-if __name__ == "__main__":
-    from extractor import get_runs_by_type
-
-    print("=== Testing Plotter Registry ===\n")
-
-    # List registered plotters
-    print("Registered plotters:", list(_plotter_registry.keys()))
-
-    # Get latest CV run
-    runs = get_runs_by_type("CV", 1)
-    run_id = runs[0][0]
-    print(f"\nTesting with run: {run_id}")
-
-    # Test CV plot
-    print("\n1. CV Plot:")
-    path = plot_measurement(run_id, "CV")
-    print(f"   Saved: {path}")
-
-    # Test summary
-    print("\n2. Data Summary:")
-    summary = get_data_summary(run_id)
-    for k, v in summary.items():
-        print(f"   {k}: {v}")

@@ -1,5 +1,5 @@
 """
-puda-data Phase 2: Data Hasher
+puda-data Data Hasher
 
 Hash and validate experimental data for data provenance.
 Uses SHA-256 to ensure data integrity.
@@ -139,7 +139,7 @@ def generate_fingerprint(run_id: str, command_name: str = "CV") -> Dict[str, Any
     # Add data-specific info if available
     if not df.empty:
         # Use schema to determine range column names
-        device = run_info.get("commands", [{}])[0].get("device", "first") if run_info.get("commands") else "first"
+        device = run_info["commands"][0]["device"] if run_info.get("commands") else "unknown"
         schema = SchemaRegistry.get_or_default(device, command_name)
 
         # Map schema columns to actual DataFrame columns
@@ -250,31 +250,3 @@ def demonstrate_integrity(run_id: str = None, command_name: str = "CV") -> Dict[
             "change_percent": 1.0
         }
     }
-
-
-# Quick test
-if __name__ == "__main__":
-    print("=== Testing Hasher ===\n")
-
-    # Get latest CV run
-    runs = get_runs_by_type("CV", 1)
-    if runs:
-        run_id = runs[0][0]
-
-        # Generate fingerprint
-        print("1. Fingerprint:")
-        fp = generate_fingerprint(run_id)
-        for k, v in fp.items():
-            print(f"   {k}: {v}")
-
-        # Demonstrate integrity
-        print("\n2. Integrity Demo:")
-        demo = demonstrate_integrity(run_id)
-        print(f"   Original hash: {demo['original_hash'][:50]}...")
-        print(f"   Modified hash: {demo['modified_hash'][:50]}...")
-        print(f"   Hashes different: {demo['hashes_different']}")
-
-        # Verify integrity
-        print("\n3. Verify:")
-        is_valid = verify_integrity(run_id, fp['measurement_hash'])
-        print(f"   Integrity check: {is_valid}")

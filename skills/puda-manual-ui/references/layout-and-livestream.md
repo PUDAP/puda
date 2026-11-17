@@ -16,4 +16,4 @@ The machine's entry in the JSON `results` array has a `livestreams` array. Each 
 
 ## Deployed UI URL
 
-Share the UI host's reachable MagicDNS hostname and port (e.g. `http://<machine-hostname>:<port>/`). Verify the framework's health or root endpoint returns HTTP 200 locally and through that URL before reporting it reachable. **Example only:** a Streamlit app exposes `/_stcore/health`, and the First dashboard uses `http://first:8501/`; do not hard-code First or a port for another machine.
+Share the UI host's reachable MagicDNS hostname and port (e.g. `http://<machine-hostname>:<port>/`). Verify the framework's health or root endpoint returns HTTP 200 locally and through that URL before reporting it reachable. **Example only:** a Streamlit app exposes `/_stcore/health`; do not hard-code a host or port.

@@ -1,18 +1,13 @@
 ---
 name: puda
-description: Set up PUDA projects and inspect machines before operation.
+description: Set up PUDA CLI/projects/profiles and inspect machines, health, telemetry, cameras, and clocks.
 ---
 
 # PUDA
 
 Use this skill to prepare a PUDA project, select its connection profile, and inspect machines and telemetry. Protocol authoring and execution belong in **puda-protocol**; run-data retrieval and analysis belong in **puda-data**. The CLI and Python SDK are versioned independently.
 
-## Execution policy
-
-- **Default:** create or reuse an appropriate protocol, validate it, then execute it with `puda protocol run`. Follow **puda-protocol** for authoring, safety confirmation, execution, and run notes.
-- **Manual-control exception:** use `puda machine start`, `puda machine run`, and `puda machine complete` only when manual control is specifically needed, such as an interactive session or a justified recovery intervention. Record the reason and outcome.
-- Never use direct commands as a shortcut for routine execution or an automatic fallback after protocol failure. Manual control must still honor advertised safety requirements and operator approval; failure does not authorize bypassing safety gates.
-- Read-only discovery, state inspection, and telemetry watching require neither a protocol nor a manual run lifecycle.
+Before operating machines, follow the execution policy in **puda-protocol** (protocol execution by default; manual control only when the operator requests it).
 
 ## Before operating
 
@@ -33,7 +28,7 @@ puda machine commands <id>
 puda machine watch <full-subject> --timeout 15
 ```
 
-Run `puda healthcheck` first to check broker connectivity for the active profile. It prints one JSON report (`--human` for text; `--timeout` per probe) with `status` `ok`, `degraded`, or `unhealthy`, and exits nonzero unless `ok`. Transport causes are in `servers[].error`; JetStream results are in `jetstream.status`/`reason`. Its `compatibility` object (`supported`/`unsupported`/`unknown`/`not_checked`, with a `reason` such as `nats_unreachable`, `no_responders`, `discovery_error`, or `discovery_incomplete`) is advisory only and never changes health status or exit code.
+Run `puda healthcheck` first to check broker connectivity for the active profile. It prints one JSON report (`--human` for text; `--timeout` per probe) with `status` `ok`, `degraded`, or `unhealthy`, and exits nonzero unless `ok`. Transport causes are in `servers[].error`; JetStream results are in `jetstream.status`/`reason`. Its `compatibility` object (`supported`/`unsupported`/`unknown`/`not_checked`, with a `reason` such as `nats_unreachable`, `no_responders`, `discovery_error`, or `discovery_incomplete`) is advisory only and never changes health status or exit code. To diagnose a failing report, use **puda-deployment**'s network and NATS reference.
 
 Discovery and stored state can be stale: inspect timestamps and verify responsiveness rather than assuming a listed machine is ready. `machine info` advertises telemetry streams with full subjects. `machine watch` accepts full subjects or `--machines`, not both; quote wildcard subjects and use a bounded timeout for inspection.
 
@@ -52,5 +47,4 @@ For additional documentation, consult https://docs.puda.co/llms.txt.
 
 - Verify the actual result or fresh observed state; command acceptance alone is not proof of completion.
 - Report incomplete cleanup, stale observations, and unknown outcomes explicitly. Never repeat a physical operation just to obtain a cleaner log or repair a missing note.
-- Follow **puda-protocol** for execution summaries and **puda-data** for analysis notes. Those skills own the `puda protocol note` workflow; the CLI stores supplied text rather than generating interpretation.
-- Preserve project-level context and legacy history in `project.md`; new run summaries belong in the database. Do not delete or automatically import existing Markdown history.
+- Write run summaries with `puda protocol note` as described in **puda-protocol**; keep project-level context and legacy history in `project.md` without deleting or automatically importing it.

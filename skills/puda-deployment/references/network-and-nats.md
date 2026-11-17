@@ -14,10 +14,22 @@ For a dual-NIC host, keep the Internet default route on the intended interface a
 
 - Inspect listener: `ss -ltnp`.
 - Health endpoint when enabled: `curl --fail http://127.0.0.1:8222/healthz`.
-- Test a configured address with a bounded TCP/NATS handshake.
+- Test a configured address with a bounded TCP/NATS handshake (`scripts/inspect-nats.sh <host:port>`). It checks only the plaintext `INFO` banner; it does not prove TLS or authentication works.
 - From Docker, verify the broker address from the container network. Use host networking only intentionally.
 - Remote access requires a routable listener, firewall/routing approval, and authentication/authorization review.
 - Treat DHCP, Exanet, VPN, and Tailscale addresses as dynamic; rediscover them.
+
+## Healthcheck failures
+
+`puda healthcheck` exits nonzero unless `status` is `ok`. Map the JSON report to the next check:
+
+| Report field | Next step |
+|---|---|
+| `servers[].error` timeout or connection refused | route and listener: `ip route get <broker-ip>`, `scripts/inspect-nats.sh`, `ss -ltnp` on the broker |
+| `servers[].error` TLS or certificate | profile `ca` path, `tls://` vs `nats://` scheme, server certificate name/SAN |
+| `jetstream.status: failed` | server JetStream configuration and account permissions; `jetstream.error` holds the cause |
+| `compatibility.reason: no_responders` | edges, not the broker: edge logs and NATS connection |
+| `compatibility.reason: discovery_error` | permissions for `puda.cmd.ping` and `_INBOX` replies; `compatibility.error` holds the cause |
 
 ## Heartbeats
 

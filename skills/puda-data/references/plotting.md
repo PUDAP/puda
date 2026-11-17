@@ -16,7 +16,7 @@ from plotter import (
 # Examples
 path = plot_measurement(run_id, "CV")
 path = plot_measurement(run_id, "PEIS")  # Routes to nyquist
-summary = get_data_summary(run_id)
+summary = get_data_summary(run_id, "CV")  # command defaults to "CV"
 ```
 
 ## Supported Data Types

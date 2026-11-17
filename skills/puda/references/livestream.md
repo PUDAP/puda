@@ -86,30 +86,9 @@ Both `mediamtx` and `ffmpeg` should be running. If config changed on an existing
 docker compose up -d --force-recreate
 ```
 
-## Stream URLs
+## Ports
 
-Ports published by `compose.yml`:
-
-```yaml
-ports:
-  - "8554:8554" # RTSP
-  - "1935:1935" # RTMP
-  - "8888:8888" # HLS
-  - "8889:8889" # WebRTC HTTP/WHIP/WHEP
-  - "8189:8189/udp" # WebRTC ICE/UDP
-  - "8189:8189/tcp" # WebRTC ICE/TCP
-```
-
-Report these URLs using the confirmed host and stream name:
-
-| Protocol | URL |
-| --- | --- |
-| RTSP | `rtsp://HOST:8554/STREAM_NAME` |
-| RTMP | `rtmp://HOST:1935/STREAM_NAME` |
-| HLS | `http://HOST:8888/STREAM_NAME/` |
-| WebRTC | `http://HOST:8889/STREAM_NAME/` |
-
-HLS and WebRTC open in a browser. Manual-control UIs can embed the HLS or WebRTC URL.
+For firewall rules, `compose.yml` publishes 8554/tcp (RTSP), 1935/tcp (RTMP), 8888/tcp (HLS), 8889/tcp (WebRTC HTTP/WHIP/WHEP), and 8189/udp+tcp (WebRTC ICE). `puda livestream add` derives the stream URLs; HLS and WebRTC URLs open in a browser and can be embedded in manual-control UIs.
 
 ## Register with PUDA
 

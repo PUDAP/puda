@@ -1,6 +1,6 @@
 # CLI 0.1.x profiles, config, and telemetry
 
-Target: CLI 0.1.6-rc1. Check installed command help if a different version is in use. CLI and Python SDK versions are independent.
+Check installed command help for the exact interface. CLI and Python SDK versions are independent.
 
 ## Profiles and migration
 
@@ -31,7 +31,7 @@ puda profile switch secure-lab
 - `profile set <field> <value>` edits the active profile, not its selection. Fields: `nats_servers`, `gateway_servers`, `ca`, `key`. The output field is `key_file`, but the setter is `key`. `ca` and `key` can only be changed on an already encrypted profile. Use a separate profile to change encryption mode.
 - `profile remove <name>` removes a profile. Removing the active one leaves none selected; it does not choose another automatically.
 - Profile output is JSON by default; `--human` gives text. No active profile is an error from `profile current`, not proof the broker is offline.
-- CLI connection settings come from the active profile, not project settings or old security environment variables. The Python SDK is separate: SDK 0.0.21 and later (including 0.0.22) require explicit client `ca_file` / `e2e_key_file` arguments; it does not load CLI profiles or security environment variables automatically.
+- CLI connection settings come from the active profile, not project settings or old security environment variables. The Python SDK is separate: its client takes explicit `ca_file` / `e2e_key_file` arguments and does not load CLI profiles or security environment variables.
 
 ## User config versus project config
 
@@ -44,8 +44,6 @@ puda config set user.username <username>
 ```
 
 `config get` accepts `user.user_id`, `user.username`, and `user.default`; `config set` accepts only `user.user_id` and `user.username` (setting `user.username` replaces a default identity). `config list` prints three `key=value` lines (`user.user_id`, `user.username`, `user.default`), not JSON. `user.default=true` means the identity was derived from the OS username; run `puda login --username <name>` to choose one. Do not change the user's ID merely to change the selected lab. `config edit` opens the user config in an editor. Use `puda project config --help` for project settings.
-
-Replace `puda config get nats_servers` with `puda profile current`, and `puda config set nats_servers <urls>` with `puda profile set nats_servers <urls>` after selecting a profile. The equivalent gateway setter is `puda profile set gateway_servers <urls>`.
 
 ## Discover streams before watching
 
@@ -83,4 +81,4 @@ Quote wildcard subjects. `*` matches one token; `>` matches remaining tokens and
 | Events | `puda.<id>.evt.log`, `puda.<id>.evt.alert`, `puda.<id>.evt.media` |
 | Updates | `puda.<id>.update`, `puda.<id>.update.response` |
 
-Watch emits NDJSON with `timestamp` (CLI receipt time), `subject`, `machine_id`, `category`, `topic`, and `data` (the decrypted edge payload, unchanged); e.g. a position stream has topic `stream.pos`. Python SDK 0.0.22 publishers wrap health and stream telemetry as `{timestamp, data: {...}}`, so measurements are at `data.data` and the edge publication time at `data.timestamp`; older SDKs put measurement fields directly in `data` beside `timestamp`. Check the edge's `sdk_version` from `machine info` and accept both shapes. The selected encrypted profile handles decryption. `--human` gives text instead. Heartbeats are hidden unless `--include-heartbeat` is set or a supplied subject explicitly names `tlm.heartbeat`. Watch `--timeout` takes integer seconds (e.g. `15`), whereas info/list take durations (e.g. `3s`). `--timeout 0` runs until interrupted.
+Watch emits NDJSON with `timestamp` (CLI receipt time), `subject`, `machine_id`, `category`, `topic`, and `data` (the decrypted edge payload, unchanged); e.g. a position stream has topic `stream.pos`. Health and stream telemetry may be wrapped as `{timestamp, data: {...}}` (measurements at `data.data`, edge publication time at `data.timestamp`) or have measurement fields directly in `data` beside `timestamp`, depending on the edge's `sdk_version`; accept both shapes. The selected encrypted profile handles decryption. `--human` gives text instead. Heartbeats are hidden unless `--include-heartbeat` is set or a supplied subject explicitly names `tlm.heartbeat`. Watch `--timeout` takes integer seconds (e.g. `15`), whereas info/list take durations (e.g. `3s`). `--timeout 0` runs until interrupted.

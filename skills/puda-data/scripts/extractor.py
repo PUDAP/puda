@@ -1,5 +1,5 @@
 """
-puda-data Phase 1: Data Extractor
+puda-data Data Extractor
 
 Extract experimental data from PUDA database.
 Supports CV, OCV, CA, PEIS, GEIS and other measurement types.
@@ -56,7 +56,7 @@ def _extract_raw_payload(run_id: str, command_name: str) -> Tuple[Optional[Dict[
             return None, ""
 
         payload = json.loads(row[0])
-        device_id = row[1] or "first"  # Default to "first" if not specified
+        device_id = row[1] or "unknown"  # Unknown machine uses the generic adapter
 
         return payload, device_id
     finally:
@@ -199,7 +199,7 @@ def get_run_info(run_id: str) -> Dict[str, Any]:
             "created_at": run_row[2],
             "steps": run_row[3],
             "notes": run_row[4],
-            "commands": [{"step": c[0], "name": c[1], "device": c[2] or "first"} for c in commands],
+            "commands": [{"step": c[0], "name": c[1], "device": c[2] or "unknown"} for c in commands],
         }
     finally:
         conn.close()
@@ -277,43 +277,3 @@ def list_all_runs(limit: int = 20) -> List[Dict[str, Any]]:
         ]
     finally:
         conn.close()
-
-
-# Quick test
-if __name__ == "__main__":
-    _init_adapters()
-
-    from adapters import AdapterRegistry
-
-    print("=== Testing Extractor with AdapterRegistry ===\n")
-
-    # List registered adapters
-    print("1. Registered adapters:")
-    for device in AdapterRegistry.list_devices():
-        adapter = AdapterRegistry.get(device)
-        print(f"   {device}: {type(adapter).__name__}")
-
-    # Get latest CV
-    print("\n2. Latest CV runs:")
-    runs = get_runs_by_type("CV", 3)
-    for run_id, step, created in runs:
-        print(f"   {run_id} (step {step}) - {created}")
-
-    # Get latest measurement
-    print("\n3. Latest CV data:")
-    measurements = get_latest_measurements("CV", 1)
-    if measurements:
-        run_id, df = measurements[0]
-        print(f"   Run: {run_id}")
-        print(f"   Points: {len(df)}")
-        print(f"   Columns: {list(df.columns)}")
-        print(f"   E range: {df[df.columns[0]].min():.3f}V to {df[df.columns[0]].max():.3f}V")
-        print(f"   I range: {df[df.columns[1]].min():.6f}A to {df[df.columns[1]].max():.6f}A")
-
-    # Get run info
-    print("\n4. Run info:")
-    if runs:
-        info = get_run_info(runs[0][0])
-        print(f"   Run: {info.get('run_id')}")
-        print(f"   Protocol: {info.get('protocol_id')}")
-        print(f"   Commands: {[c['name'] for c in info.get('commands', [])]}")

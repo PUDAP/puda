@@ -2,7 +2,7 @@
 
 ## Coordinate provenance
 
-For each station record machine, frame, units, orientation, approach pose, intermediate pose, process pose, tolerance, source method, date, and verifier.
+For each station record machine, frame, units, orientation, approach pose, intermediate pose, process pose, tolerance, source method, date, and verifier in a copy of [labware-alignment-record.csv](../templates/labware-alignment-record.csv).
 
 ## Progressive calibration
 

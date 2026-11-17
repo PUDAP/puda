@@ -9,8 +9,8 @@
 | Stale machine state | heartbeat/KV | timestamp age | inspect publisher, timer, network, and retained state |
 | Import/package failure | packaging | image import and lockfile | copy/install all workspace packages; verify Python compatibility |
 | bytes/string parser exception | driver | traceback and payload type | normalize payload type; add regression fixture |
-| Protocol validates but command fails | live registry | `puda machine commands` | replace stale command; run only reviewed suffix |
-| RUN_ID_MISMATCH | run lifecycle | edge run/state logs | inspect active run; recover without replaying uncertain actions |
+| Protocol validates but command fails | live registry | `puda machine commands` | replace stale command; `puda machine reset`, then rerun from the failed step (`--steps <N>-`) |
+| RUN_ID_MISMATCH | run lifecycle | edge run/state logs | check physical state; `puda machine reset`, then rerun from the failed step (`--steps <N>-`) |
 | Motion says success but pose unchanged | driver/controller | independent measured pose | preserve responses/alarms; fix verification; do not retry blindly |
 | Joint-limit/IK alarm | controller/kinematics | official alarm table | review branch/orientation and safe-height ordering |
 | Gripper action reversed | hardware mapping | stationary observed test | correct polarity and regression; do not rerun transfer automatically |

@@ -25,9 +25,9 @@ Do not send machine action commands until **Start** has succeeded for the curren
 
 Always invoke `puda` from the project root (where `puda.config` / `project.md` live). Capture stdout/stderr and show failures in the UI.
 
-If `puda machine start` or `puda machine complete` is missing / unknown, tell the user to update the PUDA CLI to version **>= 0.0.36** (e.g. `puda version`, then `puda update`).
+If `puda machine start` or `puda machine complete` is missing / unknown, check `puda machine start --help`; if the command is absent, tell the user to update the PUDA CLI (`puda version`, then `puda update`).
 
-`<machine_ids>` may be comma-separated (e.g. `biologic,first`). Start and Complete must hit the **same** set for a session. Resolve targets from project memory, user selection, or workflow skill; discover with `puda machine list` when needed.
+`<machine_ids>` may be comma-separated (e.g. `biologic,first`). Start and Complete must hit the **same** set for a session. Resolve targets from user selection or the project's protocols; discover with `puda machine list` when needed.
 
 ### Dispatch individual actions
 

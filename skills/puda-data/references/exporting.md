@@ -10,8 +10,8 @@ from exporter import (
     export_full_experiment,   # Export everything at once
 )
 
-# Examples
-csv_path = export_to_csv(run_id)
+# Examples (command_name defaults to "CV"; pass it for other measurement types)
+csv_path = export_to_csv(run_id, command_name="CV")
 json_path = export_to_json(run_id)
 prot_path = export_protocol(run_id)
 results = export_full_experiment(run_id)

@@ -29,7 +29,7 @@ The [Agent Skills specification](https://agentskills.io/specification) separates
 2. When a task matches, it reads that skill's `SKILL.md` for the workflow, essential constraints, and resource links.
 3. It reads only the linked references needed for the current operation, or executes the relevant bundled scripts. Do not preload every reference or every skill.
 
-For example, a telemetry inspection loads `puda/SKILL.md` and `puda/references/cli-profiles-and-telemetry.md`; it does not need camera, clock, or setup instructions. Run-note recording lives in `puda-protocol`; retrieval and analysis notes live in `puda-data`.
+For example, a telemetry inspection loads `puda/SKILL.md` and `puda/references/cli-profiles-and-telemetry.md`; it does not need camera, clock, or setup instructions. Run-note rules live in `puda-protocol`; run-data retrieval and analysis live in `puda-data`.
 
 Skill packaging enables this loading pattern; the agent client controls what it actually loads. Keep descriptions concise, keep detailed examples and task-specific procedures in focused references, and link those references directly from `SKILL.md`. Preserve safety and lifecycle constraints in the entrypoint. Keep entrypoints below the specification's recommended 500 lines / 5,000 tokens.
 
@@ -48,61 +48,7 @@ Also check that relative resource links resolve and that each reference can be s
 
 ## CLI Reference
 
-```
-puda
-├── config                   User identity (not broker settings)
-│   ├── edit                 Edit the user config file
-│   ├── get <key>            Read user.user_id, user.username or user.default
-│   ├── list                 Print user.user_id, user.username, user.default
-│   └── set <key> <value>    Set user.user_id or user.username
-├── db
-│   ├── exec [sql]           Execute SQL on the project database (JSON)
-│   └── schema               Display the database schema
-├── encryption               Encrypted (tls:// + key) profiles only
-│   ├── rotate               Install a new lab key [--yes] [--retire]
-│   └── status               Show which edges have the current lab key
-├── healthcheck              One JSON NATS/JetStream health report [--timeout] [--human]
-├── init [path]              Initialize a project (--name required, --description)
-├── livestream               Fleet camera registry (JSON; --human)
-│   ├── add                  --name --host [--description] [--machines]
-│   ├── attach <name>        --machines
-│   ├── detach <name>        --machines
-│   ├── list                 [--hosts] [--machines]
-│   └── rm <name>            Remove a livestream
-├── login                    Set your username [-u/--username]; optional
-├── logout                   Clear your username; profiles are kept
-├── machine                  Machine operations (JSON; --human; -y/--yes)
-│   ├── commands <machine_id>       Advertised commands [--command names]
-│   ├── complete <machine_ids>      Complete a run [--run-id]
-│   ├── home <machine_id...>        Home machine(s)
-│   ├── info <machine_ids>          Status, tlm_streams, livestreams [--timeout]
-│   ├── list                        Discover responsive machines [--timeout]
-│   ├── pause|resume|reset <machine_ids>
-│   ├── run <machine_id> <command> [params_json]  [--params] [--kwargs] [--run-id]
-│   ├── start <machine_ids>         Start a run [--run-id]
-│   ├── state [machine_id...]       State snapshot (all online if omitted) [--offline]
-│   ├── update <machine_id>         Edge pull + restart [--source-type] [--ref]
-│   └── watch [subject...]          NDJSON stream [-m ids] [--timeout] [--include-heartbeat]
-├── profile                  Named NATS connections (JSON; --human)
-│   ├── add <name>           --servers [--gateway-servers] [--ca --key]
-│   ├── current | list
-│   ├── remove <name>
-│   ├── set <field> <value>  nats_servers, gateway_servers, ca or key
-│   └── switch <name>
-├── project
-│   ├── config               edit | get <key> | list | set <key> <value> (puda.config)
-│   └── hash                 --id <project_id> [--db]
-├── protocol
-│   ├── note                 --run <run_id> --text <note>
-│   ├── run                  -f/--file [--steps] [-y/--yes]
-│   └── validate             -f/--file
-├── skills
-│   ├── install [repo...]    [--ref]
-│   └── update [repo...]     [--ref]
-├── update [version]         Install a CLI release [--version] [-y/--yes]
-├── version                  Print version information
-└── completion               Shell completion script
-```
+Run `puda --help` and `puda <command> --help` for the installed command tree and flags.
 
 ## Installing skills with the PUDA CLI
 
@@ -125,15 +71,9 @@ migration of same-name global skills from the old repository:
 puda skills update
 ```
 
-Both commands accept `--ref <git-reference>` to select a branch or tag, such as
-`--ref main` for remote development skills or `--ref v0.1.6` for a release. Refs
-are literal (no added `v`), start with a letter or digit, and contain only letters,
-digits, dots, underscores or hyphens. Empty refs, slashes, `..`, trailing dots and
-`.lock` are rejected. Development binaries require an explicit ref; unavailable release tags/subtrees fail
-without fallback. Optional custom repositories are passed unchanged after the
-defaults. No blanket `npx skills update` runs. Legacy-only skills (including
-`puda-memory`) and project-local installs are not removed automatically; see the
-[lock and coexistence precautions](../docs/skills-migration.md#coexistence-locks-and-migration-precautions).
+Both commands accept `--ref <git-reference>` to select a branch or tag (for example
+`--ref main` or `--ref v0.1.6`). See the [migration guide](../docs/skills-migration.md#installation-policy)
+for ref rules and [lock and coexistence precautions](../docs/skills-migration.md#coexistence-locks-and-migration-precautions).
 
 ## Developing and testing skills
 

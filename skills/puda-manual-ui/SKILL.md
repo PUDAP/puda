@@ -1,11 +1,11 @@
 ---
 name: puda-manual-ui
-description: Build PUDA manual-control operator UIs in any framework that drive Start, Run, and Complete through the PUDA CLI, with optional jogging controls and livestreams.
+description: Build PUDA manual-control operator UIs in any framework that drive Start, Run, and Complete through the PUDA CLI, with optional jogging controls and livestreams. Use only when an operator requests interactive manual control, not as a fallback after protocol failure.
 ---
 
 # PUDA manual UI
 
-Build operator UIs backed by subprocess calls to the PUDA CLI. Any UI framework is acceptable; use the user's or project's choice. Streamlit is one option, not a requirement.
+Build operator UIs backed by subprocess calls to the PUDA CLI. Any UI framework is acceptable; use the user's or project's choice. Streamlit is one option, not a requirement. Use this only when an operator requests interactive manual control; after a protocol failure, recover with **puda-protocol** instead.
 
 ## Workflow and references
 

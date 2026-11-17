@@ -1,5 +1,5 @@
 """
-puda-data Phase 4: Report Generator
+puda-data Report Generator
 
 Generate markdown reports with pluggable visualizations.
 """
@@ -285,32 +285,3 @@ def generate_report(
         output_path = None
 
     return report.save(str(output_path) if output_path else None)
-
-
-# Quick test
-if __name__ == "__main__":
-    from extractor import get_runs_by_type
-
-    print("=== Testing Report Generator ===\n")
-
-    runs = get_runs_by_type("CV", 1)
-    run_id = runs[0][0]
-
-    print(f"Run ID: {run_id}\n")
-
-    # Simple report
-    print("1. Simple Report:")
-    path = generate_report(run_id)
-    print(f"   Saved: {path}")
-
-    # Custom report
-    print("\n2. Custom Report:")
-    report = ExperimentReport(run_id, "CV", "My CV Experiment")
-    report.add_metadata()
-    report.add_hashes()
-    report.add_summary()
-    report.add_plot("CV Curve", plot_measurement, {"run_id": run_id, "command": "CV"})
-    report.add_table("Quick Stats", {"test": "value", "another": "thing"})
-    report.add_markdown("## Notes\nThis is a custom note about the experiment.")
-    path = report.save()
-    print(f"   Saved: {path}")

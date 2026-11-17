@@ -43,7 +43,7 @@ class RunMetadataTests(unittest.TestCase):
         self.assertEqual(info, {
             "run_id": "partial", "protocol_id": "protocol", "created_at": "2026-01-01T00:00:00Z",
             **values,
-            "commands": [{"step": 1, "name": "CV", "device": "first"}, {"step": 3, "name": "OCV", "device": "device"}],
+            "commands": [{"step": 1, "name": "CV", "device": "unknown"}, {"step": 3, "name": "OCV", "device": "device"}],
         })
         full = extractor.get_run_info("full")
         self.assertIsNone(full["steps"])

@@ -40,8 +40,8 @@ Safety field types are fixed:
 - Follow `forbidden_when` as prose: do not use the command when that situation applies.
 - If `confirm` is `true`, `puda protocol run` prints the complete command and safety object for the current step, then blocks until `yes` is entered. The AI agent must present that exact output to the operator and wait for explicit approval. Do not submit `yes` first and ask later.
 - Only prompt when the catalog explicitly shows `confirm: true`. `@safety` defaults `confirm` to `false`.
-- For agent-driven execution, start `puda protocol run` with `terminal(background=true, pty=true, watch_patterns=["Type yes to continue step"])`. When the prompt appears, inspect the process output, show the complete command and safety context to the operator, and wait. After explicit approval, continue with `process(action="submit", data="yes")`. If permission is denied, submit any value other than `yes` or terminate the process. Parallel commands at the same step are displayed together and use one confirmation covering every safety-tagged command and machine in that step.
+- For agent-driven execution, run `puda protocol run` in a background or interactive terminal that accepts input. When it prints `Type yes to continue step <N>:`, show the operator the step's complete command and safety output, and wait. Send `yes` only after explicit approval. If permission is denied, send any other value or terminate the process. Parallel commands at the same step are displayed together and use one confirmation covering every safety-tagged command and machine in that step.
 
 ## Troubleshooting
 
-- **RUN_ID_MISMATCH** when sending a protocol file: run `puda machine reset <machine_id>` to reset the machine, then send the protocol again.
+- **RUN_ID_MISMATCH or a failed step:** inspect the machine's state (`puda machine state <machine_id>`) and the physical workspace, then run `puda machine reset <machine_id>` and rerun the protocol from the failed step with `puda protocol run -f <file> --steps <N>-` (`--steps` takes comma-separated steps or inclusive ranges, e.g. `3`, `2-5`, `4-`). Record both run IDs in the run note.
