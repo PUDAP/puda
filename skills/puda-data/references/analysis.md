@@ -30,7 +30,7 @@ pip install pandas matplotlib
 
 ### 3. Create analysis folder
 
-Create an **analysis/** folder inside the experiment folder if missing. Keep all analysis work there: Python scripts, Jupyter notebooks, exported data (e.g. CSV), and generated plots.
+Create an **analysis/** folder in the project root if missing. Keep all analysis work there: Python scripts, Jupyter notebooks, exported data (e.g. CSV), and generated plots.
 
 ### 4. Generate Python file
 
@@ -61,11 +61,4 @@ data = json.loads(row["payload"])["response"]["data"]
 Continue the script from the loaded data (SQL result or parsed payload): apply pandas for analysis and matplotlib for plotting as requested.
 
 - **Analysis**: Use pandas for filtering, grouping, aggregations, time series, etc., according to what the user asked for.
-- **Plotting**: Use matplotlib. If the data schema is unclear, run `puda machine commands <machine_id> | grep -A 50 "<command_name>"` to inspect the command's output structure. If the user hasn't specified a chart type, choose one that best fits the data.
-
-## Instructions summary
-
-1. Run **`puda db schema`** and use it to choose tables and columns.
-2. Install **pandas** and **matplotlib** if needed (`pip install pandas matplotlib`); **sqlite3** is built-in.
-3. Load data into a pandas DataFrame with `sqlite3` + `pd.read_sql_query`; DB is `puda.db` in project root.
-4. Perform the analysis and create the plots the user requested, using the schema to avoid invalid names and types.
+- **Plotting**: Use matplotlib. If the data schema is unclear, run `puda machine commands <machine_id> --command <command_name>` to inspect the command's output structure. If the user hasn't specified a chart type, choose one that best fits the data.

@@ -2,41 +2,39 @@ package cli
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
 	"github.com/spf13/cobra"
 )
 
-// logoutCmd removes the PUDA configuration file, effectively logging the user out.
+// logoutCmd clears the user identity from the global config.
 var logoutCmd = &cobra.Command{
 	Use:   "logout",
-	Short: "Log out of a PUDA account",
-	Long: `Log out of a PUDA account
+	Short: "Clear your PUDA username",
+	Long: `Clear the logged-in identity from the global config.
 
-	This removes your configuration file and revokes your access token.`,
+NATS profiles and other settings are kept. The next command that needs an
+identity creates a new default identity from your OS username.`,
 	RunE: runLogout,
 }
 
-// runLogout deletes the configuration file if it exists.
+// runLogout clears only the user section of the global config.
 func runLogout(cmd *cobra.Command, args []string) error {
-	configPath, err := puda.GlobalConfigPath()
+	cfg, err := puda.ReadGlobalConfig()
 	if err != nil {
-		return fmt.Errorf("failed to determine global config path: %w", err)
+		return err
+	}
+	if cfg.User.Username == "" || cfg.User.Default {
+		fmt.Fprintln(cmd.OutOrStdout(), "You are not logged in.")
+		return nil
 	}
 
-	if _, err := os.Stat(configPath); err != nil {
-		if os.IsNotExist(err) {
-			fmt.Fprintln(cmd.OutOrStdout(), "You are not logged in.")
-			return nil
-		}
-		return fmt.Errorf("failed to check config file: %w", err)
+	username := cfg.User.Username
+	cfg.User = puda.ConfigUser{}
+	if err := puda.SaveGlobalConfig(cfg); err != nil {
+		return err
 	}
 
-	if err := os.Remove(configPath); err != nil {
-		return fmt.Errorf("failed to remove config file: %w", err)
-	}
-
-	fmt.Fprintln(cmd.OutOrStdout(), "Logout successful")
+	fmt.Fprintf(cmd.OutOrStdout(), "Logged out %s. Profiles and other settings were kept.\n", username)
 	return nil
 }

@@ -69,4 +69,4 @@ class Driver:
 
 Keep `MACHINE_ID` and `NATS_SERVERS` in `.env`. Add typed hardware fields to `Config` in `main.py` so missing values fail at startup. Pass those fields into `Driver(...)`.
 
-Telemetry must be JSON-serializable. Publish heartbeat plus whatever position, health, and state the machine actually has. Field names should match the hardware (joints, plunger, focus), not a cartesian template.
+Telemetry must be JSON-serializable. Pass plain dictionaries; the SDK may wrap health and named-stream payloads (including position) as `{timestamp, data: {...}}`, so consumers must accept both wrapped and flat shapes. Publish heartbeat plus whatever position, health, and state the machine actually has. Field names should match the hardware (joints, plunger, focus), not a cartesian template.

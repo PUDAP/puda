@@ -1,6 +1,6 @@
 # Schemas, device adapters, and custom plotters
 
-### 2. Schema Registry (registry.py)
+## Schema registry (registry.py)
 
 Maps `(device, command)` → column names, units, plot axes.
 
@@ -31,10 +31,11 @@ schema = SchemaRegistry.get_or_default("unknown", "CV")
 | first | OCV | potential, current, time, extra, flag |
 | first | CA | time, current, voltage, extra, flag |
 | first | PEIS | frequency, Z_real, Z_imag, phase, flag |
+| first | GEIS | frequency, Z_real, Z_imag, phase, flag |
 | biologic | CV | E, I, time, Ewe, flag |
 | biologic | PEIS | frequency, Z_real, Z_imag, phase, magnitude |
 
-### 3. Device Adapters (adapters/)
+## Device adapters (adapters/)
 
 Abstract device-specific data extraction.
 
@@ -45,9 +46,6 @@ register_all()  # Registers first, biologic adapters
 
 # Get adapter for device
 adapter = AdapterRegistry.get("biologic")
-
-# Auto-detect device from run
-adapter = AdapterRegistry.get_or_default("first")
 
 # Unknown device gets GenericAdapter fallback
 adapter = AdapterRegistry.get_or_default("unknown_device")
@@ -69,7 +67,7 @@ class MyDeviceAdapter(DeviceAdapter):
 AdapterRegistry.register(MyDeviceAdapter())
 ```
 
-### 4. Plotter Registry (plotter.py)
+## Plotter registry (plotter.py)
 
 Pluggable visualization functions.
 

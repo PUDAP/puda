@@ -1,6 +1,8 @@
 package nats
 
 import (
+	"encoding/json"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -34,7 +36,7 @@ func TestCheckHealthUnreachableIsUnhealthy(t *testing.T) {
 	if len(report.Servers) != 1 || report.Servers[0].Status != "error" || report.Servers[0].Error == "" {
 		t.Fatalf("servers=%+v", report.Servers)
 	}
-	if report.JetStream.OK || report.JetStream.Error == "" {
+	if report.JetStream.OK || report.JetStream.Status != "not_checked" || report.JetStream.Reason != "nats_unreachable" {
 		t.Fatalf("jetstream=%+v", report.JetStream)
 	}
 }
@@ -153,5 +155,35 @@ func TestCheckHealthUnreachableGatewayIsDegraded(t *testing.T) {
 	}
 	if report.Status != HealthUnhealthy {
 		t.Fatalf("local down should stay unhealthy, got %s", report.Status)
+	}
+}
+
+// The transport error belongs to the server; dependent checks only say not_checked.
+func TestUnreachableDependentChecksAreNotChecked(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	url := "nats://" + listener.Addr().String()
+	listener.Close()
+	report, err := CheckHealth(url, url, 100*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(report)
+	var fields map[string]json.RawMessage
+	json.Unmarshal(data, &fields)
+	var js map[string]any
+	json.Unmarshal(fields["jetstream"], &js)
+	if js["status"] != "not_checked" || js["reason"] != "nats_unreachable" || js["error"] != nil {
+		t.Fatalf("dependent JetStream check must not repeat transport error: %s", data)
+	}
+	if report.Gateways[0].JetStream != report.JetStream {
+		t.Fatalf("gateway dependent check differs: %s", data)
+	}
+	server, dependent := ProbeServer(url, 100*time.Millisecond)
+	dep, _ := json.Marshal(dependent)
+	if server.Error == "" || strings.Contains(string(dep), server.Error) {
+		t.Fatalf("root error must only be on server: %+v %s", server, dep)
 	}
 }

@@ -11,7 +11,7 @@ import (
 var configListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List user config",
-	Long:  "Display the logged-in user.",
+	Long:  "Display the current user identity. user.default=true means it was derived from the OS username; run puda login to choose a username.",
 	RunE:  runConfigList,
 }
 
@@ -23,5 +23,6 @@ func runConfigList(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "user.user_id=%s\n", cfg.User.UserID)
 	fmt.Fprintf(cmd.OutOrStdout(), "user.username=%s\n", cfg.User.Username)
+	fmt.Fprintf(cmd.OutOrStdout(), "user.default=%t\n", cfg.User.Default)
 	return nil
 }

@@ -5,19 +5,18 @@ description: Extract, analyze, hash, export, and report on PUDA experimental dat
 
 # PUDA experimental data
 
-Use the bundled Python modules to extract measurements, analyze results, hash provenance, export data, plot results, and generate experiment reports. Built-in device adapters cover First and Biologic; measurement types include CV, OCV, CA, PEIS, and a GEIS fallback.
+Use the bundled Python modules to extract measurements, analyze results, hash provenance, export data, plot results, and generate experiment reports. Built-in device adapters cover First and Biologic; other devices use the generic adapter. Measurement types include CV, OCV, CA, PEIS, and a GEIS fallback.
 
 ## Start with the requested operation
 
-Resolve this skill's installed directory and add its `scripts/` directory to Python's import path; do not hard-code a user or agent installation path. Run from the intended project root or set `PUDA_PROJECT_ROOT` **before importing modules**, since paths are discovered at import time. Install `pandas`, `matplotlib`, and `numpy` if missing.
+Resolve this skill's installed directory and add its `scripts/` directory to Python's import path; do not hard-code a user or agent installation path. Run from the intended project root or set `PUDA_PROJECT_ROOT` **before importing modules**, since paths are discovered at import time. Install `pandas` and `matplotlib` if missing.
 
 Inspect the live schema with `puda db schema` before writing custom queries; use the bundled scripts as the source of truth for function signatures.
 
 | Task | Read when needed | Python entrypoints |
 |---|---|---|
 | Find runs, load measurements, or resolve paths | [Extraction](references/extraction.md) | `extractor`, `config` |
-| Hash or verify data | [Hashing](references/hasher.md) | `hasher` |
-| Demonstrate tamper detection | [Provenance demo](references/provenance-demo.md) | `hasher.demonstrate_integrity` |
+| Hash, verify, or demonstrate tamper detection | [Hashing](references/hasher.md) | `hasher` |
 | Export CSV, JSON, or an experiment | [Exporting](references/exporting.md) | `exporter` |
 | Plot measurements or compute summaries | [Plotting](references/plotting.md) | `plotter` |
 | Analyze or interpret experiment results | [Analysis workflow](references/analysis.md) | `sqlite3`, `pandas`, `matplotlib` |
@@ -26,4 +25,4 @@ Inspect the live schema with `puda db schema` before writing custom queries; use
 
 Read only the references and script implementations needed for the selected operation. Keep run IDs, metadata, and SHA-256 provenance with exported/report data so results can be traced back to their source.
 
-For run context, `extractor.get_run_info()` and `extractor.list_all_runs()` include stored `steps` and `notes` TEXT (or `None`, also used for columns absent in older databases). See [Extraction](references/extraction.md) for semantics. After analysis, explicitly append conclusions and project-relative artifact links with `puda protocol note --run <run_id> --text '<note>'`; exporting or reporting does not automatically write a narrative.
+For run context, `extractor.get_run_info()` and `extractor.list_all_runs()` include stored `steps` and `notes`; see [Extraction](references/extraction.md). After analysis, append conclusions with `puda protocol note`, following the run-note rules in **puda-protocol**.

@@ -16,7 +16,7 @@ public/campus NTP  →  chrony on the NATS host  →  chronyd / w32time on each 
 
 **Ask the user for the NTP server host IP if you are unsure.** Do not assume, guess, or reuse an example address. Do not proceed with edge client setup until the user confirms it.
 
-Use `HOST_IP` from the site Chrony `.env` when that file is present and the value is clearly this site's (Tailscale IP, LAN IP, or Tailscale MagicDNS). Example shape only: `100.118.119.115` or `bears`. Never use `host.docker.internal`.
+Use `HOST_IP` from the site Chrony `.env` when that file is present and the value is clearly this site's (Tailscale IP, LAN IP, or Tailscale MagicDNS). Example shape only: `<tailscale-ip>` or `<magicdns-hostname>`. Never use `host.docker.internal`.
 
 ## Identify the host
 

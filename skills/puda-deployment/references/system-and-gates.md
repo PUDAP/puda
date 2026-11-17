@@ -10,7 +10,7 @@ Diagnose left to right. Never use evidence from one layer to assert another laye
 
 ## Intake
 
-Record: site, host, operator, tool, model, machine ID, driver repository/ref, controller transport/address, NATS owner/endpoints, physical hazards, and rollback owner.
+Record: site, host, operator, tool, model, machine ID, driver repository/ref, controller transport/address, NATS owner/endpoints, physical hazards, and rollback owner. Use [site-profile.yaml](../templates/site-profile.yaml) and [machine-profile.yaml](../templates/machine-profile.yaml).
 
 ## Gate states
 

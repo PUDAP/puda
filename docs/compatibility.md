@@ -56,7 +56,8 @@ unqualified. Old binaries do not acquire advisories or this policy retroactively
 - `puda machine list`, `puda machine info`, and `puda healthcheck` check each
   successful pong's existing `sdk_version`. The installed local Python package
   is irrelevant; neither `pip` nor a Python interpreter is invoked by the CLI.
-- A stable version inside the inclusive range is silent. A well-formed stable
+- In `machine list`/`machine info`, a stable version inside the inclusive range is
+  silent. A well-formed stable
   version below `min` or above `max` emits **outside the supported range** on
   stderr, with actionable guidance to choose a version within those bounds.
   This is an advisory, not a claim of proven incompatibility.
@@ -69,18 +70,24 @@ unqualified. Old binaries do not acquire advisories or this policy retroactively
 - Offline/non-pong results and an empty discovery result generate no compatibility
   warning. A mixed info result can warn for its responding edges while retaining
   its original nonzero exit status for nonresponders.
-- JSON and human-readable stdout are unchanged. Advisory writes cannot fail a
+- For `machine list`/`machine info`, JSON and human-readable stdout are unchanged.
+  Advisory writes cannot fail a
   command, even if stderr is unavailable. Existing discovery/output errors are
   retained. These inspection commands add no execution gates, machine operations,
   SDK wire fields, policy-network requests, or automatic updates. Only the update
   preflight below fetches target-release compatibility metadata.
-- Healthcheck remains the existing top-level NATS server/cluster/gateway and
-  JetStream check. After writing its unchanged report, it broadcasts the existing
-  fleet ping through the active profile and checks all unique valid pongs during
-  the `--timeout` window (default 2s). It never uses stored machine states.
-  Offline edges are not evaluated. Empty discovery and discovery errors produce
-  a stderr-only **not checked** diagnostic, not a claim of compatibility; neither
-  changes the NATS report or exit status. This is not an exhaustive inventory.
+- Healthcheck retains NATS status/exit semantics but now includes compatibility
+  inside its single JSON report, never as separate stderr prose. It uses fresh
+  bounded fleet pings, not stored machine states. Each unique responder has a
+  supported/unsupported/unknown result and inclusive declared ranges. No reachable
+  local server gives `not_checked`/`nats_unreachable` without another connection;
+  no pongs gives `not_checked`/`no_responders`; discovery that fails before any reply gives
+  `not_checked`/`discovery_error`; a discovery error after some replies keeps
+  those edges' results with reason `discovery_incomplete` and the `error`. This is advisory only, not an exhaustive inventory.
+  Detailed transport errors stay on the affected server; dependent JetStream
+  checks distinguish `not_checked` from `failed`. Completed unhealthy reports exit
+  nonzero without a redundant error line. Configuration/output failures remain
+  visible. See the [precise machine contract](../apps/cli/README.md#healthcheck-machine-contract).
 - The `machine ping` alias has been removed; use `machine info`. The protocol
   ping transport is unchanged.
 - Other paths (`machine commands`, `machine run`, protocol execution, watch,
@@ -140,12 +147,14 @@ Warnings do not gate the update: existing confirmations, refusal/EOF behavior,
 downgrade prompts and `--yes` behavior remain intact. `--yes` skips prompts, not
 preflight. There is no hidden override and no SDK installation or machine control.
 Stdout retains the updater's existing text contract; list/info JSON and healthcheck
-schema/status remain unchanged.
+NATS status semantics remain unchanged. Healthcheck's additive machine contract
+is documented above.
 
 Implementation: root `compatibility.Policy.Evaluate` is the shared pure evaluator;
 `Result.Warning` formats guidance. CLI `writeCompatibilityWarnings` handles live
 pong selection/deduplication and optional current-vs-target classification;
-`writeFleetCompatibility` shares discovery between healthcheck and update.
+`writeFleetCompatibility` handles update discovery; healthcheck uses the same
+`ListMachinePongs` discovery and pure evaluator to build structured results.
 `internal/update/compatibility.go` owns the bounded target-source fetch, while the
 updater invokes the CLI preflight callback only after resolving a different release.
 

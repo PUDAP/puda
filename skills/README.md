@@ -18,7 +18,7 @@ This subtree contains skills for the Puda project, following the [Agent Skills](
 | [puda-database](puda-database/SKILL.md) | Schema inspection and SQL through the PUDA CLI. |
 | [puda-data](puda-data/SKILL.md) | Extraction, analysis, provenance hashes, exports, plots, experiment reports, and device adapters. |
 | [puda-edge](puda-edge/SKILL.md) | Python SDK/API or GUI edge drivers and remote updates. |
-| [puda-manual-ui](puda-manual-ui/SKILL.md) | Streamlit operator dashboards using CLI manual sessions. |
+| [puda-manual-ui](puda-manual-ui/SKILL.md) | Manual-control operator UIs (any framework) driving CLI start/run/complete, with livestreams from machine info. |
 | [puda-deployment](puda-deployment/SKILL.md) | Host-to-labware commissioning, troubleshooting, and deployment records. |
 
 ### Progressive discovery
@@ -29,7 +29,7 @@ The [Agent Skills specification](https://agentskills.io/specification) separates
 2. When a task matches, it reads that skill's `SKILL.md` for the workflow, essential constraints, and resource links.
 3. It reads only the linked references needed for the current operation, or executes the relevant bundled scripts. Do not preload every reference or every skill.
 
-For example, a telemetry inspection loads `puda/SKILL.md` and `puda/references/cli-profiles-and-telemetry.md`; it does not need camera, clock, or setup instructions. Run-note recording lives in `puda-protocol`; retrieval and analysis notes live in `puda-data`.
+For example, a telemetry inspection loads `puda/SKILL.md` and `puda/references/profiles-and-telemetry.md`; it does not need camera, clock, or setup instructions. Run-note rules live in `puda-protocol`; run-data retrieval and analysis live in `puda-data`.
 
 Skill packaging enables this loading pattern; the agent client controls what it actually loads. Keep descriptions concise, keep detailed examples and task-specific procedures in focused references, and link those references directly from `SKILL.md`. Preserve safety and lifecycle constraints in the entrypoint. Keep entrypoints below the specification's recommended 500 lines / 5,000 tokens.
 
@@ -48,35 +48,7 @@ Also check that relative resource links resolve and that each reference can be s
 
 ## CLI Reference
 
-```
-puda
-├── protocol
-│   ├── run                  Run a protocol on machines via NATS
-│   └── validate             Validate a protocol JSON file
-├── machine
-│   ├── list                 Discover machines via ping (description, livestream_count)
-│   ├── state <machine_id>   Get the state of a machine
-│   ├── reset <machine_id>   Reset a machine
-│   └── commands <machine_id> Show available commands
-├── livestream
-│   ├── add                  Register host + stream name and attach machines
-│   ├── list                 List fleet livestreams [--hosts] [--machines]
-│   ├── rm                   Remove a livestream
-│   ├── attach               Attach machines to a livestream
-│   └── detach               Detach machines from a livestream
-├── login                    Log in to a PUDA account
-├── logout                   Log out of a PUDA account
-├── config
-│   ├── list                 List configuration values
-│   └── edit                 Edit configuration in default editor
-├── init [path]              Initialize a new PUDA project
-├── skills
-│   ├── install              Install agent skills
-│   └── update               Update agent skills
-└── db
-    ├── exec [sql]           Execute SQL queries on the database
-    └── schema               Display the database schema
-```
+Run `puda --help` and `puda <command> --help` for the installed command tree and flags.
 
 ## Installing skills with the PUDA CLI
 
@@ -99,15 +71,9 @@ migration of same-name global skills from the old repository:
 puda skills update
 ```
 
-Both commands accept `--ref <git-reference>` to select a branch or tag, such as
-`--ref main` for remote development skills or `--ref v0.1.6` for a release. Refs
-are literal (no added `v`), start with a letter or digit, and contain only letters,
-digits, dots, underscores or hyphens. Empty refs, slashes, `..`, trailing dots and
-`.lock` are rejected. Development binaries require an explicit ref; unavailable release tags/subtrees fail
-without fallback. Optional custom repositories are passed unchanged after the
-defaults. No blanket `npx skills update` runs. Legacy-only skills (including
-`puda-memory`) and project-local installs are not removed automatically; see the
-[lock and coexistence precautions](../docs/skills-migration.md#coexistence-locks-and-migration-precautions).
+Both commands accept `--ref <git-reference>` to select a branch or tag (for example
+`--ref main` or `--ref v0.1.6`). See the [migration guide](../docs/skills-migration.md#installation-policy)
+for ref rules and [lock and coexistence precautions](../docs/skills-migration.md#coexistence-locks-and-migration-precautions).
 
 ## Developing and testing skills
 

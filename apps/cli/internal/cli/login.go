@@ -1,9 +1,7 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
@@ -11,14 +9,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// loginCmd configures the user's identity for PUDA CLI.
+// loginCmd sets the user identity recorded in PUDA command messages.
 var loginCmd = &cobra.Command{
 	Use:   "login",
-	Short: "Log in to a PUDA account",
-	Long: `Log in to a PUDA account.
+	Short: "Set your PUDA username",
+	Long: `Set the username recorded with machine commands and runs.
 
-	Authenticate with a PUDA host and retrieve user configuration.
-`,
+Without login, PUDA uses a default identity derived from your OS username.
+Logging in replaces that default username and keeps its user ID. No server
+is contacted; the identity is stored in the global config file.`,
 	RunE: runLogin,
 }
 
@@ -28,32 +27,15 @@ func init() {
 	loginCmd.Flags().StringVarP(&loginUsername, "username", "u", "", "Username for the PUDA account")
 }
 
-// runLogin executes the login flow: read username from flag and write config file.
+// runLogin stores the chosen username, replacing a default identity.
 func runLogin(cmd *cobra.Command, args []string) error {
-	configPath, err := puda.GlobalConfigPath()
+	cfg, err := puda.ReadGlobalConfig()
 	if err != nil {
 		return err
 	}
-
-	// If a config file already exists, assume the user is already logged in.
-	if _, err := os.Stat(configPath); err == nil {
-		data, err := os.ReadFile(configPath)
-		if err != nil {
-			return logoutInvalidLogin(configPath, fmt.Errorf("failed to read existing config file: %w", err))
-		}
-
-		var cfg puda.GlobalConfig
-		if err := json.Unmarshal(data, &cfg); err != nil {
-			return logoutInvalidLogin(configPath, fmt.Errorf("failed to parse existing config file: %w", err))
-		}
-		if cfg.User.Username == "" {
-			return logoutInvalidLogin(configPath, fmt.Errorf("username is missing in existing config file %s", configPath))
-		}
-
+	if cfg.User.Username != "" && !cfg.User.Default {
 		fmt.Fprintf(cmd.OutOrStdout(), "You are already logged in as %s.\n", cfg.User.Username)
 		return nil
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("failed to check existing config file: %w", err)
 	}
 
 	username := strings.TrimSpace(loginUsername)
@@ -61,34 +43,20 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("username is required; pass --username <name>")
 	}
 
-	// Simulate talking to a backend auth service to obtain user ID and NATS endpoints.
-	fmt.Fprintln(cmd.OutOrStdout(), "Contacting PUDA authentication service...")
-	fmt.Fprintf(cmd.OutOrStdout(), "Authenticating user %q...\n", username)
-
-	var cfg puda.GlobalConfig
 	cfg.User.Username = username
-	cfg.User.UserID = uuid.NewString()
+	cfg.User.Default = false
+	if strings.TrimSpace(cfg.User.UserID) == "" {
+		cfg.User.UserID = uuid.NewString()
+	}
+	if err := puda.SaveGlobalConfig(cfg); err != nil {
+		return err
+	}
 
-	fmt.Fprintln(cmd.OutOrStdout(), "Fetching user configuration...")
-
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	configPath, err := puda.GlobalConfigPath()
 	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
+		return err
 	}
-
-	if err := os.WriteFile(configPath, data, 0o600); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
-	}
-
-	fmt.Fprintln(cmd.OutOrStdout(), "Login successful.")
+	fmt.Fprintf(cmd.OutOrStdout(), "Logged in as %s (user ID %s).\n", username, cfg.User.UserID)
 	fmt.Fprintf(cmd.OutOrStdout(), "Saved puda configuration to %s\n", configPath)
 	return nil
-}
-
-func logoutInvalidLogin(configPath string, cause error) error {
-	if err := os.Remove(configPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("%w; failed to log out user: %v", cause, err)
-	}
-
-	return fmt.Errorf("%w; you have been logged out, please log in again", cause)
 }

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 # Known markers for project root
-PROJECT_MARKERS = ["puda.db", "puda.config", "experiment.md", "protocols"]
+PROJECT_MARKERS = ["puda.db", "puda.config", "project.md", "protocols"]
 
 
 def find_project_root(start_path: Optional[Path] = None) -> Path:
@@ -43,8 +43,8 @@ def find_project_root(start_path: Optional[Path] = None) -> Path:
         # Check for puda.config
         if (path / "puda.config").exists():
             return path
-        # Check for experiment.md
-        if (path / "experiment.md").exists():
+        # Check for project.md
+        if (path / "project.md").exists():
             return path
         # Check for protocols directory
         if (path / "protocols").is_dir():
@@ -119,14 +119,3 @@ def reload():
     REPORT_DIR = _PROJECT_ROOT / "reports"
     EXPORT_DIR = _PROJECT_ROOT / "exports"
     LOGS_DIR = _PROJECT_ROOT / "logs"
-
-
-# Quick test
-if __name__ == "__main__":
-    print("=== Config Discovery Test ===\n")
-    print(f"Project root: {get_project_root()}")
-    print(f"DB path: {get_db_path()}")
-    print(f"DB exists: {get_db_path().exists()}")
-    print(f"Report dir: {get_report_dir()}")
-    print(f"Export dir: {get_export_dir()}")
-    print(f"Logs dir: {get_logs_dir()}")

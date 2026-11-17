@@ -562,7 +562,7 @@ func connectMachineNATS() (*natsio.Conn, error) {
 func prepareConnection() (puda.Connection, error) {
 	cfg, err := puda.LoadGlobalConfig()
 	if err != nil {
-		return puda.Connection{}, fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
+		return puda.Connection{}, fmt.Errorf("failed to load global config: %w", err)
 	}
 	conn, err := puda.ResolveConnection(cfg)
 	if err != nil {

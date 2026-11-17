@@ -1,29 +1,19 @@
-# Manual dashboard layout and URLs
+# Manual UI layout and livestream
 
-## Layout and livestream
+## Layout
 
-Prefer a **single-screen layout**: livestream and all controls visible together. Do not hide core controls in tabs unless explicitly requested.
+Prefer a **single-screen layout**: livestream and all controls visible together. Put **Start** / **Complete** at the top and keep machine controls beside the camera when screen width allows. Do not hide core controls in tabs unless explicitly requested.
 
-- Put **Start** / **Complete** / **Reset** at the top.
-- Put compact machine controls on the left and the camera on the right when screen width allows.
+## Livestream URLs
 
-When Tailnet MagicDNS is enabled, use the machine's MagicDNS name for cross-machine/player URLs rather than a changing Tailnet IP. Discover it with `tailscale status --json` (`Self.DNSName` locally, or the target peer's `DNSName`) and remove its trailing dot.
+Read livestreams from the fleet registry through machine info:
 
-Use the short MagicDNS hostname when it resolves for the operator, otherwise the full MagicDNS name:
-
-```text
-http://<machine-hostname>:<player-port>/<path>
-http://<machine-hostname>.<tailnet>.ts.net:<player-port>/<path>
+```bash
+puda machine info <machine_id>
 ```
 
-Embed the player URL in `st.iframe(...)` and optionally link its API endpoint. Verify the selected player URL returns HTTP 200 before sharing or embedding. A Tailnet IP is a fallback only when neither MagicDNS form is available.
+The machine's entry in the JSON `results` array has a `livestreams` array. Each item has `name`, `host`, `description`, and `urls` with `hls`, `webrtc`, `rtsp`, and `rtmp`. Embed `urls.hls` or `urls.webrtc` (browser player pages) and optionally link the other. An empty array means no stream is registered for that machine; register one with the **puda** skill's livestream setup rather than hard-coding a URL. Verify the selected player URL returns HTTP 200 before sharing or embedding.
 
-### Dashboard URL
+## Deployed UI URL
 
-For a deployed manual-control dashboard, share its reachable MagicDNS hostname and Streamlit port:
-
-```text
-http://<machine-hostname>:<streamlit-port>/
-```
-
-Verify `http://<machine-hostname>:<streamlit-port>/_stcore/health` returns HTTP 200 before reporting it. **Example only:** the First dashboard currently uses `http://first:8501/`; do not hard-code First or port 8501 for another machine.
+Share the UI host's reachable MagicDNS hostname and port (e.g. `http://<machine-hostname>:<port>/`). Verify the framework's health or root endpoint returns HTTP 200 locally and through that URL before reporting it reachable. **Example only:** a Streamlit app exposes `/_stcore/health`; do not hard-code a host or port.

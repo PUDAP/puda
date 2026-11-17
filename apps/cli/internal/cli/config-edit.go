@@ -38,10 +38,9 @@ func runConfigEdit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create config directory %s: %w", configDir, err)
 	}
 
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return fmt.Errorf("no configuration found; run 'puda login' first")
-	} else if err != nil {
-		return fmt.Errorf("failed to stat config file %s: %w", configPath, err)
+	// Ensure the file exists, creating a default identity if needed.
+	if _, err := puda.LoadGlobalConfig(); err != nil {
+		return err
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(), "Opening %s\n", configPath)

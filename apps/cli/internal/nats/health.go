@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	compatibility "github.com/PUDAP/puda"
 	natsio "github.com/nats-io/nats.go"
 )
 
@@ -40,6 +41,8 @@ type ClusterHealth struct {
 
 // JetStreamHealth is the account-level JetStream probe from a reachable node.
 type JetStreamHealth struct {
+	Status    string `json:"status"`
+	Reason    string `json:"reason,omitempty"`
 	OK        bool   `json:"ok"`
 	Streams   int    `json:"streams,omitempty"`
 	Consumers int    `json:"consumers,omitempty"`
@@ -58,6 +61,24 @@ type GatewayHealth struct {
 	JetStream  JetStreamHealth `json:"jetstream"`
 }
 
+// CompatibilityHealth is advisory and never determines NATS health.
+type CompatibilityHealth struct {
+	Status       string                       `json:"status"`
+	Reason       string                       `json:"reason,omitempty"`
+	Error        string                       `json:"error,omitempty"`
+	AdvisoryOnly bool                         `json:"advisory_only"`
+	CLIVersion   string                       `json:"cli_version"`
+	Machines     []MachineCompatibilityHealth `json:"machines"`
+}
+
+// MachineCompatibilityHealth evaluates one unique live pong, not stored inventory.
+type MachineCompatibilityHealth struct {
+	MachineID       string                `json:"machine_id"`
+	SDKVersion      string                `json:"sdk_version"`
+	Status          compatibility.Status  `json:"status"`
+	SupportedRanges []compatibility.Range `json:"supported_ranges"`
+}
+
 // HealthReport is the full NATS server/cluster healthcheck result.
 type HealthReport struct {
 	Status    string          `json:"status"`
@@ -65,6 +86,21 @@ type HealthReport struct {
 	Cluster   ClusterHealth   `json:"cluster"`
 	JetStream JetStreamHealth `json:"jetstream"`
 	Gateways  []GatewayHealth `json:"gateways"`
+	// Advisory only; listed after the NATS checks that determine Status.
+	Compatibility *CompatibilityHealth `json:"compatibility,omitempty"`
+}
+
+// WaitClosed waits for a connection's closed callback, bounded by limit so a
+// missing callback cannot hang the caller. It reports whether closed fired.
+func WaitClosed(closed <-chan struct{}, limit time.Duration) bool {
+	timer := time.NewTimer(limit)
+	defer timer.Stop()
+	select {
+	case <-closed:
+		return true
+	case <-timer.C:
+		return false
+	}
 }
 
 // SplitServerURLs splits a comma-separated NATS URL list, trimming blanks.
@@ -134,7 +170,7 @@ func collectServers(results []probe) []ServerHealth {
 }
 
 func firstJetStream(results []probe) JetStreamHealth {
-	js := JetStreamHealth{Error: "no reachable server"}
+	js := JetStreamHealth{Status: "not_checked", Reason: "nats_unreachable"}
 	for _, result := range results {
 		if result.server.Status != "ok" {
 			continue
@@ -149,27 +185,45 @@ func firstJetStream(results []probe) JetStreamHealth {
 // ProbeServer connects to a single NATS URL without failing over to other nodes.
 func ProbeServer(serverURL string, timeout time.Duration) (ServerHealth, JetStreamHealth) {
 	health := ServerHealth{URL: serverURL, Status: "error"}
+	// Only this probe connection owns these handlers. Keep the first async
+	// error (e.g. a JetStream API/reply permission violation) for the report
+	// instead of nats.go's default unstructured stderr output.
+	asyncErrors := make(chan error, 1)
+	closed := make(chan struct{})
 	opts, err := OptionsForServers(serverURL,
 		natsio.Name("puda-healthcheck"),
 		natsio.Timeout(timeout),
 		natsio.MaxReconnects(0),
 		natsio.DontRandomize(),
+		natsio.ErrorHandler(func(_ *natsio.Conn, _ *natsio.Subscription, err error) {
+			select {
+			case asyncErrors <- err:
+			default:
+			}
+		}),
+		natsio.ClosedHandler(func(_ *natsio.Conn) { close(closed) }),
 	)
 	if err != nil {
 		health.Error = err.Error()
-		return health, JetStreamHealth{Error: err.Error()}
+		return health, JetStreamHealth{Status: "not_checked", Reason: "nats_unreachable"}
 	}
 	nc, err := natsio.Connect(serverURL, opts...)
 	if err != nil {
 		health.Error = err.Error()
-		return health, JetStreamHealth{Error: err.Error()}
+		return health, JetStreamHealth{Status: "not_checked", Reason: "nats_unreachable"}
 	}
-	defer nc.Close()
+	// Flush does not wait for async handlers: Close, then await the FIFO
+	// closed callback so no handler runs after the probe returns.
+	closeAndWait := func() {
+		nc.Close()
+		WaitClosed(closed, timeout)
+	}
 
 	start := time.Now()
 	if err := nc.FlushTimeout(timeout); err != nil {
+		closeAndWait()
 		health.Error = err.Error()
-		return health, JetStreamHealth{Error: err.Error()}
+		return health, JetStreamHealth{Status: "not_checked", Reason: "nats_unreachable"}
 	}
 	health.RTTMS = float64(time.Since(start).Microseconds()) / 1000.0
 	health.Status = "ok"
@@ -180,19 +234,31 @@ func ProbeServer(serverURL string, timeout time.Duration) (ServerHealth, JetStre
 	jsEnabled, _ := nc.ConnectedServerJetStream()
 	health.JetStream = jsEnabled
 	health.DiscoveredServers = uniqueSorted(nc.DiscoveredServers())
-	return health, jetStreamFromConn(nc, timeout)
+	js := jetStreamFromConn(nc, timeout)
+	closeAndWait()
+	// A denied $JS.API publish or reply subscription surfaces only as a
+	// request timeout; report the captured server cause instead.
+	if !js.OK {
+		select {
+		case asyncErr := <-asyncErrors:
+			js.Error = asyncErr.Error()
+		default:
+		}
+	}
+	return health, js
 }
 
 func jetStreamFromConn(nc *natsio.Conn, timeout time.Duration) JetStreamHealth {
 	js, err := nc.JetStream(natsio.MaxWait(timeout))
 	if err != nil {
-		return JetStreamHealth{Error: err.Error()}
+		return JetStreamHealth{Status: "failed", Reason: "jetstream_error", Error: err.Error()}
 	}
 	info, err := js.AccountInfo()
 	if err != nil {
-		return JetStreamHealth{Error: err.Error()}
+		return JetStreamHealth{Status: "failed", Reason: "jetstream_error", Error: err.Error()}
 	}
 	return JetStreamHealth{
+		Status:    "ok",
 		OK:        true,
 		Streams:   info.Streams,
 		Consumers: info.Consumers,

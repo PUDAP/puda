@@ -24,7 +24,7 @@ var initCmd = &cobra.Command{
 	Long: `Initialize a new PUDA project.
 
 It initializes the project config and database, creates a new project UUID,
-and scaffolds the project root with config.json, puda.db, and project.md.
+and scaffolds the project root with puda.config, puda.db, and project.md.
 
 Examples:
   puda init --name "Test Project"
@@ -152,7 +152,7 @@ func resolveProjectTargetDir(args []string) (string, error) {
 }
 
 // loadOrCreateProjectConfig loads an existing project config, or seeds a new
-// one from the logged-in user's global config.
+// one from the user's global identity.
 func loadOrCreateProjectConfig(projectConfigPath, targetDir string) (*puda.ProjectConfig, error) {
 	// check if the project config file exists
 	if _, err := os.Stat(projectConfigPath); err == nil {
@@ -178,26 +178,10 @@ func loadOrCreateProjectConfig(projectConfigPath, targetDir string) (*puda.Proje
 		return nil, fmt.Errorf("failed to access project config file: %w", err)
 	}
 
-	// create a new project config
-	globalConfigPath, err := puda.GlobalConfigPath()
-	if err != nil {
-		return nil, fmt.Errorf("failed to determine global config path: %w", err)
-	}
-
-	if _, err := os.Stat(globalConfigPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("user not logged in. Please run 'puda login' first")
-	}
-
+	// create a new project config from the current (possibly default) identity
 	globalConfig, err := puda.LoadGlobalConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load global config: %w", err)
-	}
-
-	if globalConfig.User.Username == "" {
-		return nil, fmt.Errorf("username is missing in global config. Please run 'puda login' first")
-	}
-	if globalConfig.User.UserID == "" {
-		return nil, fmt.Errorf("user ID is missing in global config. Please run 'puda login' first")
 	}
 
 	var cfg puda.ProjectConfig

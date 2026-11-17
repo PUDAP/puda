@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"os/exec"
-	"path/filepath"
 	"testing"
 )
 
@@ -75,17 +74,5 @@ func TestResolveEditorErrorsWhenNoneFound(t *testing.T) {
 	_, _, err := resolveEditor()
 	if err == nil {
 		t.Fatal("expected error when no editor is available")
-	}
-}
-
-func TestRunConfigEditRequiresLogin(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	t.Setenv("AppData", home)
-
-	err := runConfigEdit(newConfigSetCommand(), nil)
-	if err == nil || err.Error() != "no configuration found; run 'puda login' first" {
-		t.Fatalf("error=%v", err)
 	}
 }

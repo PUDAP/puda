@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 const (
@@ -40,29 +41,21 @@ func GlobalConfigPath() (string, error) {
 	return configPath, nil
 }
 
-// loadGlobalConfigFromPath loads a global PUDA configuration file from the specified path.
-func loadGlobalConfigFromPath(configPath string) (*GlobalConfig, error) {
+// readGlobalConfigFromPath reads a global PUDA configuration file without
+// validating identity. A missing file yields an empty config.
+func readGlobalConfigFromPath(configPath string) (*GlobalConfig, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("PUDA config file not found at %s. Please run 'puda login' to create it", configPath)
+			return &GlobalConfig{}, nil
 		}
 		return nil, fmt.Errorf("failed to read PUDA config file %s: %w", configPath, err)
 	}
 
 	var fileCfg GlobalConfig
 	if err := json.Unmarshal(data, &fileCfg); err != nil {
-		return nil, fmt.Errorf("failed to parse PUDA config file %s: %w", configPath, err)
+		return nil, fmt.Errorf("failed to parse PUDA config file %s (fix or remove it; it was left unchanged): %w", configPath, err)
 	}
-
-	// Validate that all required values are present
-	if fileCfg.User.Username == "" {
-		return nil, fmt.Errorf("username is missing in PUDA config file %s", configPath)
-	}
-	if fileCfg.User.UserID == "" {
-		return nil, fmt.Errorf("user ID is missing in PUDA config file %s", configPath)
-	}
-
 	return &fileCfg, nil
 }
 
@@ -92,14 +85,34 @@ func loadProjectConfigFromPath(configPath string) (*ProjectConfig, error) {
 	return &fileCfg, nil
 }
 
-// LoadGlobalConfig loads the main/global PUDA configuration file and returns it as a GlobalConfig.
+// ReadGlobalConfig reads the global config as stored, without creating a
+// default identity. A missing file yields an empty config.
+func ReadGlobalConfig() (*GlobalConfig, error) {
+	configPath, err := GlobalConfigPath()
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine PUDA config path: %w", err)
+	}
+	return readGlobalConfigFromPath(configPath)
+}
+
+// LoadGlobalConfig loads the global config and guarantees a user identity.
+// When no identity is configured, a default one is derived from the OS
+// username, given a new user ID, and persisted so later runs reuse it.
 func LoadGlobalConfig() (*GlobalConfig, error) {
 	configPath, err := GlobalConfigPath()
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine PUDA config path: %w", err)
 	}
-
-	return loadGlobalConfigFromPath(configPath)
+	cfg, err := readGlobalConfigFromPath(configPath)
+	if err != nil {
+		return nil, err
+	}
+	if ensureIdentity(cfg) {
+		if err := writeConfigFile(configPath, cfg, 0o600); err != nil {
+			return nil, err
+		}
+	}
+	return cfg, nil
 }
 
 // SaveGlobalConfig writes the global config back to disk.
@@ -132,10 +145,32 @@ func writeConfigFile(configPath string, cfg any, perm os.FileMode) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, data, perm); err != nil {
+	// Write a sibling temp file and rename it so readers never see a partial
+	// config and a failed write leaves the previous file intact.
+	tmp, err := os.CreateTemp(filepath.Dir(configPath), "."+filepath.Base(configPath)+".tmp-*")
+	if err != nil {
 		return fmt.Errorf("failed to write config file %s: %w", configPath, err)
 	}
-
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(perm); err != nil && runtime.GOOS != "windows" {
+		tmp.Close()
+		return fmt.Errorf("failed to write config file %s: %w", configPath, err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("failed to write config file %s: %w", configPath, err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("failed to write config file %s: %w", configPath, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("failed to write config file %s: %w", configPath, err)
+	}
+	if err := os.Rename(tmpPath, configPath); err != nil {
+		return fmt.Errorf("failed to write config file %s: %w", configPath, err)
+	}
 	return nil
 }
 

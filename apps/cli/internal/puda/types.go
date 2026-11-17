@@ -103,6 +103,9 @@ type ProtocolFile struct {
 type ConfigUser struct {
 	Username string `json:"username"`
 	UserID   string `json:"user_id"`
+	// Default marks an identity generated from the OS username rather than
+	// chosen with puda login.
+	Default bool `json:"default,omitempty"`
 }
 
 // UnmarshalJSON keeps config loading compatible with the legacy "userid" key.
@@ -111,6 +114,7 @@ func (u *ConfigUser) UnmarshalJSON(data []byte) error {
 		Username     string `json:"username"`
 		UserID       string `json:"user_id"`
 		LegacyUserID string `json:"userid"`
+		Default      bool   `json:"default"`
 	}
 
 	var alias configUserAlias
@@ -120,6 +124,7 @@ func (u *ConfigUser) UnmarshalJSON(data []byte) error {
 
 	u.Username = alias.Username
 	u.UserID = alias.UserID
+	u.Default = alias.Default
 	if u.UserID == "" {
 		u.UserID = alias.LegacyUserID
 	}

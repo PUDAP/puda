@@ -1,5 +1,5 @@
 """
-puda-data Phase 3: Data Exporter
+puda-data Data Exporter
 
 Export PUDA experimental data to various formats.
 """
@@ -192,32 +192,3 @@ def export_full_experiment(
 
     print(f"\nExported {len([k for k in results if not k.endswith('_error')])} files")
     return results
-
-
-# Quick test
-if __name__ == "__main__":
-    print("=== Testing Exporter ===\n")
-
-    # Get latest CV run
-    from extractor import get_runs_by_type
-    runs = get_runs_by_type("CV", 1)
-    run_id = runs[0][0]
-    print(f"Run ID: {run_id}\n")
-
-    # Export CSV
-    print("1. Export CSV:")
-    csv_path = export_to_csv(run_id)
-
-    # Export JSON
-    print("\n2. Export JSON:")
-    json_path = export_to_json(run_id)
-
-    # Export Protocol
-    print("\n3. Export Protocol:")
-    prot_path = export_protocol(run_id)
-
-    # Full export
-    print("\n4. Full Experiment Export:")
-    results = export_full_experiment(run_id)
-    for k, v in results.items():
-        print(f"   {k}: {v}")

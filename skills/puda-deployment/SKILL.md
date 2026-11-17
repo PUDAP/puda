@@ -1,12 +1,6 @@
 ---
 name: puda-deployment
 description: Install, commission, transfer, and troubleshoot PUDA edge deployments using readiness gates. Use for host, NATS, controller, labware, and deployment-log work.
-license: MIT
-metadata:
-  version: "1.0.0"
-  author: PUDAP
-  hermes.tags: "puda, deployment, edge-driver, nats, commissioning, troubleshooting"
-  hermes.related_skills: "puda, puda-edge, puda-protocol, puda-data"
 ---
 
 # PUDA Deployment
@@ -29,12 +23,12 @@ Do not use deployment as permission to move hardware. Motion, homing, gripping, 
 
 Read only the reference for the current gate or symptom; load later gates when earlier ones pass.
 
-1. **System model:** Read [references/system-and-gates.md](references/system-and-gates.md). Record site, host, tool, machine ID, controller transport, and owners.
-2. **Host:** Run `scripts/preflight.sh`. Verify required commands, Docker access, clock, disk, and permissions.
-3. **Network/NATS:** Read [references/network-and-nats.md](references/network-and-nats.md), run the read-only inspectors, and prove host-to-controller and client-to-broker routes separately.
-4. **PUDA:** Read [references/puda-cli-project.md](references/puda-cli-project.md). Verify CLI version, login, skills, project root, and configured NATS endpoints.
+1. **System model:** Read [references/system-and-gates.md](references/system-and-gates.md). Record site, host, tool, machine ID, controller transport, and owners in copies of [site-profile.yaml](templates/site-profile.yaml) and [machine-profile.yaml](templates/machine-profile.yaml).
+2. **Host:** Run [scripts/preflight.sh](scripts/preflight.sh). Verify required commands, Docker access, clock, disk, and permissions.
+3. **Network/NATS:** Read [references/network-and-nats.md](references/network-and-nats.md), run the read-only inspectors [inspect-network.sh](scripts/inspect-network.sh) and [inspect-nats.sh](scripts/inspect-nats.sh), and prove host-to-controller and client-to-broker routes separately. `puda healthcheck` must report `ok`; on failure use network-and-nats.md.
+4. **PUDA:** Read [references/puda-cli-project.md](references/puda-cli-project.md). Verify CLI version, identity, skills, project root, and that `puda healthcheck` reports `ok` for the configured NATS endpoints.
 5. **Source/package:** Read [references/edge-packaging.md](references/edge-packaging.md). Verify repository access, clean Git state, Python/uv workspace packaging, Docker context, and environment loading.
-6. **Edge readiness:** Start/recreate only after configuration review. Require driver initialized → NATS connected → command consumers ready → acceptable queue state → fresh discovery/state.
+6. **Edge readiness:** Start/recreate only after configuration review; inspect with [inspect-edge.sh](scripts/inspect-edge.sh). Require driver initialized → NATS connected → command consumers ready → acceptable queue state → fresh discovery/state.
 7. **Controller:** Read [references/hardware-commissioning.md](references/hardware-commissioning.md). Use one session owner, read-only communication first, then a separately authorized low-risk command.
 8. **Labware:** Read [references/labware-alignment.md](references/labware-alignment.md). Calibrate approach, intermediate, and process poses with provenance and tolerances.
 9. **Operations/recovery:** Read [references/operations-recovery.md](references/operations-recovery.md). Validate live command exposure, protocol schema, stop boundaries, and incident recovery.
@@ -47,8 +41,8 @@ Report each layer independently:
 | Layer | Minimum evidence |
 |---|---|
 | Host | command/version/permission checks |
-| Broker | listener plus successful NATS handshake/health probe |
-| PUDA | configured endpoint, project, login, CLI output |
+| Broker | listener plus `puda healthcheck` report with `status: "ok"` (exit 0) |
+| PUDA | configured endpoint, project, identity, CLI output |
 | Edge | logs showing driver initialization, NATS connection, subscriptions, queue state |
 | Controller | valid read-only response through the owning edge session |
 | Machine | authorized command result plus independent measurement when physical |
@@ -58,7 +52,7 @@ A heartbeat or `idle` state is not proof of controller readiness. A returned mot
 
 ## Installation logging
 
-Copy `templates/deployment-record.md` before starting. Append actions and actual outputs as work proceeds. Use `templates/incident-record.md` when a command times out, is interrupted, or produces uncertain physical state. Redact secrets and never rewrite history to hide failed attempts.
+Copy [templates/deployment-record.md](templates/deployment-record.md) before starting. Append actions and actual outputs as work proceeds. Use [templates/incident-record.md](templates/incident-record.md) when a command times out, is interrupted, or produces uncertain physical state. Redact secrets and never rewrite history to hide failed attempts.
 
 ## Export logs and learnings
 
