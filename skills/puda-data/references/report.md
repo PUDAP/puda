@@ -2,7 +2,7 @@
 
 ## Reporting workflow
 
-1. Resolve the intended project and run/experiment IDs from project records. Use `puda project extract` to extract data related to a `project_id`.
+1. Resolve the intended project and run/experiment IDs from project records. Extract the related data with the bundled extractor (see [Extraction](extraction.md)) or `puda db exec` SQL; `puda project hash --id <project_id>` returns a SHA-256 hash of the project-linked data.
 2. Inspect `puda db schema` before selecting report data; do not assume table or column names.
 3. For custom analysis and plotting, select the analysis reference linked from `SKILL.md`. Keep custom scripts and generated artifacts in the project's `analysis/` directory.
 4. Use the bundled extraction, SHA-256 hashing, plotting, and Markdown report helpers as needed. Select their references from `SKILL.md` without loading unrelated guides.

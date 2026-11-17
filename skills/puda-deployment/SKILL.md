@@ -31,8 +31,8 @@ Read only the reference for the current gate or symptom; load later gates when e
 
 1. **System model:** Read [references/system-and-gates.md](references/system-and-gates.md). Record site, host, tool, machine ID, controller transport, and owners.
 2. **Host:** Run `scripts/preflight.sh`. Verify required commands, Docker access, clock, disk, and permissions.
-3. **Network/NATS:** Read [references/network-and-nats.md](references/network-and-nats.md), run the read-only inspectors, and prove host-to-controller and client-to-broker routes separately.
-4. **PUDA:** Read [references/puda-cli-project.md](references/puda-cli-project.md). Verify CLI version, identity (`puda config list`), skills, project root, and configured NATS endpoints.
+3. **Network/NATS:** Read [references/network-and-nats.md](references/network-and-nats.md), run the read-only inspectors, and prove host-to-controller and client-to-broker routes separately. From the CLI host, run `puda healthcheck` against the active profile: it prints one JSON report with `status` `ok`/`degraded`/`unhealthy` and exits nonzero unless `ok`. Read transport causes (including TLS) in `servers[].error` and JetStream results in `jetstream.status`/`reason`. Use `--timeout <duration>` for slow links and `--human` for text.
+4. **PUDA:** Read [references/puda-cli-project.md](references/puda-cli-project.md). Verify CLI version, identity (`puda config list`), skills, project root, and that `puda healthcheck` passes for the configured NATS endpoints. Its `compatibility` object (`status` `supported`/`unsupported`/`unknown`/`not_checked`; `reason` such as `nats_unreachable`, `no_responders`, `discovery_error`, or `discovery_incomplete`) is advisory only and never changes health status or exit code; it covers only edges that replied.
 5. **Source/package:** Read [references/edge-packaging.md](references/edge-packaging.md). Verify repository access, clean Git state, Python/uv workspace packaging, Docker context, and environment loading.
 6. **Edge readiness:** Start/recreate only after configuration review. Require driver initialized → NATS connected → command consumers ready → acceptable queue state → fresh discovery/state.
 7. **Controller:** Read [references/hardware-commissioning.md](references/hardware-commissioning.md). Use one session owner, read-only communication first, then a separately authorized low-risk command.
@@ -47,7 +47,7 @@ Report each layer independently:
 | Layer | Minimum evidence |
 |---|---|
 | Host | command/version/permission checks |
-| Broker | listener plus successful NATS handshake/health probe |
+| Broker | listener plus `puda healthcheck` report with `status: "ok"` (exit 0) |
 | PUDA | configured endpoint, project, identity, CLI output |
 | Edge | logs showing driver initialization, NATS connection, subscriptions, queue state |
 | Controller | valid read-only response through the owning edge session |

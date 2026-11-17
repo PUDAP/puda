@@ -10,7 +10,7 @@
 
 ## Setup project
 
-Run `puda init` (e.g. `puda init .` or `puda init <folder_name>`).
+Run `puda init [path] --name <project_name>` (e.g. `puda init . --name "<project_name>"` or `puda init <folder_name> --name "<project_name>" --description "<description>"`). `--name` is required; `--description` is optional; the path defaults to the current directory. Get the project name from the user. This creates `project.md`, `puda.config`, and `puda.db`; `protocols/` is created when protocols are generated.
 
 Only after puda is set up and the project is initialized, proceed with protocol generation, machine commands, or experiment workflows.
 

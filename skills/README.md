@@ -18,7 +18,7 @@ This subtree contains skills for the Puda project, following the [Agent Skills](
 | [puda-database](puda-database/SKILL.md) | Schema inspection and SQL through the PUDA CLI. |
 | [puda-data](puda-data/SKILL.md) | Extraction, analysis, provenance hashes, exports, plots, experiment reports, and device adapters. |
 | [puda-edge](puda-edge/SKILL.md) | Python SDK/API or GUI edge drivers and remote updates. |
-| [puda-manual-ui](puda-manual-ui/SKILL.md) | Streamlit operator dashboards using CLI manual sessions. |
+| [puda-manual-ui](puda-manual-ui/SKILL.md) | Manual-control operator UIs (any framework) driving CLI start/run/complete, with livestreams from machine info. |
 | [puda-deployment](puda-deployment/SKILL.md) | Host-to-labware commissioning, troubleshooting, and deployment records. |
 
 ### Progressive discovery
@@ -50,32 +50,58 @@ Also check that relative resource links resolve and that each reference can be s
 
 ```
 puda
-├── protocol
-│   ├── run                  Run a protocol on machines via NATS
-│   └── validate             Validate a protocol JSON file
-├── machine
-│   ├── list                 Discover machines via ping (description, livestream_count)
-│   ├── state <machine_id>   Get the state of a machine
-│   ├── reset <machine_id>   Reset a machine
-│   └── commands <machine_id> Show available commands
-├── livestream
-│   ├── add                  Register host + stream name and attach machines
-│   ├── list                 List fleet livestreams [--hosts] [--machines]
-│   ├── rm                   Remove a livestream
-│   ├── attach               Attach machines to a livestream
-│   └── detach               Detach machines from a livestream
-├── login                    Set your username (replaces the default identity)
+├── config                   User identity (not broker settings)
+│   ├── edit                 Edit the user config file
+│   ├── get <key>            Read user.user_id, user.username or user.default
+│   ├── list                 Print user.user_id, user.username, user.default
+│   └── set <key> <value>    Set user.user_id or user.username
+├── db
+│   ├── exec [sql]           Execute SQL on the project database (JSON)
+│   └── schema               Display the database schema
+├── encryption               Encrypted (tls:// + key) profiles only
+│   ├── rotate               Install a new lab key [--yes] [--retire]
+│   └── status               Show which edges have the current lab key
+├── healthcheck              One JSON NATS/JetStream health report [--timeout] [--human]
+├── init [path]              Initialize a project (--name required, --description)
+├── livestream               Fleet camera registry (JSON; --human)
+│   ├── add                  --name --host [--description] [--machines]
+│   ├── attach <name>        --machines
+│   ├── detach <name>        --machines
+│   ├── list                 [--hosts] [--machines]
+│   └── rm <name>            Remove a livestream
+├── login                    Set your username [-u/--username]; optional
 ├── logout                   Clear your username; profiles are kept
-├── config
-│   ├── list                 List configuration values
-│   └── edit                 Edit configuration in default editor
-├── init [path]              Initialize a new PUDA project
+├── machine                  Machine operations (JSON; --human; -y/--yes)
+│   ├── commands <machine_id>       Advertised commands [--command names]
+│   ├── complete <machine_ids>      Complete a run [--run-id]
+│   ├── home <machine_id...>        Home machine(s)
+│   ├── info <machine_ids>          Status, tlm_streams, livestreams [--timeout]
+│   ├── list                        Discover responsive machines [--timeout]
+│   ├── pause|resume|reset <machine_ids>
+│   ├── run <machine_id> <command> [params_json]  [--params] [--kwargs] [--run-id]
+│   ├── start <machine_ids>         Start a run [--run-id]
+│   ├── state [machine_id...]       State snapshot (all online if omitted) [--offline]
+│   ├── update <machine_id>         Edge pull + restart [--source-type] [--ref]
+│   └── watch [subject...]          NDJSON stream [-m ids] [--timeout] [--include-heartbeat]
+├── profile                  Named NATS connections (JSON; --human)
+│   ├── add <name>           --servers [--gateway-servers] [--ca --key]
+│   ├── current | list
+│   ├── remove <name>
+│   ├── set <field> <value>  nats_servers, gateway_servers, ca or key
+│   └── switch <name>
+├── project
+│   ├── config               edit | get <key> | list | set <key> <value> (puda.config)
+│   └── hash                 --id <project_id> [--db]
+├── protocol
+│   ├── note                 --run <run_id> --text <note>
+│   ├── run                  -f/--file [--steps] [-y/--yes]
+│   └── validate             -f/--file
 ├── skills
-│   ├── install              Install agent skills
-│   └── update               Update agent skills
-└── db
-    ├── exec [sql]           Execute SQL queries on the database
-    └── schema               Display the database schema
+│   ├── install [repo...]    [--ref]
+│   └── update [repo...]     [--ref]
+├── update [version]         Install a CLI release [--version] [-y/--yes]
+├── version                  Print version information
+└── completion               Shell completion script
 ```
 
 ## Installing skills with the PUDA CLI

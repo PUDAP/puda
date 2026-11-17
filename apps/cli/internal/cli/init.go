@@ -24,7 +24,7 @@ var initCmd = &cobra.Command{
 	Long: `Initialize a new PUDA project.
 
 It initializes the project config and database, creates a new project UUID,
-and scaffolds the project root with config.json, puda.db, and project.md.
+and scaffolds the project root with puda.config, puda.db, and project.md.
 
 Examples:
   puda init --name "Test Project"

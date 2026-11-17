@@ -47,15 +47,16 @@ Append an authored note with `puda protocol note --run <run_id> --text '<note>'`
 
 ## Recording analysis context
 
-Work from the intended project root and attach findings only to an actual protocol-associated run. With CLI 0.1.6 or later, append concise conclusions, caveats, comparison run IDs, and real project-relative Markdown links to reports, plots, logs, or exports. Distinguish measured observations from interpretation. The CLI supplies the recording timestamp, not the experiment time; it does not author the summary.
+Work from the intended project root and attach findings only to an actual protocol-associated run. With CLI 0.1.6-rc1 or later, append concise conclusions, caveats, comparison run IDs, and real project-relative Markdown links to reports, plots, logs, or exports. Distinguish measured observations from interpretation. The CLI supplies the recording timestamp, not the experiment time; it does not author the summary.
 
 Verify the returned JSON and retrieve the saved notes with `get_run_info(run_id)`. Report failures rather than claiming success or silently writing a duplicate run entry in `project.md`. Check saved notes before retrying an uncertain append. Preserve `project.md` for goals, durable context, and legacy history; read relevant history before analysis and never treat historical equipment state as current.
 
 ## Database Schema
 
 ```sql
-protocol(run_id, user_id, username, description, commands, created_at)
-run(run_id, protocol_id, created_at, steps TEXT NULL, notes TEXT NULL)
+project(project_id, name, description, created_at)
+protocol(protocol_id, project_id, user_id, username, description, commands, created_at)
+run(run_id, protocol_id, steps TEXT NULL, notes TEXT NULL, created_at)
 sample(sample_id, run_id, data_payload, created_at)
 measurement(measurement_id, sample_id, data_payload, created_at)
 command_log(command_log_id, run_id, step_number, command_name, payload, machine_id, command_type, created_at)

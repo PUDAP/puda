@@ -74,7 +74,7 @@ This proves SHA-256 hashing ensures data integrity:
 ## Usage Code
 
 ```python
-from puda_data import generate_fingerprint, verify_integrity
+from hasher import generate_fingerprint, verify_integrity  # scripts/ on sys.path (see SKILL.md)
 
 # Get fingerprint with hashes
 fp = generate_fingerprint("f3677d75-1e5e-4ff6-9b04-4e9d55670a58")

@@ -16,7 +16,7 @@ Use this skill to prepare a PUDA project, select its connection profile, and ins
 
 ## Before operating
 
-1. Check `puda --version` and relevant command `--help`; use the installed interface rather than assuming support. Run notes require CLI 0.1.6 or later.
+1. Check `puda --version` and relevant command `--help`; use the installed interface rather than assuming support. Run notes require CLI 0.1.6-rc1 or later.
 2. Confirm the intended lab and active connection profile. Obtain broker settings and credentials from the user or deployment configuration; never assume them. User identity belongs to `puda config`, broker settings to `puda profile`, and project settings to `puda project config`.
 3. For execution, locate the intended initialized project and work from its root. Initialize only when a project is genuinely missing; do not reinitialize an existing project to upgrade it. Read-only profile/machine inspection needs no project. Do not repeat login or setup when the environment already works.
 4. Read `project.md` for goals, durable decisions, and legacy history. Retrieve relevant prior run notes, requested steps, and command evidence through **puda-data** before continuing an experiment. Historical equipment observations are not current state.
@@ -25,12 +25,15 @@ Use this skill to prepare a PUDA project, select its connection profile, and ins
 ## Inspect machines
 
 ```bash
+puda healthcheck
 puda machine list
 puda machine info <id>
 puda machine state
 puda machine commands <id>
 puda machine watch <full-subject> --timeout 15
 ```
+
+Run `puda healthcheck` first to check broker connectivity for the active profile. It prints one JSON report (`--human` for text; `--timeout` per probe) with `status` `ok`, `degraded`, or `unhealthy`, and exits nonzero unless `ok`. Transport causes are in `servers[].error`; JetStream results are in `jetstream.status`/`reason`. Its `compatibility` object (`supported`/`unsupported`/`unknown`/`not_checked`, with a `reason` such as `nats_unreachable`, `no_responders`, `discovery_error`, or `discovery_incomplete`) is advisory only and never changes health status or exit code.
 
 Discovery and stored state can be stale: inspect timestamps and verify responsiveness rather than assuming a listed machine is ready. `machine info` advertises telemetry streams with full subjects. `machine watch` accepts full subjects or `--machines`, not both; quote wildcard subjects and use a bounded timeout for inspection.
 

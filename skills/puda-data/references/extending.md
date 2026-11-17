@@ -31,6 +31,7 @@ schema = SchemaRegistry.get_or_default("unknown", "CV")
 | first | OCV | potential, current, time, extra, flag |
 | first | CA | time, current, voltage, extra, flag |
 | first | PEIS | frequency, Z_real, Z_imag, phase, flag |
+| first | GEIS | frequency, Z_real, Z_imag, phase, flag |
 | biologic | CV | E, I, time, Ewe, flag |
 | biologic | PEIS | frequency, Z_real, Z_imag, phase, magnitude |
 

@@ -10,6 +10,10 @@
 - `puda logout` clears only the user identity; NATS profiles, CA/key paths and other settings are kept. With no explicit login it reports "You are not logged in." and changes nothing. The next command creates a new default identity with a new user ID.
 - Unreadable or unparseable global config files are no longer deleted by `login`; commands return an error and leave the file unchanged. Global config writes are atomic (temp file + rename, mode 0600).
 
+### Fixed
+
+- `puda init --help` now says it scaffolds `puda.config` (not `config.json`), matching the files actually created.
+
 ## 0.1.6-rc1 — 2026-11-17 (prerelease)
 
 ### Added
