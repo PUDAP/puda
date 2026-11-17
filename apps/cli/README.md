@@ -61,9 +61,11 @@ puda
 
 `machine list`, `machine info`, and `healthcheck` check each responding edge's
 existing `sdk_version` against the embedded repository-root `compatibility.json`.
-Stable versions outside the supported range warn on stderr; unknown/development
-reports remain unknown. Warnings never change stdout or exit status or block
-execution. The root `compatibility` array contains inclusive CLI/SDK range rules:
+For `machine list` and `machine info`, stable versions outside the supported range
+warn on stderr; unknown/development reports remain unknown. These warnings never
+change stdout or exit status or block execution. `healthcheck` instead includes
+all compatibility outcomes in its report (see its machine contract below).
+The root `compatibility` array contains inclusive CLI/SDK range rules:
 CLI 0.0.0–0.0.36 with SDK 0.0.15–0.0.16 (user-declared legacy support, **not
 runtime-tested**), and CLI 0.1.0–0.1.6 with SDK 0.0.17–0.0.22. Legacy lower bounds
 come from retained published-history inventory, not an invented SDK start.
@@ -81,13 +83,67 @@ Source builds require the full checkout: the CLI uses the root Go module to
 embed the one policy file without generated duplication. Released binaries
 remain standalone.
 
-`puda healthcheck` retains its NATS server/cluster/gateway and JetStream report
-and exit status. It additionally broadcasts the existing fleet ping through the
-active profile and checks every unique responding edge during the `--timeout`
-window (default 2s). It does not consult stored machine states. SDK advisories
-are stderr-only; no responders or discovery failure is reported as not checked,
-not proof of compatibility. Offline edges cannot be evaluated. The `machine ping`
-alias has been removed; use `puda machine info <machine_ids>`.
+The `machine ping` alias has been removed; use `puda machine info <machine_ids>`.
+
+## Healthcheck machine contract
+
+`puda healthcheck` writes exactly one JSON object to stdout by default, including
+unhealthy reports; `--human` renders the same checks as text. A completed report
+has empty stderr: no separate SDK compatibility advisory, redundant `Error: NATS
+healthcheck ...`, or update notification. Exit code is 0 for NATS `status: "ok"`
+and 1 for `degraded`/`unhealthy`. SDK compatibility is advisory only and **never**
+changes that status or exit code. Configuration/pre-report errors and stdout write
+failures still exit nonzero and print an error on stderr; do not assume their
+stdout contains a complete report. Other commands retain their error behavior.
+
+Existing `status`, `servers`, `cluster`, `jetstream`, and `gateways` fields remain.
+Detailed transport errors (including TLS certificate causes) appear only in each
+affected `servers[].error` (or gateway's `servers[].error`). Dependent local/remote
+`jetstream` objects retain `ok` and add:
+
+- `status: "ok"` for a successful account check;
+- `status: "failed", reason: "jetstream_error"`, with `error`, for an attempted
+  JetStream check that failed;
+- `status: "not_checked", reason: "nats_unreachable", ok: false`, without `error`,
+  when no configured server in that cluster is reachable. `ok: false` alone no
+  longer distinguishes failure from not checked; use `status`.
+
+The additive `compatibility` object always includes `advisory_only: true`,
+`cli_version`, and `machines` (an array, empty when not checked). Its status is:
+
+| `status` | `reason` | Meaning |
+| --- | --- | --- |
+| `not_checked` | `nats_unreachable` | No local server reachable; fleet discovery is skipped. See server errors. |
+| `not_checked` | `no_responders` | Fresh discovery yielded no valid pongs (including silent subscriptions). |
+| `not_checked` | `discovery_error` | Fresh discovery failed before any edge replied; `error` contains this distinct failure. |
+| `supported`/`unsupported`/`unknown` | `discovery_incomplete` | Some edges replied before discovery reported `error`; `machines` lists them, but others may be missing. |
+| `supported` | absent (or `discovery_incomplete`) | Every unique responding edge is declared supported. |
+| `unsupported` | absent | At least one responding edge is outside the declared ranges. |
+| `unknown` | absent | No unsupported edge, but at least one cannot be evaluated. |
+
+Each `machines[]` entry has `machine_id`, the exact reported `sdk_version` (empty
+if missing), `status` (`supported`/`unsupported`/`unknown`), and `supported_ranges`
+(an array of inclusive `{min,max}` bounds from the shared evaluator, empty for
+unknown policy). Aggregate precedence is unsupported, then unknown, then supported;
+inspect all entries for a mixed fleet. No local pip metadata is used.
+
+Discovery uses only successfully probed local URLs and the active profile, with
+`--timeout` as the fleet pong window (default 2s; also each server probe timeout).
+It checks every unique valid live responder, never stored machine states; offline
+or late edges are not certified. Compatibility policy and SDK wire formats are
+unchanged. For example, after a transport failure the dependent fields include:
+
+```json
+{
+  "jetstream": {"status": "not_checked", "reason": "nats_unreachable", "ok": false},
+  "compatibility": {
+    "status": "not_checked", "reason": "nats_unreachable",
+    "advisory_only": true, "cli_version": "dev", "machines": []
+  }
+}
+```
+
+This snippet shows only the dependent fields, not the complete report.
 
 ## Update compatibility preflight
 

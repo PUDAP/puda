@@ -3,10 +3,12 @@ package cli
 import (
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	compatibility "github.com/PUDAP/puda"
 	pudanats "github.com/PUDAP/puda/apps/cli/internal/nats"
+	natsio "github.com/nats-io/nats.go"
 	"github.com/spf13/cobra"
 )
 
@@ -27,9 +29,11 @@ reported separately; a different cluster name is expected and is not degraded.
 JetStream is reported per cluster, not blended.
 
 A fresh fleet ping checks all responding edges' advertised Python SDK versions
-against the bundled compatibility policy. Advisories go to stderr only and never
-change the NATS report or exit status. No replies or failed discovery means
-compatibility was not checked; offline edges cannot be evaluated.
+against the bundled compatibility policy. The advisory-only compatibility result
+is included in the report and never changes NATS health or exit status. No replies
+or failed discovery means compatibility was not checked; offline edges cannot be evaluated.
+Transport errors appear once per affected server; dependent checks use status/reason.
+A completed report does not print compatibility prose or redundant errors to stderr.
 
 Output is a JSON object by default. Use --human for a text summary.
 The command exits non-zero if the local cluster is degraded or unhealthy, or if
@@ -43,6 +47,12 @@ func init() {
 	healthcheckCmd.Flags().DurationVar(&healthcheckTimeout, "timeout", 2*time.Second, "Timeout for each server probe and the fleet pong collection window")
 }
 
+// Only returned after a complete report was successfully written. Execute keeps
+// the failure exit code without printing a redundant unstructured error.
+type healthcheckReportedError struct{ status string }
+
+func (e *healthcheckReportedError) Error() string { return "NATS healthcheck " + e.status }
+
 func runHealthcheck(cmd *cobra.Command, args []string) error {
 	conn, err := prepareConnection()
 	if err != nil {
@@ -55,20 +65,108 @@ func runHealthcheck(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	report.Compatibility = checkHealthCompatibility(report, healthcheckTimeout)
 	if err := writeHealthReport(cmd.OutOrStdout(), report, healthcheckHuman); err != nil {
 		return err
 	}
-	writeHealthcheckCompatibility(cmd.ErrOrStderr(), servers, healthcheckTimeout)
 	if report.Status != pudanats.HealthOK {
-		return fmt.Errorf("NATS healthcheck %s", report.Status)
+		return &healthcheckReportedError{status: report.Status}
 	}
 	return nil
 }
 
-// writeHealthcheckCompatibility is advisory only: fleet discovery must not change
-// the NATS health report or exit status, including when discovery is unavailable.
-func writeHealthcheckCompatibility(w io.Writer, servers string, timeout time.Duration) {
-	writeFleetCompatibility(w, servers, timeout, Version, compatibility.Bundled(), "")
+// Discovery is bounded and advisory. Probe failures live only on their servers;
+// connect only to successfully probed local URLs, never re-diagnose known failures.
+func checkHealthCompatibility(report pudanats.HealthReport, timeout time.Duration) *pudanats.CompatibilityHealth {
+	result := &pudanats.CompatibilityHealth{
+		Status: "not_checked", Reason: "nats_unreachable", AdvisoryOnly: true,
+		CLIVersion: Version, Machines: []pudanats.MachineCompatibilityHealth{},
+	}
+	if report.Cluster.Reachable == 0 {
+		return result
+	}
+	if timeout <= 0 {
+		timeout = 2 * time.Second
+	}
+	var urls []string
+	for _, server := range report.Servers {
+		if server.Status == "ok" {
+			urls = append(urls, server.URL)
+		}
+	}
+	result.Reason = "discovery_error"
+	// Only this advisory connection owns these handlers. Keep the first async
+	// discovery error instead of nats.go's default unstructured stderr output.
+	discoveryErrors := make(chan error, 1)
+	closed := make(chan struct{})
+	nc, err := pudanats.Connect(strings.Join(urls, ","), natsio.Timeout(timeout), natsio.NoReconnect(),
+		natsio.ErrorHandler(func(_ *natsio.Conn, _ *natsio.Subscription, err error) {
+			select {
+			case discoveryErrors <- err:
+			default:
+			}
+		}),
+		natsio.ClosedHandler(func(_ *natsio.Conn) { close(closed) }),
+	)
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	pongs, err := pudanats.ListMachinePongs(nc, timeout)
+	// ListMachinePongs flushes both the SUB and PUB, so server permission
+	// errors are parsed before it finishes. Flush does not wait for async
+	// handlers: Close then await the FIFO closed callback before reading the
+	// captured error, including when discovery returned early or timed out.
+	nc.Close()
+	pudanats.WaitClosed(closed, timeout)
+	select {
+	case discoveryErr := <-discoveryErrors:
+		if err == nil {
+			err = discoveryErr
+		}
+	default:
+	}
+	return evaluateHealthCompatibility(pongs, err)
+}
+
+// evaluateHealthCompatibility keeps edges that replied even when discovery
+// also reported an error; reason discovery_incomplete marks a partial result.
+func evaluateHealthCompatibility(pongs []pudanats.PingResult, discoveryErr error) *pudanats.CompatibilityHealth {
+	result := &pudanats.CompatibilityHealth{
+		Status: "not_checked", AdvisoryOnly: true,
+		CLIVersion: Version, Machines: []pudanats.MachineCompatibilityHealth{},
+	}
+	if discoveryErr != nil {
+		result.Error = discoveryErr.Error()
+	}
+	if len(pongs) == 0 {
+		result.Reason = "no_responders"
+		if discoveryErr != nil {
+			result.Reason = "discovery_error"
+		}
+		return result
+	}
+	result.Status = "supported"
+	if discoveryErr != nil {
+		result.Reason = "discovery_incomplete"
+	}
+	policy := compatibility.Bundled()
+	// ListMachinePongs already validates and deduplicates successful responders.
+	for _, pong := range pongs {
+		evaluation := policy.Evaluate(Version, pong.SDKVersion)
+		ranges := evaluation.Ranges
+		if ranges == nil {
+			ranges = []compatibility.Range{}
+		}
+		result.Machines = append(result.Machines, pudanats.MachineCompatibilityHealth{
+			MachineID: pong.MachineID, SDKVersion: pong.SDKVersion,
+			Status: evaluation.Status, SupportedRanges: ranges,
+		})
+		if evaluation.Status == compatibility.Unsupported || (evaluation.Status == compatibility.Unknown && result.Status == "supported") {
+			result.Status = string(evaluation.Status)
+		}
+	}
+	return result
 }
 
 func writeHealthReport(w io.Writer, report pudanats.HealthReport, human bool) error {
@@ -85,6 +183,9 @@ func writeHealthReport(w io.Writer, report pudanats.HealthReport, human bool) er
 		return writeJSON(w, report)
 	}
 
+	destination := w
+	var text strings.Builder
+	w = &text
 	fmt.Fprintf(w, "status: %s\n", report.Status)
 	fmt.Fprintf(w, "servers: %d/%d reachable\n", report.Cluster.Reachable, report.Cluster.Configured)
 	for _, server := range report.Servers {
@@ -117,11 +218,31 @@ func writeHealthReport(w io.Writer, report pudanats.HealthReport, human bool) er
 			report.JetStream.Memory,
 			report.JetStream.Storage,
 		)
+	} else if report.JetStream.Status == "not_checked" {
+		fmt.Fprintf(w, "jetstream: not_checked: %s\n", report.JetStream.Reason)
 	} else {
 		fmt.Fprintf(w, "jetstream: failed: %s\n", report.JetStream.Error)
 	}
+	if result := report.Compatibility; result != nil {
+		fmt.Fprintf(w, "compatibility: %s (advisory only) cli=%s", result.Status, result.CLIVersion)
+		if result.Reason != "" {
+			fmt.Fprintf(w, " reason=%s", result.Reason)
+		}
+		if result.Error != "" {
+			fmt.Fprintf(w, " error=%s", result.Error)
+		}
+		fmt.Fprintln(w)
+		for _, edge := range result.Machines {
+			fmt.Fprintf(w, "  %s: sdk=%q %s", edge.MachineID, edge.SDKVersion, edge.Status)
+			for _, bounds := range edge.SupportedRanges {
+				fmt.Fprintf(w, " supported=%s..%s (inclusive)", bounds.Min, bounds.Max)
+			}
+			fmt.Fprintln(w)
+		}
+	}
 	if len(report.Gateways) == 0 {
-		return nil
+		_, err := io.WriteString(destination, text.String())
+		return err
 	}
 	fmt.Fprintf(w, "gateways: %d\n", len(report.Gateways))
 	for _, gateway := range report.Gateways {
@@ -155,9 +276,12 @@ func writeHealthReport(w io.Writer, report pudanats.HealthReport, human bool) er
 				gateway.JetStream.Memory,
 				gateway.JetStream.Storage,
 			)
+		} else if gateway.JetStream.Status == "not_checked" {
+			fmt.Fprintf(w, "    jetstream: not_checked: %s\n", gateway.JetStream.Reason)
 		} else {
 			fmt.Fprintf(w, "    jetstream: failed: %s\n", gateway.JetStream.Error)
 		}
 	}
-	return nil
+	_, err := io.WriteString(destination, text.String())
+	return err
 }

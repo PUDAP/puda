@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -104,8 +105,9 @@ var rootCmd = &cobra.Command{
 		// The `update` command already performs its own fresh version check
 		// and prints its own result, so skip the background notifier to
 		// avoid printing a stale "update available" notice right after the
-		// update has just been applied.
-		if cmd.Name() == "update" {
+		// update has just been applied. Healthcheck is a self-contained machine
+		// report: do not add unrelated network delays or stderr notices.
+		if cmd.Name() == "update" || cmd == healthcheckCmd {
 			return
 		}
 		update.CheckForUpdateInBackground(Version, &notifyWg, &noticeOutput)
@@ -125,6 +127,10 @@ func Execute() error {
 		fmt.Fprint(os.Stderr, noticeOutput)
 	}
 	if err != nil {
+		var reported *healthcheckReportedError
+		if errors.As(err, &reported) {
+			return err
+		}
 		if isCommandLineError(err) {
 			if cmd == nil {
 				cmd = rootCmd

@@ -1,5 +1,11 @@
 # PUDA CLI changelog
 
+## Unreleased
+
+### Changed
+
+- `puda healthcheck` now emits exactly one JSON report for agents. SDK compatibility is included as an advisory `compatibility` object (`supported`/`unsupported`/`unknown`, or `not_checked` with `nats_unreachable`, `no_responders` or `discovery_error`; `discovery_incomplete` when some edges replied before an error), listed after `gateways`. Transport errors appear once, on the affected server; dependent JetStream checks report `status`/`reason` (`not_checked` vs `failed`), and JetStream or discovery permission denials are captured in the report instead of leaking to stderr. Unhealthy reports still exit 1 but no longer print a redundant `Error: NATS healthcheck …` line or compatibility prose on stderr. Configuration and output errors remain visible.
+
 ## 0.1.6 — 2026-11-16
 
 ### Added

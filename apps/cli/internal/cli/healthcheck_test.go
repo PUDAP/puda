@@ -2,74 +2,64 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
+	compatibility "github.com/PUDAP/puda"
 	pudanats "github.com/PUDAP/puda/apps/cli/internal/nats"
 )
 
-func TestHealthcheckCommandMetadata(t *testing.T) {
-	if got, want := healthcheckCmd.Use, "healthcheck"; got != want {
-		t.Fatalf("Use=%q want=%q", got, want)
+// Overall NATS status leads the default JSON; the advisory follows the NATS checks.
+func TestWriteHealthReportJSONOrder(t *testing.T) {
+	report := pudanats.HealthReport{
+		Status:        pudanats.HealthOK,
+		Compatibility: &pudanats.CompatibilityHealth{Status: "not_checked"},
 	}
-	if healthcheckCmd.Flags().Lookup("human") == nil {
-		t.Fatal("healthcheck command must expose --human")
+	var out bytes.Buffer
+	if err := writeHealthReport(&out, report, false); err != nil {
+		t.Fatal(err)
 	}
-	if healthcheckCmd.Flags().Lookup("timeout") == nil {
-		t.Fatal("healthcheck command must expose --timeout")
+	text := out.String()
+	if !strings.HasPrefix(text, "{\n  \"status\":") {
+		t.Fatalf("status must be first: %s", text)
 	}
-	for _, want := range []string{"Python SDK", "stderr", "responding"} {
-		if !strings.Contains(healthcheckCmd.Long, want) {
-			t.Fatalf("healthcheck help missing %q", want)
-		}
-	}
-	if !strings.Contains(healthcheckCmd.Flags().Lookup("timeout").Usage, "fleet") {
-		t.Fatal("timeout help must describe the fleet discovery window")
+	if strings.Index(text, `"compatibility":`) < strings.Index(text, `"gateways":`) {
+		t.Fatalf("compatibility must follow gateways: %s", text)
 	}
 }
 
-func TestWriteHealthReportJSONIsDefault(t *testing.T) {
-	report := pudanats.HealthReport{
-		Status: pudanats.HealthDegraded,
-		Servers: []pudanats.ServerHealth{
-			{URL: "nats://a:4222", Status: "ok", Name: "nats1", Cluster: "puda", JetStream: true, RTTMS: 1.25, Version: "2.10.22"},
-			{URL: "nats://b:4222", Status: "error", Error: "timeout"},
-		},
-		Cluster: pudanats.ClusterHealth{
-			Name:       "puda",
-			Configured: 2,
-			Reachable:  1,
-			Discovered: []string{"nats://a:4222"},
-		},
-		JetStream: pudanats.JetStreamHealth{OK: true, Streams: 4, Consumers: 2, Memory: 10, Storage: 20},
-		Gateways: []pudanats.GatewayHealth{
-			{
-				Cluster:    "imre",
-				Status:     pudanats.HealthOK,
-				Configured: 1,
-				Reachable:  1,
-				Servers:    []pudanats.ServerHealth{{URL: "nats://b:4222", Status: "ok", Cluster: "imre", JetStream: true}},
-				JetStream:  pudanats.JetStreamHealth{OK: true, Streams: 3},
-			},
-		},
+// Edges that replied are still evaluated when discovery also reported an error.
+func TestHealthCompatibilityKeepsRespondersOnDiscoveryError(t *testing.T) {
+	pongs := []pudanats.PingResult{{MachineID: "edge", Status: "pong", SDKVersion: "0.0.22"}}
+	result := evaluateHealthCompatibility(pongs, errors.New("nats: permissions violation"))
+	if len(result.Machines) != 1 || result.Machines[0].MachineID != "edge" {
+		t.Fatalf("responders dropped: %+v", result)
 	}
-	var buf bytes.Buffer
-	if err := writeHealthReport(&buf, report, false); err != nil {
+	if result.Status == "not_checked" || result.Reason != "discovery_incomplete" || !strings.Contains(result.Error, "permissions violation") {
+		t.Fatalf("partial discovery not identified: %+v", result)
+	}
+}
+
+func TestHealthcheckHumanCompatibilityAndWriteFailures(t *testing.T) {
+	report := pudanats.HealthReport{Status: "unhealthy", JetStream: pudanats.JetStreamHealth{Status: "not_checked", Reason: "nats_unreachable"}, Compatibility: &pudanats.CompatibilityHealth{Status: "unknown", AdvisoryOnly: true, Machines: []pudanats.MachineCompatibilityHealth{{MachineID: "edge", SDKVersion: "dev", Status: compatibility.Unknown}}}}
+	var out bytes.Buffer
+	if err := writeHealthReport(&out, report, true); err != nil {
 		t.Fatal(err)
 	}
-	var payload pudanats.HealthReport
-	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
-		t.Fatalf("default output is not JSON: %v\n%s", err, buf.String())
+	for _, want := range []string{"jetstream: not_checked: nats_unreachable", "compatibility: unknown", "edge", "dev", "advisory only"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("missing %q: %s", want, out.String())
+		}
 	}
-	if payload.Status != pudanats.HealthDegraded || payload.Cluster.Reachable != 1 || !payload.JetStream.OK {
-		t.Fatalf("payload=%+v", payload)
-	}
-	if payload.Servers[0].Name != "nats1" || payload.Servers[1].Error != "timeout" {
-		t.Fatalf("servers=%+v", payload.Servers)
-	}
-	if len(payload.Gateways) != 1 || payload.Gateways[0].Cluster != "imre" || payload.Gateways[0].JetStream.Streams != 3 {
-		t.Fatalf("gateways=%+v", payload.Gateways)
+	// Human output has two return paths (with and without gateways); JSON one.
+	for _, gateways := range [][]pudanats.GatewayHealth{nil, {{Status: "unhealthy", JetStream: pudanats.JetStreamHealth{Status: "not_checked", Reason: "nats_unreachable"}}}} {
+		report.Gateways = gateways
+		for _, human := range []bool{false, true} {
+			if err := writeHealthReport(failedDiscoveryWriter{}, report, human); err == nil || !strings.Contains(err.Error(), "write failed") {
+				t.Errorf("human=%t gateways=%d lost output failure: %v", human, len(gateways), err)
+			}
+		}
 	}
 }
 
@@ -132,7 +122,7 @@ func TestWriteHealthReportHumanJetStreamFailure(t *testing.T) {
 			{URL: "nats://a:4222", Status: "ok", Name: "nats1", JetStream: false, RTTMS: 0.5},
 		},
 		Cluster:   pudanats.ClusterHealth{Configured: 1, Reachable: 1, Discovered: []string{"nats://a:4222"}},
-		JetStream: pudanats.JetStreamHealth{Error: "JetStream not enabled"},
+		JetStream: pudanats.JetStreamHealth{Status: "failed", Reason: "jetstream_error", Error: "JetStream not enabled"},
 	}
 	var buf bytes.Buffer
 	if err := writeHealthReport(&buf, report, true); err != nil {
