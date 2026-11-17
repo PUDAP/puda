@@ -19,18 +19,12 @@ Before operating machines, follow the execution policy in **puda-protocol** (pro
 
 ## Inspect machines
 
-```bash
-puda healthcheck
-puda machine list
-puda machine info <id>
-puda machine state
-puda machine commands <id>
-puda machine watch <full-subject> --timeout 15
-```
+Use `puda machine --help` and `puda healthcheck --help` for commands and flags.
 
-Run `puda healthcheck` first to check broker connectivity for the active profile. It prints one JSON report (`--human` for text; `--timeout` per probe) with `status` `ok`, `degraded`, or `unhealthy`, and exits nonzero unless `ok`. Transport causes are in `servers[].error`; JetStream results are in `jetstream.status`/`reason`. Its `compatibility` object (`supported`/`unsupported`/`unknown`/`not_checked`, with a `reason` such as `nats_unreachable`, `no_responders`, `discovery_error`, or `discovery_incomplete`) is advisory only and never changes health status or exit code. To diagnose a failing report, use **puda-deployment**'s network and NATS reference.
-
-Discovery and stored state can be stale: inspect timestamps and verify responsiveness rather than assuming a listed machine is ready. `machine info` advertises telemetry streams with full subjects. `machine watch` accepts full subjects or `--machines`, not both; quote wildcard subjects and use a bounded timeout for inspection.
+- Start with `puda healthcheck` when connectivity is in doubt. `compatibility` is advisory; to diagnose a failing report, use **puda-deployment**'s network and NATS reference.
+- Run only the inspections the task needs, typically `machine info <id>` and `machine commands <id>` before authoring or running a protocol.
+- Listed machines and stored state can be stale: check timestamps and responsiveness before assuming a machine is ready.
+- Always give `machine watch` a bounded `--timeout`, and quote wildcard subjects.
 
 ## Task-specific references
 

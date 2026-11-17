@@ -6,24 +6,7 @@ Check installed command help for the exact interface. CLI and Python SDK version
 
 Before upgrading an older config, preserve a private backup and record the intended broker URLs and security paths. The user config is normally `~/.config/puda/config.json` on Linux, `~/Library/Application Support/puda/config.json` on macOS, or `%APPDATA%\puda\config.json` on Windows. Do not expose passwords or key contents. Legacy top-level `nats_servers` and `gateway_servers` do not provide a fallback; the CLI requires an active profile.
 
-Inspect before changing the selected lab:
-
-```bash
-puda profile list
-puda profile current
-```
-
-Login is not required; the CLI creates a default identity when none exists. Choose one connection mode using the actual lab addresses:
-
-```bash
-# Plaintext example
-puda profile add lab --servers nats://nats.example:4222
-puda profile switch lab
-
-# TLS + E2EE example (alternative connection)
-puda profile add secure-lab --servers tls://nats.example:4222 --ca /absolute/path/ca.pem --key /absolute/path/e2e.key
-puda profile switch secure-lab
-```
+Use `puda profile --help` for commands. Check `puda profile current` before changing the selected lab, and use the actual lab addresses. Login is not required; the CLI creates a default identity when none exists.
 
 - The first profile activates if none is selected. Adding another does not switch to it. `profile current` verifies selection.
 - Encrypted CLI profiles require both `--ca` and `--key`, and all URLs must use `tls://`. Plain profiles use `nats://` with neither file. Never mix schemes. File paths refer to the CLI host; profiles store paths, not key contents. Obtain the existing lab key, do not generate an unrelated replacement.
@@ -35,23 +18,9 @@ puda profile switch secure-lab
 
 ## User config versus project config
 
-```bash
-puda config list
-puda config get user.username
-puda config get user.user_id
-puda config get user.default
-puda config set user.username <username>
-```
-
 `config get` accepts `user.user_id`, `user.username`, and `user.default`; `config set` accepts only `user.user_id` and `user.username` (setting `user.username` replaces a default identity). `config list` prints three `key=value` lines (`user.user_id`, `user.username`, `user.default`), not JSON. `user.default=true` means the identity was derived from the OS username; run `puda login --username <name>` to choose one. Do not change the user's ID merely to change the selected lab. `config edit` opens the user config in an editor. Use `puda project config --help` for project settings.
 
 ## Discover streams before watching
-
-```bash
-puda machine list --timeout 3s
-puda machine info first,balance --timeout 3s
-puda machine info first --human
-```
 
 `list` broadcasts on `puda.cmd.ping` and reports responsive edges, descriptions, `livestream_count`, and `tlm_stream_count`. It is not a persisted inventory. `info` sends direct requests on `puda.<machine_id>.cmd.ping`; machine IDs may be comma-separated or separate arguments.
 
@@ -59,15 +28,7 @@ Info's JSON `results` array includes each machine's `status`, SDK version, run s
 
 ## Watch subjects
 
-```bash
-puda machine watch puda.first.tlm.stream.pos --timeout 15
-puda machine watch puda.first.tlm.stream.pos puda.balance.tlm.stream.weight --timeout 15
-puda machine watch 'puda.*.tlm.stream.>' --timeout 15
-puda machine watch --machines first,balance --timeout 15
-puda machine watch 'puda.*.tlm.heartbeat' --timeout 15
-```
-
-The first two examples assume info actually advertises those streams. Subjects are positional arguments, not machine IDs or short names such as `pos`. Subject arguments and `--machines` / `-m` are mutually exclusive. Without subjects, machine IDs expand to `puda.<id>.>`; with neither subjects nor IDs, the subscription is `puda.*.>`.
+Subjects are positional arguments, not machine IDs or short names such as `pos`. Subject arguments and `--machines` / `-m` are mutually exclusive. Without subjects, machine IDs expand to `puda.<id>.>`; with neither subjects nor IDs, the subscription is `puda.*.>`.
 
 Quote wildcard subjects. `*` matches one token; `>` matches remaining tokens and must be last. Watch uses live Core NATS subscriptions, not replay of stored telemetry. Silence may mean no samples were published during the window; it does not by itself prove the edge is offline.
 
