@@ -114,7 +114,7 @@ func (cfg *GlobalConfig) ActiveProfileConfig() (Profile, bool, error) {
 // ResolveConnection returns the active profile's NATS servers, gateway servers, and encryption settings.
 func ResolveConnection(cfg *GlobalConfig) (Connection, error) {
 	if cfg == nil {
-		return Connection{}, fmt.Errorf("failed to load global config (run 'puda login' first)")
+		return Connection{}, fmt.Errorf("global config is not loaded")
 	}
 
 	profile, active, err := cfg.ActiveProfileConfig()

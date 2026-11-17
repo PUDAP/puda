@@ -13,7 +13,7 @@ puda profile list
 puda profile current
 ```
 
-If no user config exists, log in with the user's supplied username first: `puda login -u <username>`. Choose one connection mode using the actual lab addresses:
+Login is not required; the CLI creates a default identity when none exists. Choose one connection mode using the actual lab addresses:
 
 ```bash
 # Plaintext example

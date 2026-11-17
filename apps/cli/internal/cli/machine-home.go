@@ -27,13 +27,10 @@ func init() {
 func homeMachines(w io.Writer, machineIDs []string) error {
 	globalConfig, err := puda.LoadGlobalConfig()
 	if err != nil {
-		return fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
+		return fmt.Errorf("failed to load global config: %w", err)
 	}
 	userID := globalConfig.User.UserID
 	username := globalConfig.User.Username
-	if userID == "" || username == "" {
-		return fmt.Errorf("user not logged in. Please run 'puda login' first")
-	}
 
 	nc, err := connectMachineNATS()
 	if err != nil {

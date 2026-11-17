@@ -9,8 +9,8 @@ puda
 ├── completion               Generate the autocompletion script for the specified shell
 ├── config                   Manage user config
 │   ├── edit                 Edit the user config file
-│   ├── get <key>            Read user.user_id or user.username
-│   ├── list                 List the logged-in user
+│   ├── get <key>            Read user.user_id, user.username or user.default
+│   ├── list                 List the user identity (user.default=true if derived from the OS)
 │   └── set <key> <value>    Set user.user_id or user.username
 ├── db
 │   ├── exec [sql]           Execute SQL commands on the database
@@ -21,8 +21,8 @@ puda
 ├── healthcheck              Check NATS server/cluster/gateway health (JSON; --human for text)
 ├── help                     Help about any command
 ├── init [path]              Initialize a new PUDA project (requires --name)
-├── login                    Log in to a PUDA account
-├── logout                   Log out of a PUDA account
+├── login                    Set your username (replaces the default identity)
+├── logout                   Clear your username; profiles are kept
 ├── machine                  Machine operations (JSON; --human for text)
 │   ├── commands <machine_id>  List commands the machine exposes [--command names] (JSON; --human for text)
 │   ├── home <machine_id> [machine_id...]  Home machine(s)
@@ -199,11 +199,19 @@ After extracting the CLI, place the `puda` binary in your PATH (Linux: `~/.local
 
 Then run the following:
 
-1. **Log in**
+1. **Choose a username (optional)**
    ```bash
-   puda login
+   puda login --username <name>
    ```
-   Enter your username when prompted.
+   Login is not required. Without it, the first command that needs an identity
+   (for example `puda init`, `puda config list` or a machine command) stores a
+   default identity in the global config: your OS username (Windows `DOMAIN\`
+   prefix removed, unsupported characters replaced by `-`, `puda-user` if
+   unavailable) plus a generated user ID, marked `user.default=true`. Later runs
+   reuse it. `puda login` replaces the default username and keeps that user ID.
+   No server is contacted. `puda logout` clears only the identity, keeping NATS
+   profiles and other settings; the next command creates a new default identity
+   with a new user ID. Neither command deletes an unreadable config file.
 
 2. **Install skills**
    ```bash

@@ -64,8 +64,8 @@ puda
 │   ├── rm                   Remove a livestream
 │   ├── attach               Attach machines to a livestream
 │   └── detach               Detach machines from a livestream
-├── login                    Log in to a PUDA account
-├── logout                   Log out of a PUDA account
+├── login                    Set your username (replaces the default identity)
+├── logout                   Clear your username; profiles are kept
 ├── config
 │   ├── list                 List configuration values
 │   └── edit                 Edit configuration in default editor

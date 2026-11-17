@@ -5,6 +5,10 @@
 ### Changed
 
 - `puda healthcheck` now emits exactly one JSON report for agents. SDK compatibility is included as an advisory `compatibility` object (`supported`/`unsupported`/`unknown`, or `not_checked` with `nats_unreachable`, `no_responders` or `discovery_error`; `discovery_incomplete` when some edges replied before an error), listed after `gateways`. Transport errors appear once, on the affected server; dependent JetStream checks report `status`/`reason` (`not_checked` vs `failed`), and JetStream or discovery permission denials are captured in the report instead of leaking to stderr. Unhealthy reports still exit 1 but no longer print a redundant `Error: NATS healthcheck …` line or compatibility prose on stderr. Configuration and output errors remain visible.
+- Login is no longer required. Commands that need an identity (`init`, machine commands, protocol runs, `config`) create and persist a default identity in the global config when none exists: the sanitized OS username plus a generated user ID, marked `"default": true`. Later runs reuse it. `puda config list` prints `user.default=<bool>`; `puda config get user.default` reads it.
+- `puda login --username <name>` replaces a default identity, keeping its user ID, and no longer prints simulated authentication-service messages. An explicit login still reports "already logged in". `config set user.username` also clears the default marker.
+- `puda logout` clears only the user identity; NATS profiles, CA/key paths and other settings are kept. With no explicit login it reports "You are not logged in." and changes nothing. The next command creates a new default identity with a new user ID.
+- Unreadable or unparseable global config files are no longer deleted by `login`; commands return an error and leave the file unchanged. Global config writes are atomic (temp file + rename, mode 0600).
 
 ## 0.1.6 — 2026-11-16
 

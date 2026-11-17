@@ -11,6 +11,7 @@ import (
 const (
 	configKeyUserID   = "user.user_id"
 	configKeyUsername = "user.username"
+	configKeyDefault  = "user.default"
 )
 
 var settableConfigKeys = []string{
@@ -21,6 +22,7 @@ var settableConfigKeys = []string{
 var getConfigKeys = []string{
 	configKeyUsername,
 	configKeyUserID,
+	configKeyDefault,
 }
 
 var configGetCmd = &cobra.Command{
@@ -36,7 +38,7 @@ var configGetCmd = &cobra.Command{
 var configSetCmd = &cobra.Command{
 	Use:   "set <user.user_id|user.username> <value>",
 	Short: "Set the logged-in user",
-	Long:  "Set the user ID or username. Login still generates a user ID when none exists.",
+	Long:  "Set the user ID or username. Setting user.username replaces a default identity.",
 	Args:  cobra.ExactArgs(2),
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
@@ -60,6 +62,8 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(cmd.OutOrStdout(), cfg.User.Username)
 	case configKeyUserID:
 		fmt.Fprintln(cmd.OutOrStdout(), cfg.User.UserID)
+	case configKeyDefault:
+		fmt.Fprintln(cmd.OutOrStdout(), cfg.User.Default)
 	default:
 		return fmt.Errorf("unknown config key %q; available keys: %v", key, getConfigKeys)
 	}
@@ -89,6 +93,7 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 		cfg.User.UserID = value
 	case configKeyUsername:
 		cfg.User.Username = value
+		cfg.User.Default = false
 	}
 
 	if err := puda.SaveGlobalConfig(cfg); err != nil {

@@ -9,7 +9,7 @@ Create or update protocol JSON under the project's `protocols/` directory. Reuse
 
 ## Workflow
 
-1. Check authentication and the project. If login is missing, ask the user to log in. For a new project, obtain its name and description, then use `puda init`.
+1. Check the project. Login is optional (a default identity is used without it). For a new project, obtain its name and description, then use `puda init`.
 2. Read [protocol format](references/format.md) for fields, IDs, timestamps, parallel steps, and CLI-only `wait` commands. Use the project UUID from `project.md`; generate a new protocol UUID and real UTC timestamp for a new protocol.
 3. Discover machines with `puda machine list`; consult machine references and previous protocols. Fetch `puda machine commands <machine_id>` for every machine command used. Ask the user if the correct machine or command remains unclear. Do not look up `wait` on a machine.
 4. Copy every advertised safety object unchanged. Follow its `requires` and `forbidden_when` conditions. Read [safety and execution](references/safety-and-execution.md) when handling safety metadata or running a protocol.

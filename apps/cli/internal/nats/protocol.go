@@ -370,7 +370,7 @@ func RunProtocol(protocolFile *puda.ProtocolFile, stepsExpr *string, confirmatio
 	// Load global config for NATS servers and user identity
 	globalCfg, err := puda.LoadGlobalConfig()
 	if err != nil {
-		return fmt.Errorf("failed to load global config (run 'puda login' first): %w", err)
+		return fmt.Errorf("failed to load global config: %w", err)
 	}
 
 	conn, err := puda.ResolveConnection(globalCfg)
@@ -385,9 +385,6 @@ func RunProtocol(protocolFile *puda.ProtocolFile, stepsExpr *string, confirmatio
 	// Fetch user identity from config
 	finalUserID := globalCfg.User.UserID
 	finalUsername := globalCfg.User.Username
-	if finalUserID == "" || finalUsername == "" {
-		return fmt.Errorf("user not logged in. Please run 'puda login' first")
-	}
 
 	// Insert run into database
 	runID := uuid.New().String()
