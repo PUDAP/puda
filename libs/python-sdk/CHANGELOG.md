@@ -9,6 +9,20 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
 
 ## [Unreleased]
 
+## [0.0.22] - 2026-11-16
+
+### Breaking
+
+- Health and named telemetry streams (including position/threadsafe publication)
+  emit `{timestamp, data: {...}}` instead of flattening measurements into the
+  outer object. This breaks consumers that read measurements at the top level:
+  upgrade consumers to accept both formats before upgrading SDK publishers.
+  The caller API is unchanged: pass/return plain dictionaries, not pre-wrapped
+  envelopes. Nested fields, nulls, and caller `timestamp`/`data` keys are preserved
+  inside `data`; the outer timestamp is the SDK publication time. Shared
+  `_publish`, heartbeat, state, command/response messages, subjects, encryption
+  framing, and polling/throttling behavior are unchanged.
+
 ## [0.0.21] - 2026-10-14
 
 ### Breaking

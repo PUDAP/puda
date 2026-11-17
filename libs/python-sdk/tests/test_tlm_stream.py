@@ -86,7 +86,7 @@ class TlmStreamClientTests(unittest.IsolatedAsyncioTestCase):
         for i in range(3):
             await client.publish_tlm_stream("ctrl", {"v": i})
         self.assertEqual(client._publish.await_count, 3)
-        client._publish.assert_awaited_with("puda.test-1.tlm.stream.ctrl", {"v": 2})
+        client._publish.assert_awaited_with("puda.test-1.tlm.stream.ctrl", {"data": {"v": 2}})
 
     async def test_undeclared_stream_is_declared(self):
         client = _client()
@@ -102,7 +102,7 @@ class TlmStreamClientTests(unittest.IsolatedAsyncioTestCase):
     async def test_position_uses_stream_subject(self):
         client = _client()
         await client.publish_position({"x": 1})
-        client._publish.assert_awaited_with("puda.test-1.tlm.stream.pos", {"x": 1})
+        client._publish.assert_awaited_with("puda.test-1.tlm.stream.pos", {"data": {"x": 1}})
         self.assertEqual(client.tlm_pos, "puda.test-1.tlm.stream.pos")
 
     async def test_threadsafe_publish_from_worker_thread(self):
@@ -115,7 +115,7 @@ class TlmStreamClientTests(unittest.IsolatedAsyncioTestCase):
         thread.start()
         thread.join()
         self.assertTrue(await asyncio.wrap_future(futures[0]))
-        client._publish.assert_awaited_with("puda.test-1.tlm.stream.w", {"g": 2})
+        client._publish.assert_awaited_with("puda.test-1.tlm.stream.w", {"data": {"g": 2}})
 
     async def test_threadsafe_publish_without_loop_is_skipped(self):
         client = _client()
@@ -155,7 +155,7 @@ class TlmStreamRunnerTests(unittest.IsolatedAsyncioTestCase):
             if c.args[0] == "puda.test-1.tlm.stream.weight"
         ]
         self.assertGreaterEqual(len(weight_publishes), 3)
-        self.assertEqual(weight_publishes[0].args[1], {"g": 1.5})
+        self.assertEqual(weight_publishes[0].args[1], {"data": {"g": 1.5}})
         self.assertEqual(runner._tlm_stream_tasks, [])
 
     async def test_none_result_is_skipped(self):

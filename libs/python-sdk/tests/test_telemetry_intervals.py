@@ -48,7 +48,7 @@ class RunnerHeartbeatTests(unittest.IsolatedAsyncioTestCase):
         vitals = {"cpu": 1.0, "mem": 2.0, "temp": None}
         with patch("puda.edge_runner.read_host_health", return_value=vitals):
             await self._run_loop_once(EdgeRunner(client, Driver()))
-        client._publish.assert_any_await(client.tlm_health, vitals)
+        client._publish.assert_any_await(client.tlm_health, {"data": vitals})
 
     async def test_host_health_is_throttled(self):
         client = EdgeNatsClient(["nats://localhost:4222"], "test-1")
@@ -108,7 +108,7 @@ class PositionIntervalTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(client._publish.await_count, 2)
         client._publish.assert_awaited_with(
-            client.tlm_pos, {"x": 3, "y": 3, "z": 3}
+            client.tlm_pos, {"data": {"x": 3, "y": 3, "z": 3}}
         )
 
     async def test_connection_reset_allows_immediate_position(self):

@@ -237,7 +237,7 @@ A Core NATS request with payload `ping` receives structured JSON:
   "status": "pong",
   "machine_id": "first",
   "timestamp": "2026-08-27T07:23:56Z",
-  "sdk_version": "0.0.21",
+  "sdk_version": "0.0.22",
   "uptime_seconds": 12.5,
   "run_status": "idle",
   "description": "Cartesian gantry for well-plate liquid handling.",
@@ -344,6 +344,34 @@ def get_position(self) -> dict[str, float]:
 - Subscribe to `puda.<machine_id>.tlm.stream.>` for every stream on a machine.
 
 For data that arrives as events from a driver thread rather than on a fixed schedule, call `nats_client.publish_tlm_stream_threadsafe("<name>", data)`.
+
+Health and named telemetry streams now use one wire envelope:
+
+```json
+{"timestamp":"2026-07-07T09:41:42Z","data":{"g":12.5,"fresh":true,"sensor":null}}
+```
+
+The outer timestamp is the SDK publication time. The entire caller dictionary
+goes inside `data`, without mutation or flattening; even caller `timestamp` and
+`data` keys remain measurement fields inside that object. Keep returning plain
+dictionaries from decorators and calling `publish_tlm_stream(name, data)` or
+`publish_health(vitals)` as before; do not pre-wrap them. Position and threadsafe
+stream publication use the same envelope. Polling/throttling and `None`-to-skip
+semantics are unchanged. Heartbeats, machine state, commands, responses, subjects
+and encryption framing are **not** changed.
+
+This is a telemetry **wire-format change** from flattened `{timestamp, ...data}`.
+Upgrade consumers before publishers: the companion ClickHouse logger accepts
+both formats and stores just the measurement object in its generic `data` String
+alongside unchanged `raw_json`; Influx and ReductStore health consumers have
+compatibility handling. Raw CLI watch and `tests/get_position.py` display the
+whole JSON unchanged. Custom consumers must read metrics under `data` for new
+publishers and retain fallback for old ones during rollout. The compatibility
+rule recognizes exactly `{timestamp, data}` with object-valued `data`, unwrapping
+once. Legacy objects with extra siblings keep those fields. An old flattened
+object containing only these two keys is inherently ambiguous and is interpreted
+as the new envelope; audit those publishers before rollout. There is no new
+marker/version key, no SDK caller-API change, and no automatic release/deployment.
 
 #### Machine state, heartbeat, and host health
 

@@ -553,6 +553,9 @@ class EdgeNatsClient:
 
     async def publish_tlm_stream(self, name: str, data: Dict[str, Any]) -> bool:
         """Publish one sample; undeclared names are declared without an interval."""
+        # Only telemetry uses the {timestamp, data} wire envelope. Keep caller
+        # dictionaries (including their own timestamp/data keys) intact inside it.
+        data = {"data": data}
         stream = self._tlm_streams.get(name)
         if stream is None:
             self.declare_tlm_stream(name)
@@ -583,7 +586,7 @@ class EdgeNatsClient:
 
     async def publish_health(self, vitals: Dict[str, Any]) -> None:
         """Publish system health vitals (CPU, memory, temperature, etc.)."""
-        await self._publish(self.tlm_health, vitals)
+        await self._publish(self.tlm_health, {"data": vitals})
 
     async def publish_state(self, data: Dict[str, Any]) -> None:
         """Overwrite machine state in the NATS KV store."""
