@@ -18,12 +18,13 @@ One PUDA deployment (lab, factory line, pilot plant, or cell) lives in one Git r
 puda-<deployment>/
 ├── README.md
 ├── .gitignore
-├── edges/<machine_id>/
-├── nats/
-├── chrony/
-├── logger/<database>/{server,logger}/
-├── grafana/
-├── livestream/
+├── edges/<machine_id>/          # code that talks to machines
+├── services/                    # shared services, each copied from a template
+│   ├── nats/
+│   ├── chrony/
+│   ├── <database>/{server,logger}/   # only the database in use; logger = PUDA logger
+│   ├── grafana/
+│   └── livestream/
 └── skills/<skill-name>/
 ```
 
@@ -40,10 +41,10 @@ curl -fsSL https://github.com/<owner>/<template>/archive/refs/heads/main.tar.gz 
 | Destination | Source archive | `--strip-components` and member |
 |---|---|---|
 | `edges/<machine_id>` | `PUDAP/edge-python-template` (or `edge-python-gui-template`) | `1` |
-| `nats` | `PUDAP/puda` | `3`, `puda-main/infra/nats/<layout> puda-main/infra/nats/jetstream` |
-| `chrony` | `PUDAP/puda` | `3`, `puda-main/infra/chrony` |
-| `logger/<database>` | `PUDAP/puda-logger` | `2`, `puda-logger-main/<database>` |
-| `grafana` | `PUDAP/puda-grafana` | `1` |
-| `livestream` | `PUDAP/livestream` | `1` |
+| `services/nats` | `PUDAP/puda` | `3`, `puda-main/infra/nats/<layout> puda-main/infra/nats/jetstream` |
+| `services/chrony` | `PUDAP/puda` | `3`, `puda-main/infra/chrony` |
+| `services/<database>` | `PUDAP/puda-logger` | `2`, `puda-logger-main/<database>` |
+| `services/grafana` | `PUDAP/puda-grafana` | `1` |
+| `services/livestream` | `PUDAP/livestream` | `1` |
 
 For a private template: `gh repo clone <owner>/<template> /tmp/<template> -- --depth 1`, copy the folder, then delete the clone. Record the source commit with `git ls-remote <url> HEAD`. Verify afterwards that `find . -mindepth 2 -name .git` prints nothing.
