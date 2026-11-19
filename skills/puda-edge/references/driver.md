@@ -26,7 +26,8 @@ Several instruments on one PC can share one uv workspace in `edges/`; each subdi
 - Parameters must be primitives (`str`, `int`, `float`, `bool`) or simple lists/dicts of primitives.
 - Document args, returns, and raised errors in every public docstring; they provide context for agents.
 - Raise on failure with the command, targets, and hardware response. Returning `False` is still a successful PUDA response (`{"result": false}`).
-- `shutdown`, `home`, and `reset` are optional. `shutdown` runs before the edge stops. `home` is triggered by `puda machine home`. `puda machine reset` always clears the active `run_id`, then calls `reset` if present.
+- `shutdown`, `home`, `reset`, and `estop` are optional. `shutdown` runs before the edge stops. `home` is triggered by `puda machine home`. `puda machine reset` always clears the active `run_id`, then calls `reset` if present; a successful reset also clears an emergency stop.
+- `estop` (SDK 0.0.23+) is the emergency stop for `puda machine estop`. It runs on its own thread while a queued command may still be executing, so it must not wait for the driver's other locks: send the controller's stop/halt directly so in-flight hardware calls return. Keep it fast, idempotent, and free of motion. The edge latches state `estopped` and rejects queued commands until a successful `reset`. Machines with physical motion, heat, pressure, or dosing should define `estop`; without it, estop only halts the queue.
 
 ```python
 from puda import command, safety
@@ -48,6 +49,12 @@ class Driver:
     def reset(self) -> bool:
         """Software reset. Optional. `puda machine reset` clears the run first, then calls this if present."""
         ...
+
+    @command
+    def estop(self) -> bool:
+        """Emergency stop. Optional. Runs on its own thread for `puda machine estop`; halts the controller immediately."""
+        self._hardware.halt()  # controller stop; must not wait for locks held by a running command
+        return True
 
     @command
     def move_to(self, x_mm: float, y_mm: float, z_mm: float) -> bool:

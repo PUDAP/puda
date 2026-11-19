@@ -13,7 +13,7 @@ rules, with no duplicated per-release lists or named groups. **Every `min` and
     },
     {
       "cli": {"min": "0.1.0", "max": "0.1.6"},
-      "python_sdk": {"min": "0.0.17", "max": "0.0.22"}
+      "python_sdk": {"min": "0.0.17", "max": "0.0.23"}
     }
   ]
 }
@@ -32,7 +32,10 @@ qualification**. Historical software-only checks observed SDK 0.0.17, 0.0.18,
 0.0.19, 0.0.21 and locally built pending 0.0.22. SDK 0.0.20 was not published or
 tested; the range nevertheless implies support for a stable 0.0.20 report.
 It does not create a published artifact or qualification result. The modern SDK
-maximum remains 0.0.22, not the illustrative future 0.1.0 boundary.
+maximum is 0.0.23 (pending; adds the `estop` immediate command), not the
+illustrative future 0.1.0 boundary. Older 0.1.x-compatible SDKs answer
+`puda machine estop` with "Unknown immediate command: estop"; everything else is
+unchanged.
 
 Only stable three-component numeric versions are evaluated. Prerelease/dev/local
 CLI or SDK reports remain unknown, including prerelease tags numerically between
