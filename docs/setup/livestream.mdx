@@ -35,15 +35,15 @@ rtsp://user:pass@192.168.1.50:554/stream1
 Copy the [livestream](https://github.com/PUDAP/livestream) template into your [deployment monorepo](./deployment-monorepo) as a plain folder, without a nested `.git`. From the repository root:
 
 ```bash
-mkdir -p livestream
+mkdir -p services/livestream
 curl -fsSL https://github.com/PUDAP/livestream/archive/refs/heads/main.tar.gz \
-  | tar -xz --strip-components=1 -C livestream
+  | tar -xz --strip-components=1 -C services/livestream
 ```
 
-Commit the folder. For several camera hosts, use one folder per host, such as `livestream/<host>/`. On the camera host, check out the deployment monorepo and open the folder:
+Commit the folder. For several camera hosts, use one folder per host, such as `services/livestream/<host>/`. On the camera host, check out the deployment monorepo and open the folder:
 
 ```bash
-cd puda-<deployment>/livestream
+cd puda-<deployment>/services/livestream
 ```
 
 ## 3. Copy the example environment file

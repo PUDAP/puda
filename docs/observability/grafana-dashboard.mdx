@@ -15,15 +15,15 @@ Grafana can run on any machine that has network access to the InfluxDB server on
 Add the template to your [deployment monorepo](../setup/deployment-monorepo) as a plain folder, without a nested `.git`. From the repository root:
 
 ```bash
-mkdir -p grafana
+mkdir -p services/grafana
 curl -fsSL https://github.com/PUDAP/puda-grafana/archive/refs/heads/main.tar.gz \
-  | tar -xz --strip-components=1 -C grafana
+  | tar -xz --strip-components=1 -C services/grafana
 ```
 
 Commit the folder. On the machine that will host Grafana, check out the deployment monorepo and configure Grafana:
 
 ```bash
-cd puda-<deployment>/grafana
+cd puda-<deployment>/services/grafana
 cp .env.example .env
 ```
 
@@ -66,7 +66,7 @@ The template ships with lab dashboards provisioned from `./dashboards`:
 | VIPSA | `/d/vipsa-v2` | VIPSA |
 | Joule Heater | `/d/joule_heater` | Joule Heater status and command logs |
 
-Add or customize dashboards by editing the JSON files in `dashboards/` or creating new ones in the Grafana UI and exporting them back to `grafana/dashboards/` in your deployment monorepo.
+Add or customize dashboards by editing the JSON files in `dashboards/` or creating new ones in the Grafana UI and exporting them back to `services/grafana/dashboards/` in your deployment monorepo.
 
 ## Data sources
 

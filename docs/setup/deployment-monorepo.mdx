@@ -23,23 +23,23 @@ puda-<deployment>/
 ├── .gitignore
 ├── edges/
 │   └── <machine_id>/      # one edge service per machine
-├── nats/                  # the chosen NATS layout + jetstream/
-├── chrony/                # clock sync server + client/
-├── logger/
-│   └── <database>/        # only the database you use, e.g. influxdb/
-│       ├── server/
-│       └── logger/
-├── grafana/
-├── livestream/
+├── services/
+│   ├── nats/              # the chosen NATS layout + jetstream/
+│   ├── chrony/            # clock sync server + client/
+│   ├── <database>/        # only the database you use
+│   │   ├── server/        # the database server
+│   │   └── logger/        # the PUDA logger that writes to it
+│   ├── grafana/
+│   └── livestream/
 └── skills/
     └── <skill-name>/      # machine and workflow skills
 ```
 
-Add only the folders the deployment uses. Several edges on one PC can share a uv workspace; see [Multiple machines on one PC](./integrating-a-new-machine#multiple-machines-on-one-pc).
+`edges/` holds the code that talks to machines, `services/` the shared services, and `skills/` what the agent reads. Add only the folders the deployment uses. Several edges on one PC can share a uv workspace; see [Multiple machines on one PC](./integrating-a-new-machine#multiple-machines-on-one-pc).
 
 ## Copy templates into the deployment
 
-Everything else in this guide is a template: NATS, clock sync, the logger, Grafana, livestream, and the edge services. Copy the code into your deployment folder and change it as needed. The copied folder belongs to the deployment; commit every change to the deployment repository.
+Everything else in this guide is a template: NATS, clock sync, the logger, Grafana, livestream, and the edge services. Copy the code into its folder in the deployment (`edges/<machine_id>/` or `services/<name>/`) and change it as needed. The copied folder belongs to the deployment; commit every change to the deployment repository.
 
 Copy files only. Do not `git clone` a template into the deployment repository, add it as a submodule, or leave a nested `.git` directory.
 
@@ -62,7 +62,7 @@ Clone the deployment repository on every host, then start only the folders that 
 
 ```bash
 git clone https://github.com/<org>/puda-<deployment>.git
-cd puda-<deployment>/nats/single-node
+cd puda-<deployment>/services/nats/single-node
 cp .env.example .env
 docker compose up -d
 ```
@@ -72,10 +72,10 @@ To update a host, run `git pull`, then recreate that host's services. List hosts
 ```markdown title="README.md"
 | Host | Folders |
 |---|---|
-| nats-pc | nats/single-node, chrony |
-| nas | logger/influxdb/server |
-| mini-pc | logger/influxdb/logger, grafana |
-| robot-pc | edges/robot-arm, livestream |
+| nats-pc | services/nats/single-node, services/chrony |
+| nas | services/influxdb/server |
+| mini-pc | services/influxdb/logger, services/grafana |
+| robot-pc | edges/robot-arm, services/livestream |
 ```
 
 ## Deployment skills
