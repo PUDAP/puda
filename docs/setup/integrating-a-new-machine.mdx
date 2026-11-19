@@ -117,7 +117,7 @@ When writing the driver class:
 - Avoid exposing low-level helper methods as `@command` methods. Use private methods for internal helpers.
 - Raise an exception when a command fails. Returning `False` is still a successful PUDA response.
 - Publish live readings with [`@tlm_stream`](#telemetry-streams) and machine-level fields with [`@machine_state`](#machine-state). Keep `@machine_state` to cached values.
-- Lifecycle methods are optional: `shutdown` (called before the edge stops), `home` (triggered by `puda machine home`), and `reset` (`puda machine reset` always clears the run first).
+- Lifecycle methods are optional: `shutdown` (called before the edge stops), `home` (triggered by `puda machine home`), `reset` (`puda machine reset` always clears the run first), and `estop` (triggered by `puda machine estop`). Define [`estop`](#emergency-stop) for any machine with motion, heat, pressure, or dosing.
 
 These are standard good programming practices. In PUDA, they also become useful context for AI agents because the command names, docstrings, types, and errors describe what the machine can do and how failures should be interpreted.
 
@@ -161,7 +161,8 @@ These lifecycle methods are optional. Define them when the machine has matching 
 
 - `shutdown`: if defined, the edge calls it before the process stops so ports, sockets, and other resources are released.
 - `home`: if defined, triggered by `puda machine home <machine_id>`. Omit it if the machine has no home motion.
-- `reset`: if defined, `puda machine reset <machine_id>` calls it after clearing the active run ID. The CLI command still succeeds and clears the run if `reset` is omitted.
+- `reset`: if defined, `puda machine reset <machine_id>` calls it after clearing the active run ID. The CLI command still succeeds and clears the run if `reset` is omitted. A successful reset also clears an [emergency stop](#emergency-stop).
+- `estop`: if defined, `puda machine estop <machine_id>` calls it immediately, even while another command is running. See [Emergency stop](#emergency-stop).
 
 ```python title="driver.py"
 from puda import command
@@ -200,6 +201,51 @@ class Driver:
         """
         return True
 ```
+
+## Emergency stop
+
+Define an `estop` command on every driver that controls motion, heat, pressure, or dosing. `puda machine estop <machine_ids>` calls it on each machine in parallel, without asking for confirmation. It requires Python SDK 0.0.23 or later.
+
+```python title="driver.py"
+from puda import command
+
+class Driver:
+    @command
+    def estop(self) -> bool:
+        """
+        Emergency stop. Halts the controller immediately.
+
+        Returns:
+            bool: True once the stop was sent to the hardware
+        """
+        self._hardware.halt()
+        return True
+```
+
+When an estop arrives, the edge:
+
+1. Runs `estop` on its own thread. It does not wait for a queued command that is still running or for telemetry.
+2. Cancels the running queued command and ends the active run.
+3. Sets the machine state to `estopped`. Queued commands, `start`, and `resume` are rejected until `puda machine reset <machine_id>` succeeds.
+
+Write `estop` for that situation:
+
+- Send the controller's stop or halt directly. Do not wait for locks or connections held by a running command; the running command's hardware call should return once the controller stops.
+- Keep it fast and safe to call twice. It must not start any motion.
+- Raise if the stop cannot be sent, so the operator is told to use the physical stop.
+
+Cancelling the queued command only stops the edge waiting for it. The hardware stops because `estop` stops it.
+
+The CLI reports each machine separately:
+
+| Result | Meaning |
+|---|---|
+| `ok` | The driver's `estop` ran. |
+| `ESTOP_NOT_SUPPORTED` | The driver has no `estop` command. The queue stopped, but no hardware stop was sent. |
+| `Unknown immediate command: estop` | The edge runs a Python SDK older than 0.0.23. |
+| timeout | The edge did not answer. The estop stays queued and applies when the edge reconnects. |
+
+Any result other than `ok` means the hardware may still be running. A software estop does not replace the machine's physical emergency stop.
 
 ## Command design
 
