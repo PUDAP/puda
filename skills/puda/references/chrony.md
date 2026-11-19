@@ -37,7 +37,7 @@ sudo timedatectl set-ntp false
 sudo systemctl disable --now chrony chronyd systemd-timesyncd 2>/dev/null || true
 ```
 
-From `infra/chrony` in the PUDA repo:
+From `chrony/` in the deployment monorepo (copied from `infra/chrony` in the PUDA repo as a plain folder; never clone the PUDA repo into the deployment):
 
 ```bash
 cp .env.example .env

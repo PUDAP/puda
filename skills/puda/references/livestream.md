@@ -4,7 +4,7 @@ Use [PUDAP/livestream](https://github.com/PUDAP/livestream) when a PUDA machine 
 
 Requires Docker Engine and Docker Compose on the camera host. Operators must reach that host on the same VPN used for PUDA.
 
-Do not assume, guess, or reuse example devices, URLs, stream names, or host addresses. After the user confirms the values below, clone/configure the stack and start it. Do not stop at printed instructions.
+Do not assume, guess, or reuse example devices, URLs, stream names, or host addresses. After the user confirms the values below, copy/configure the stack and start it. Do not stop at printed instructions.
 
 ## Collect from the user
 
@@ -38,11 +38,18 @@ If `MTX_WEBRTCADDITIONALHOSTS` is unknown, detect Tailscale and prefer MagicDNS 
 
 ## Setup
 
-Work on the **camera host**. Clone [PUDAP/livestream](https://github.com/PUDAP/livestream) to `~/workspace/livestream`. Reuse that checkout if it already exists.
+Add [PUDAP/livestream](https://github.com/PUDAP/livestream) to the deployment monorepo as a plain `livestream/` folder (use `livestream/<host>/` for several camera hosts). Reuse the folder if it already exists. Never `git clone` it into the repository. From the repository root:
 
 ```bash
-git clone https://github.com/PUDAP/livestream.git ~/workspace/livestream
-cd ~/workspace/livestream
+mkdir -p livestream
+curl -fsSL https://github.com/PUDAP/livestream/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=1 -C livestream
+```
+
+Commit the folder. On the **camera host**, check out the deployment monorepo and configure it:
+
+```bash
+cd <deployment-monorepo>/livestream
 cp .env.example .env
 ```
 

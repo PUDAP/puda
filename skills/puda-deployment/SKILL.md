@@ -17,6 +17,8 @@ Use this skill to install a new PUDA-connected tool or diagnose an incomplete in
 - Creating an installation log, incident record, or reusable SOP for a new tool.
 - Exporting deployment logs and learnings as a zip for the user.
 
+All deployment code and configuration lives in one deployment monorepo. Before adding any edge, service, or skill, read [references/deployment-monorepo.md](references/deployment-monorepo.md): copy templates in as plain folders, never `git clone` them into the repository or leave a nested `.git`.
+
 Do not use deployment as permission to move hardware. Motion, homing, gripping, or process commands require separate authorization and a clear workspace.
 
 ## Progressive gate sequence
@@ -27,7 +29,7 @@ Read only the reference for the current gate or symptom; load later gates when e
 2. **Host:** Run [scripts/preflight.sh](scripts/preflight.sh). Verify required commands, Docker access, clock, disk, and permissions.
 3. **Network/NATS:** Read [references/network-and-nats.md](references/network-and-nats.md), run the read-only inspectors [inspect-network.sh](scripts/inspect-network.sh) and [inspect-nats.sh](scripts/inspect-nats.sh), and prove host-to-controller and client-to-broker routes separately. `puda healthcheck` must report `ok`; on failure use network-and-nats.md.
 4. **PUDA:** Read [references/puda-cli-project.md](references/puda-cli-project.md). Verify CLI version, identity, skills, project root, and that `puda healthcheck` reports `ok` for the configured NATS endpoints.
-5. **Source/package:** Read [references/edge-packaging.md](references/edge-packaging.md). Verify repository access, clean Git state, Python/uv workspace packaging, Docker context, and environment loading.
+5. **Source/package:** Read [references/deployment-monorepo.md](references/deployment-monorepo.md) and [references/edge-packaging.md](references/edge-packaging.md). Verify the deployment monorepo has no nested `.git`, then repository access, clean Git state, Python/uv workspace packaging, Docker context, and environment loading.
 6. **Edge readiness:** Start/recreate only after configuration review; inspect with [inspect-edge.sh](scripts/inspect-edge.sh). Require driver initialized → NATS connected → command consumers ready → acceptable queue state → fresh discovery/state.
 7. **Controller:** Read [references/hardware-commissioning.md](references/hardware-commissioning.md). Use one session owner, read-only communication first, then a separately authorized low-risk command.
 8. **Labware:** Read [references/labware-alignment.md](references/labware-alignment.md). Calibrate approach, intermediate, and process poses with provenance and tolerances.
@@ -79,3 +81,4 @@ A deployment is complete only when:
 5. Restarting/rebuilding can change controller session or queue behavior; inspect before retrying.
 6. A second controller diagnostic session may disrupt the edge-owned session.
 7. Site-specific IPs, coordinates, and active-low outputs are not portable defaults.
+8. A template cloned into the deployment monorepo creates a nested `.git`; the parent repository then tracks nothing inside it. Copy templates as plain folders.

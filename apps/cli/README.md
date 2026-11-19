@@ -237,6 +237,24 @@ Unspecified custom skills and project-local installs are left alone. To opt into
 Streamlit explicitly, use `puda skills install streamlit/agent-skills` or
 `puda skills update streamlit/agent-skills`. Existing Streamlit skills are not removed.
 
+### Local skills (deployment monorepo)
+
+Pass a local directory to symlink its skills instead of copying them, so edits
+made through the agent stay in the source repository:
+
+```bash
+puda skills install ~/puda-<deployment>/skills
+```
+
+Any existing directory, or an argument starting with `./`, `../`, `/` or `~`, is
+local. It can be one skill folder, a folder of skills, or a repository root with
+`skills/`. Each skill is linked as `~/.agents/skills/<name>`, and from there into
+`$HERMES_HOME/skills` (default `~/.hermes/skills`), `~/.claude/skills` and
+`~/.cursor/skills` when those agents are installed. Each link is printed as
+`symlinked <target> -> <source>`. Existing symlinks are replaced; a copied
+folder with the same name is never deleted and makes the command exit non-zero
+after the other skills are linked. Local paths never go through npx.
+
 Upgrading the CLI and running `puda skills update` re-adds official skills from
 the new release, replacing same-name legacy `PUDAP/skills` lock entries. It does
 not remove legacy-only skills such as `puda-memory`. See the

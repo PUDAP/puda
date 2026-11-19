@@ -8,11 +8,13 @@ The architecture is `EdgeRunner` → `Driver(GuiDriver)` → `CuaDriverClient` �
 
 Use the GitHub repository as the source; no pre-existing local template directory is required.
 
-Clone it into a new machine project:
+Copy it into the deployment monorepo as a plain folder, without a nested `.git`. From the repository root:
 
 ```bash
-git clone https://github.com/PUDAP/edge-python-gui-template.git <machine-name>-gui-edge
-cd <machine-name>-gui-edge
+mkdir -p edges/<machine_id>
+curl -fsSL https://github.com/PUDAP/edge-python-gui-template/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=1 -C edges/<machine_id>
+cd edges/<machine_id>
 uv sync
 ```
 

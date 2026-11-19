@@ -2,7 +2,7 @@
 
 ## Repository
 
-Verify GitHub access with repository metadata and `git ls-remote`. Interpret private-repository `404`/`403` as an access/SSO/permission issue, not a bad clone command. Inspect `git status` before pull or patch.
+Edges live under `edges/<machine_id>/` in the deployment monorepo ([deployment-monorepo.md](deployment-monorepo.md)), not in their own repositories. Verify GitHub access with repository metadata and `git ls-remote`. Interpret private-repository `404`/`403` as an access/SSO/permission issue, not a bad clone command. Inspect `git status` before pull or patch.
 
 ## Python/uv workspace
 

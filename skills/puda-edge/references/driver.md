@@ -2,14 +2,20 @@
 
 ## Scaffold
 
-1. Create the repo from the template. Resolve every `TODO`.
+1. Copy the template into `edges/<machine_id>/` of the deployment monorepo as a plain folder, without a nested `.git`:
+   ```bash
+   mkdir -p edges/<machine_id>
+   curl -fsSL https://github.com/PUDAP/edge-python-template/archive/refs/heads/main.tar.gz \
+     | tar -xz --strip-components=1 -C edges/<machine_id>
+   ```
+   Resolve every `TODO`.
 2. Set a unique lowercase hyphenated `MACHINE_ID` in `.env` with `NATS_SERVERS`.
 3. Implement `driver.py`, then wire config and the driver into `main.py`.
 4. Keep helpers private (`_name`). Only `@command` methods are advertised.
 
 Verify with `puda machine commands <machine_id>` after the edge is connected.
 
-Several instruments on one PC can share one uv workspace; each subdirectory gets its own `MACHINE_ID`, `driver.py`, and `main.py`. See the docs and [PUDAP/ViPSA](https://github.com/PUDAP/ViPSA).
+Several instruments on one PC can share one uv workspace in `edges/`; each subdirectory gets its own `MACHINE_ID`, `driver.py`, and `main.py`. See the docs and [PUDAP/ViPSA](https://github.com/PUDAP/ViPSA).
 
 ## Driver
 
