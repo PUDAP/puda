@@ -6,7 +6,7 @@ sidebar_position: 1.5
 
 Keep everything a PUDA deployment runs in one Git repository: edge services and drivers, NATS, clock sync, the logger and its database, Grafana, livestreams, and agent skills. The services can run on different computers—a NATS mini PC, a NAS, an operator PC next to each instrument—but their code and configuration live together.
 
-A deployment can be a research lab, a factory line, a pilot plant, or a single cell. Name the repository `puda-<deployment>`, for example `puda-kalyonpv`.
+A deployment can be a research lab, a factory line, a pilot plant, or a single cell. Name the repository `puda-<deployment>`.
 
 One repository makes a deployment easier to maintain:
 
@@ -36,12 +36,6 @@ puda-<deployment>/
 ```
 
 Add only the folders the deployment uses. Several edges on one PC can share a uv workspace; see [Multiple machines on one PC](./integrating-a-new-machine#multiple-machines-on-one-pc).
-
-Examples:
-
-- [PUDAP/puda-kalyonpv](https://github.com/PUDAP/puda-kalyonpv): edge, logger, Grafana, clock sync, and systemd units.
-- [PUDAP/kaist-puda-fast-sintering](https://github.com/PUDAP/kaist-puda-fast-sintering/tree/main/puda): more than ten edges, NATS, InfluxDB, and Grafana under `puda/`, next to the vendor client code.
-- [leehm-beep/puda-SDL-electrolyte](https://github.com/leehm-beep/puda-SDL-electrolyte): a PLC edge, NATS, InfluxDB, Grafana, and a livestream.
 
 ## Copy templates as plain folders
 
