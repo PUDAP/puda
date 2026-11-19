@@ -1,6 +1,6 @@
 # PUDA CLI changelog
 
-## Unreleased
+## 0.1.6 — 2026-11-19
 
 ### Added
 

@@ -9,6 +9,8 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
 
 ## [Unreleased]
 
+## [0.0.23] - 2026-11-19
+
 ### Added
 
 - Emergency stop. A driver `@command` method named `estop` handles the new
