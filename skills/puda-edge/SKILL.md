@@ -5,7 +5,7 @@ description: Build and update PUDA Python edge drivers using a machine SDK/API o
 
 # PUDA Python edges
 
-Build thin Python hardware wrappers that connect to NATS and advertise typed, documented commands. Name the repository `puda-<machine_id>-edge`.
+Build thin Python hardware wrappers that connect to NATS and advertise typed, documented commands. Put each edge in the deployment monorepo under `edges/<machine_id>/`. Copy the template there as a plain folder; never `git clone` it into the repository or create a separate `puda-<machine_id>-edge` repository. See puda-deployment's `references/deployment-monorepo.md`.
 
 ## Select the task
 
