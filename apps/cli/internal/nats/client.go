@@ -208,6 +208,18 @@ func SendResetCommand(js nats.JetStreamContext, dispatcher *ResponseDispatcher, 
 	return SendImmediateCommand(js, dispatcher, request, runID, userID, username, timeoutSeconds, store)
 }
 
+// SendEstopCommand sends an ESTOP immediate command to a machine.
+func SendEstopCommand(js nats.JetStreamContext, dispatcher *ResponseDispatcher, machineID, runID, userID, username string, timeoutSeconds int, store *db.Store) (*puda.NATSMessage, error) {
+	request := puda.CommandRequest{
+		Name:       puda.ImmediateCommandEstop,
+		MachineID:  machineID,
+		Params:     make(map[string]interface{}),
+		StepNumber: 0,
+		Version:    "1.0",
+	}
+	return SendImmediateCommand(js, dispatcher, request, runID, userID, username, timeoutSeconds, store)
+}
+
 // SendPauseCommand sends a PAUSE immediate command to a machine
 func SendPauseCommand(js nats.JetStreamContext, dispatcher *ResponseDispatcher, machineID, runID, userID, username string, timeoutSeconds int, store *db.Store) (*puda.NATSMessage, error) {
 	request := puda.CommandRequest{

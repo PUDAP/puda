@@ -28,6 +28,8 @@ class CommandResponseCode(str, Enum):
     MISSING_RUN_ID = 'MISSING_RUN_ID'
     CANCEL_ERROR = 'CANCEL_ERROR'
     MACHINE_PAUSED = 'MACHINE_PAUSED'
+    MACHINE_ESTOPPED = 'MACHINE_ESTOPPED'
+    ESTOP_NOT_SUPPORTED = 'ESTOP_NOT_SUPPORTED'
 
 
 class MessageType(str, Enum):
@@ -47,6 +49,7 @@ class ImmediateCommand(str, Enum):
     RESUME = 'resume'
     CANCEL = 'cancel'
     RESET = 'reset'
+    ESTOP = 'estop'
 
 
 class MachineState(str, Enum):
@@ -59,6 +62,8 @@ class MachineState(str, Enum):
     PAUSED = 'paused'
     # The last state transition or command failed.
     ERROR = 'error'
+    # Emergency stop latched; queued commands are rejected until a successful reset.
+    ESTOPPED = 'estopped'
     # The edge is shutting down or disconnected cleanly.
     OFFLINE = 'offline'
 

@@ -11,6 +11,7 @@ import asyncio
 import inspect
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Awaitable
 
 from .command import (
@@ -158,6 +159,9 @@ class EdgeRunner:
                 Methods marked with ``@tlm_stream`` are polled at their own
                 interval and published as telemetry streams.
                 A ``@machine_state`` method supplies extra MACHINE_STATE fields.
+                A ``@command`` method named ``estop`` is the emergency stop:
+                it runs on its own thread for the ``estop`` immediate command,
+                even while a queued command is executing.
             telemetry_handler: Optional async callable run every second for
                 custom telemetry; no arguments. The runner publishes the
                 heartbeat and host health itself. Prefer ``@tlm_stream`` on
@@ -202,6 +206,14 @@ class EdgeRunner:
         self._tlm_stream_tasks: list[asyncio.Task] = []
         # Manage command execution state
         self.exec_state = ExecutionState()
+        # Dedicated threads so an emergency stop never waits behind queued
+        # commands or telemetry in the default executor.
+        self._estop_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="puda-estop")
+        if ImmediateCommand.ESTOP.value not in self.allowed_commands:
+            logger.warning(
+                "%s has no @command estop method; emergency stop will only halt the queue",
+                type(machine_driver).__name__,
+            )
         self.nats_client.set_runtime_status_handler(self.exec_state.get_runtime_status)
         # Self-update service; release driver resources before process exit
         self.updater = EdgeUpdater(
@@ -243,6 +255,7 @@ class EdgeRunner:
         except Exception as e:
             logger.warning("Failed to publish offline state: %s", e)
         await self._driver_shutdown()
+        self._estop_executor.shutdown(wait=False)
         try:
             await self.nats_client.disconnect()
         except Exception as e:
@@ -307,6 +320,14 @@ class EdgeRunner:
         command_name = message.command.name
         params = message.command.params or {}
         kwargs = message.command.kwargs
+
+        if command_name.lower() == ImmediateCommand.ESTOP:
+            # Through the queue, estop would wait for the running command.
+            return CommandResponse(
+                status=CommandResponseStatus.ERROR,
+                code=CommandResponseCode.EXECUTION_ERROR,
+                message="estop is an immediate command; use puda machine estop <machine_id>",
+            )
 
         logger.info("Queue command received: run_id=%s, command_name=%s, params=%s, kwargs=%s", run_id, command_name, params, kwargs)
 
@@ -380,6 +401,9 @@ class EdgeRunner:
         kwargs = message.command.kwargs
         run_id = message.header.run_id
 
+        if command_name.lower() == ImmediateCommand.ESTOP:
+            return await self._handle_estop(message)
+
         try:
             logger.info("Executing immediate command: %s (run_id: %s)", command_name, run_id)
             if (
@@ -407,10 +431,59 @@ class EdgeRunner:
                 message=str(e),
             )
 
+    async def _handle_estop(self, message: NATSMessage) -> CommandResponse:
+        """Run the driver ``estop`` and cancel the running queued command.
+
+        The driver call starts first, on a dedicated thread, so the hardware stop
+        is not delayed. Cancelling the queued command only stops waiting for it;
+        its worker thread returns once the hardware call does.
+        """
+        command = message.command
+        params = (command.params if command else None) or {}
+        kwargs = command.kwargs if command else None
+        stop: asyncio.Future | None = None
+        if ImmediateCommand.ESTOP.value in self.allowed_commands:
+            handler = getattr(self.machine_driver, ImmediateCommand.ESTOP.value)
+            merged = {**params, **(kwargs or {})}
+            stop = asyncio.get_running_loop().run_in_executor(
+                self._estop_executor, lambda: handler(**merged)
+            )
+        cancelled = await self.exec_state.cancel_current_execution()
+        if cancelled:
+            logger.critical("Emergency stop cancelled the running queued command")
+        await self.nats_client.publish_log("CRITICAL", "Emergency stop received")
+        if stop is None:
+            return CommandResponse(
+                status=CommandResponseStatus.ERROR,
+                code=CommandResponseCode.ESTOP_NOT_SUPPORTED,
+                message=(
+                    "Driver has no estop command: queue halted"
+                    + (" and running command cancelled" if cancelled else "")
+                    + ", but no hardware stop was sent"
+                ),
+            )
+        try:
+            result = await stop
+        except Exception as e:
+            logger.critical("Driver estop raised: %s", e, exc_info=True)
+            return CommandResponse(
+                status=CommandResponseStatus.ERROR,
+                code=CommandResponseCode.EXECUTION_ERROR,
+                message=f"Driver estop failed: {e}",
+            )
+        return CommandResponse(
+            status=CommandResponseStatus.SUCCESS,
+            data=_normalize_handler_result(result),
+        )
+
     # -- helpers -------------------------------------------------------------
 
     async def _publish_state(self, state: MachineState, run_id: str | None = None) -> None:
         # only default values here. EdgeNatsClient.publish_state() adds the registered state_handler fields.
+        commands = getattr(self.nats_client, "commands", None)
+        if state != MachineState.OFFLINE and getattr(commands, "is_estopped", False):
+            # Keep the latched estop visible across reconnects and command results.
+            state = MachineState.ESTOPPED
         payload: dict[str, Any] = {"state": state, "run_id": run_id}
         await self.nats_client.publish_state(payload)
 

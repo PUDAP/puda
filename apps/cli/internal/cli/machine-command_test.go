@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -270,5 +271,31 @@ func TestConfirmMachineCommandSkippedWithYes(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestMachineEstopCommandRegisteredWithoutConfirmation(t *testing.T) {
+	found := false
+	for _, sub := range machineCmd.Commands() {
+		if sub == machineEstopCmd {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("puda machine estop is not registered")
+	}
+	if machineEstopCmd.Flags().Lookup("yes") != nil {
+		t.Fatal("estop must not have a confirmation flag")
+	}
+	for _, want := range []string{"estopped", "puda machine reset", "ESTOP_NOT_SUPPORTED", "in parallel"} {
+		if !strings.Contains(machineEstopCmd.Long, want) {
+			t.Fatalf("estop help is missing %q", want)
+		}
+	}
+}
+
+func TestRunEstopRequiresMachineIDs(t *testing.T) {
+	if err := runEstopForMachines(io.Discard, nil, nil); err == nil {
+		t.Fatal("expected error without machine IDs")
 	}
 }

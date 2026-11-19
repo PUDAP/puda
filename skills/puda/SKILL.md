@@ -26,6 +26,10 @@ Use `puda machine --help` and `puda healthcheck --help` for commands and flags.
 - Listed machines and stored state can be stale: check timestamps and responsiveness before assuming a machine is ready.
 - Always give `machine watch` a bounded `--timeout`, and quote wildcard subjects.
 
+## Emergency stop
+
+When the operator asks to stop a machine urgently, or you observe a hazard during operation, run `puda machine estop <machine_ids>` immediately: no plan, no confirmation, no other command first. Then report each machine's result: `ok` means the driver estop ran; any error (`ESTOP_NOT_SUPPORTED`, unknown immediate command, timeout) means the hardware may still be running, so tell the operator to use the physical stop. The machine stays `estopped` and rejects commands until `puda machine reset`; reset only when the operator confirms it is safe.
+
 ## Task-specific references
 
 Read only the reference needed for the task:

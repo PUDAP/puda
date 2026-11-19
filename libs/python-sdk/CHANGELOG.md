@@ -9,6 +9,31 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
 
 ## [Unreleased]
 
+### Added
+
+- Emergency stop. A driver `@command` method named `estop` handles the new
+  `estop` immediate command (`ImmediateCommand.ESTOP`, sent by
+  `puda machine estop`). `EdgeRunner` runs it on a dedicated thread pool, so it is
+  not delayed by a running queued command or by telemetry, then cancels the
+  running queued command. `CommandProcessor` latches the stop before calling the
+  driver, ends the active run and publishes the new `MachineState.ESTOPPED`
+  (`estopped`). While latched, queued commands are discarded with
+  `MACHINE_ESTOPPED` (terminated, not redelivered), and `start`/`resume` are
+  refused; only a successful `reset` clears the latch. Published states stay
+  `estopped` across reconnects until then.
+- Drivers without `estop` still latch the queue and cancel the running command,
+  but the response is an `ESTOP_NOT_SUPPORTED` error stating that no hardware stop
+  was sent; the runner logs a warning at startup. `estop` sent through the queue is
+  rejected with a pointer to `puda machine estop`.
+
+### Notes
+
+- Cancelling the running queued command stops waiting for it; its worker thread
+  returns when the hardware call does. The driver's `estop` must make in-flight
+  hardware calls return (for example, by halting the controller).
+- Immediate commands are processed one at a time; an estop received while another
+  immediate command's driver call is running is handled when that call returns.
+
 ## [0.0.22] - 2026-11-16
 
 ### Breaking

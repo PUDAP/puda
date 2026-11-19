@@ -31,6 +31,7 @@ const (
 	ImmediateCommandResume   = "resume"
 	ImmediateCommandCancel   = "cancel"
 	ImmediateCommandReset    = "reset"
+	ImmediateCommandEstop    = "estop"
 )
 
 // WaitCommandName is a protocol command handled by the CLI. It is not sent to a machine.

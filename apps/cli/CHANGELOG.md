@@ -4,6 +4,7 @@
 
 ### Added
 
+- `puda machine estop <machine_ids>` sends the new `estop` immediate command to every listed machine in parallel, without a ping or confirmation, and reports JSON results. Edges with Python SDK 0.0.23+ run the driver's `estop` command on a dedicated thread, cancel the running queued command, end the active run and latch the machine in state `estopped` until `puda machine reset` succeeds. `ESTOP_NOT_SUPPORTED` means the driver has no `estop` command and no hardware stop was sent; older SDKs answer "Unknown immediate command: estop". `compatibility.json` extends the CLI 0.1.x rule to SDK 0.0.23.
 - `puda skills install <path>` and `puda skills update <path>` symlink skills from a local directory instead of copying them through npx, so edits stay in the source repository (for example a deployment monorepo's `skills/`). A path may be one skill folder, a folder of skills, or a repository root with `skills/`. Skills are linked as `~/.agents/skills/<name>` and into the skills directories of installed Hermes (`$HERMES_HOME`), Claude Code and Cursor; every link is printed as `symlinked <target> -> <source>`. Existing symlinks are replaced; copied folders with the same name are kept and reported with a non-zero exit. Missing path-like arguments and folders without skills fail before anything is installed.
 
 ### Changed
