@@ -37,61 +37,11 @@ puda-<deployment>/
 
 Add only the folders the deployment uses. Several edges on one PC can share a uv workspace; see [Multiple machines on one PC](./integrating-a-new-machine#multiple-machines-on-one-pc).
 
-## Copy templates as plain folders
+## Copy templates into the deployment
 
-PUDA templates are starting points: [puda-logger](https://github.com/PUDAP/puda-logger), [puda-grafana](https://github.com/PUDAP/puda-grafana), [livestream](https://github.com/PUDAP/livestream), [edge-python-template](https://github.com/PUDAP/edge-python-template), [edge-python-gui-template](https://github.com/PUDAP/edge-python-gui-template), and the NATS and chrony layouts in [PUDAP/puda](https://github.com/PUDAP/puda/tree/main/infra).
+Everything else in this guide is a template: NATS, clock sync, the logger, Grafana, livestream, and the edge services. Copy the code into your deployment folder and change it as needed. The copied folder belongs to the deployment; commit every change to the deployment repository.
 
-Copy the files into the deployment repository. Do not `git clone` a template into it, add it as a submodule, or keep a nested `.git` directory. Once copied, the folder belongs to the deployment, and every change is committed to the deployment repository.
-
-Download the template archive and extract only the folder you need. Run these from the repository root:
-
-```bash
-# Edge service, once per machine
-mkdir -p edges/<machine_id>
-curl -fsSL https://github.com/PUDAP/edge-python-template/archive/refs/heads/main.tar.gz \
-  | tar -xz --strip-components=1 -C edges/<machine_id>
-
-# NATS: the chosen layout plus jetstream/
-mkdir -p nats
-curl -fsSL https://github.com/PUDAP/puda/archive/refs/heads/main.tar.gz \
-  | tar -xz --strip-components=3 -C nats puda-main/infra/nats/single-node puda-main/infra/nats/jetstream
-
-# Clock sync, including client/
-mkdir -p chrony
-curl -fsSL https://github.com/PUDAP/puda/archive/refs/heads/main.tar.gz \
-  | tar -xz --strip-components=3 -C chrony puda-main/infra/chrony
-
-# Logger: only the database you use (influxdb, clickhouse, postgres, or reductstore)
-mkdir -p logger/influxdb
-curl -fsSL https://github.com/PUDAP/puda-logger/archive/refs/heads/main.tar.gz \
-  | tar -xz --strip-components=2 -C logger/influxdb puda-logger-main/influxdb
-
-# Grafana
-mkdir -p grafana
-curl -fsSL https://github.com/PUDAP/puda-grafana/archive/refs/heads/main.tar.gz \
-  | tar -xz --strip-components=1 -C grafana
-
-# Livestream
-mkdir -p livestream
-curl -fsSL https://github.com/PUDAP/livestream/archive/refs/heads/main.tar.gz \
-  | tar -xz --strip-components=1 -C livestream
-```
-
-`--strip-components` drops the archive's top directory and the path above the extracted folder. Replace `single-node` with the NATS layout you chose, and `influxdb` with your logger database.
-
-For a private template, clone it outside the deployment repository, copy the folder, and delete the clone:
-
-```bash
-gh repo clone <owner>/<template> /tmp/<template> -- --depth 1
-cp -r /tmp/<template>/<folder> <destination>
-rm -rf /tmp/<template>
-```
-
-Note the template and commit in the deployment `README.md` so later template changes can be compared and ported by hand:
-
-```bash
-git ls-remote https://github.com/PUDAP/puda-logger HEAD
-```
+Copy files only. Do not `git clone` a template into the deployment repository, add it as a submodule, or leave a nested `.git` directory.
 
 ## Keep secrets out of Git
 
