@@ -34,15 +34,15 @@ docker compose version
 Copy the chosen layout and the JetStream configs into your [deployment monorepo](./deployment-monorepo) as plain folders. Do not clone the PUDA repository into it. From the repository root, replacing `single-node` with your layout:
 
 ```bash
-mkdir -p nats
+mkdir -p services/nats
 curl -fsSL https://github.com/PUDAP/puda/archive/refs/heads/main.tar.gz \
-  | tar -xz --strip-components=3 -C nats puda-main/infra/nats/single-node puda-main/infra/nats/jetstream
+  | tar -xz --strip-components=3 -C services/nats puda-main/infra/nats/single-node puda-main/infra/nats/jetstream
 ```
 
 Commit the folder, then check out the deployment monorepo on the NATS host:
 
 ```bash
-cd puda-<deployment>/nats
+cd puda-<deployment>/services/nats
 ```
 
 ## Single-node
