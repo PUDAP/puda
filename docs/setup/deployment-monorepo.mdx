@@ -138,35 +138,27 @@ To update a host, run `git pull`, then recreate that host's services. List hosts
 
 Save the [machine skills](./machine-skills) and [workflow skills](../using-puda/workflow-skills) you write for this deployment under `skills/<skill-name>/` and commit them.
 
-Symlink them into the agent instead of installing copies. Edits—made by you or by the agent—then land in the repository and show up in `git diff`. `puda skills install ./skills` copies the folder, so edits made through the agent would not reach Git.
-
-On the agent host, install the PUDA skills, then link the deployment skills from the repository root:
+On the agent host, install the PUDA skills and the deployment skills in one command:
 
 ```bash
-puda skills install
-
-for dir in ~/.agents/skills ~/.hermes/skills ~/.claude/skills; do
-  mkdir -p "$dir"
-  for skill in skills/*/; do
-    name=$(basename "$skill")
-    target="$dir/$name"
-    if [ -e "$target" ] && [ ! -L "$target" ]; then
-      echo "Skipping $target: an installed copy exists; remove it first"
-      continue
-    fi
-    ln -sfn "$PWD/skills/$name" "$target"
-  done
-done
+puda skills install ~/puda-<deployment>/skills
 ```
 
-Keep only the skill directories of the agents you use: `~/.agents/skills` is shared by Codex, Cline, Gemini CLI, and other agents; `~/.hermes/skills` is Hermes; `~/.claude/skills` is Claude Code.
+Local paths are symlinked, not copied. Edits—made by you or by the agent—land in the repository and show up in `git diff`. The command prints each link, for example:
 
-Edits need no reinstall. Run the loop again after adding a skill, then start a new agent session so the agent discovers it. Delete a skill's link when you remove the skill from the repository.
+```text
+symlinked ~/.agents/skills/<skill-name> -> ~/puda-<deployment>/skills/<skill-name>
+symlinked ~/.hermes/skills/<skill-name> -> ~/.agents/skills/<skill-name>
+```
+
+Each skill is linked into `~/.agents/skills`, which Codex, Cline, Gemini CLI, and other agents read, and from there into the skills directory of Hermes, Claude Code, and Cursor when they are installed.
+
+Edits need no reinstall. Run the command again after adding a skill, then start a new agent session so the agent discovers it. If a copied skill with the same name is already installed, the command keeps it, reports it, and exits with an error; remove the copy and run the command again. Requires PUDA CLI 0.1.6 or later, and Node.js 20 or later for `npx`.
 
 ## Instructions for AI agents
 
 Give your agent this rule before it sets up any part of the deployment:
 
 ```text
-This PUDA deployment lives in one monorepo. Add every edge, driver, Docker service, configuration, and skill as a normal folder tracked by that repository. Never git clone a template into it, never add submodules, and never leave a nested .git directory. Copy only the template folder you need, such as the one logger database this deployment uses. Commit .env.example files, never .env files or keys. Save deployment skills under skills/ in the repository and symlink them into the agent instead of installing copies, so skill edits are tracked in Git.
+This PUDA deployment lives in one monorepo. Add every edge, driver, Docker service, configuration, and skill as a normal folder tracked by that repository. Never git clone a template into it, never add submodules, and never leave a nested .git directory. Copy only the template folder you need, such as the one logger database this deployment uses. Commit .env.example files, never .env files or keys. Save deployment skills under skills/ in the repository and install them with puda skills install <path-to-monorepo>/skills, which symlinks them so skill edits are tracked in Git.
 ```
