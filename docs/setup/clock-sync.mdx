@@ -14,7 +14,7 @@ Edge Docker containers do not run Chrony. They inherit the edge host clock.
 public/campus NTP  →  chrony container on NATS host  →  chronyd/timesyncd on each edge host
 ```
 
-Follow [`infra/chrony`](https://github.com/PUDAP/puda/tree/main/infra/chrony) in the PUDA repository.
+Copy [`infra/chrony`](https://github.com/PUDAP/puda/tree/main/infra/chrony) from the PUDA repository into your [deployment monorepo](./deployment-monorepo) as `chrony/`. Edge hosts use `chrony/client` from the same folder.
 
 ## Host conflict
 
@@ -27,9 +27,18 @@ sudo systemctl disable --now chrony chronyd systemd-timesyncd 2>/dev/null || tru
 
 ## Start
 
+From the deployment monorepo root, copy the template once and commit it:
+
 ```bash
-git clone https://github.com/PUDAP/puda.git
-cd puda/infra/chrony
+mkdir -p chrony
+curl -fsSL https://github.com/PUDAP/puda/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=3 -C chrony puda-main/infra/chrony
+```
+
+On the NATS host, check out the deployment monorepo and start the server:
+
+```bash
+cd puda-<deployment>/chrony
 cp .env.example .env
 # Set HOST_IP to this machine's Tailscale/LAN address (for edge client config).
 docker compose up -d --build
@@ -60,7 +69,7 @@ chronyd -Q "server 100.118.119.115 iburst"
 
 ## Edge hosts
 
-On each edge **host** (not in the edge container), point Chrony at `HOST_IP`. See [`infra/chrony/client`](https://github.com/PUDAP/puda/blob/main/infra/chrony/client/README.md). Manual Debian/Ubuntu steps:
+On each edge **host** (not in the edge container), point Chrony at `HOST_IP`. See `chrony/client/README.md` in the deployment monorepo ([upstream](https://github.com/PUDAP/puda/blob/main/infra/chrony/client/README.md)). Manual Debian/Ubuntu steps:
 
 ```bash
 sudo timedatectl set-ntp false
@@ -86,7 +95,7 @@ The edge should show `100.118.119.115` as the selected source. Replace that addr
 
 ## Config
 
-Edit [`chrony.conf`](https://github.com/PUDAP/puda/blob/main/infra/chrony/chrony.conf) and recreate the container:
+Edit `chrony/chrony.conf` in the deployment monorepo, commit it, and recreate the container:
 
 ```bash
 docker compose up -d --force-recreate

@@ -74,6 +74,8 @@ Then ask the agent to use the skill immediately:
 Using the new <machine_id> skill, plan a safe test workflow that homes the machine, moves to one known safe position, verifies the position, returns to the parking position, and reports every command before running it.
 ```
 
+Save the skill under `skills/<skill-name>/` in your [deployment monorepo](./deployment-monorepo) and commit it, so it is versioned with the machines it describes.
+
 Run small tests first. A good first workflow should move slowly, stay inside conservative limits, and verify state after each physical action.
 
 ## Create workflow skills

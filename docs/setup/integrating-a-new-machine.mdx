@@ -10,25 +10,29 @@ Each machine in PUDA runs an edge service. The edge service wraps the machine's 
 PUDA edge services currently support Python only, because it is the most commonly used language in the lab automation ecosystem. If you prefer to use another language, [contact us](https://www.puda.co/about) with your needs and we can create a PUDA SDK for it.
 :::
 
-Use the [edge-python-template](https://github.com/PUDAP/edge-python-template) template to create a new repository. Name it `puda-<machine_id>-edge`, replacing `<machine_id>` with your machine ID. The template depends on the `puda` Python SDK from PyPI; uv installs it with the rest of the edge dependencies.
+Add each edge service to your [deployment monorepo](./deployment-monorepo) under `edges/<machine_id>/`, replacing `<machine_id>` with your machine ID. Copy the [edge-python-template](https://github.com/PUDAP/edge-python-template) as a plain folder, without a nested `.git`. From the repository root:
 
 ```bash
-git clone https://github.com/<your-org>/puda-<machine_id>-edge.git
-cd puda-<machine_id>-edge
+mkdir -p edges/<machine_id>
+curl -fsSL https://github.com/PUDAP/edge-python-template/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=1 -C edges/<machine_id>
+cd edges/<machine_id>
 ```
+
+The template depends on the `puda` Python SDK from PyPI; uv installs it with the rest of the edge dependencies.
 
 Then follow the instructions in the `README.md` file.
 
 ## Multiple machines on one PC
 
-If several instruments share one operator PC, you do not need a separate repository for each edge service. Combine them into one repo and give each instrument its own subdirectory with its own `MACHINE_ID`, driver, and `main.py`.
+If several instruments share one operator PC, they can share one uv workspace in the deployment monorepo. Give each instrument its own subdirectory with its own `MACHINE_ID`, driver, and `main.py`.
 
-[PUDAP/ViPSA](https://github.com/PUDAP/ViPSA) is a working example: a single repo with a uv workspace that runs stage, Zaber, light, and Keithley edge services from one machine.
+[PUDAP/ViPSA](https://github.com/PUDAP/ViPSA) is a working example: a uv workspace that runs stage, Zaber, light, and Keithley edge services from one machine.
 
-Structure the repo like this:
+Structure the folder like this:
 
 ```
-puda-<name>/
+edges/
 ├── pyproject.toml          # uv workspace — lists each edge as a member
 ├── uv.lock
 ├── stage/

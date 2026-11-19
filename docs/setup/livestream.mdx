@@ -30,13 +30,20 @@ For IP cameras, find the stream URL from the camera admin UI or vendor docs. RTS
 rtsp://user:pass@192.168.1.50:554/stream1
 ```
 
-## 2. Clone the livestream repo
+## 2. Add livestream to the deployment monorepo
 
-Clone the livestream repo on the machine host:
+Copy the [livestream](https://github.com/PUDAP/livestream) template into your [deployment monorepo](./deployment-monorepo) as a plain folder, without a nested `.git`. From the repository root:
 
 ```bash
-git clone https://github.com/pudap/livestream.git
-cd livestream
+mkdir -p livestream
+curl -fsSL https://github.com/PUDAP/livestream/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=1 -C livestream
+```
+
+Commit the folder. For several camera hosts, use one folder per host, such as `livestream/<host>/`. On the camera host, check out the deployment monorepo and open the folder:
+
+```bash
+cd puda-<deployment>/livestream
 ```
 
 ## 3. Copy the example environment file
