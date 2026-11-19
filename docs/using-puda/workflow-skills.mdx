@@ -57,6 +57,8 @@ A good workflow skill should include:
 - **Failure handling** — optional instructions for what to do when a command fails, including when to stop and report.
 - **Example runs** — one or more complete command sequences the agent can follow.
 
+Save the skill under `skills/<skill-name>/` in your [deployment monorepo](../setup/deployment-monorepo) and commit it next to the machine skills it uses.
+
 ## Add optional failure handling
 
 Workflow skills can describe both the normal path and the safe stop path. If a command fails, the agent can ask the user for approval before retrying. If you do not want the agent to retry, say so explicitly in the workflow skill.

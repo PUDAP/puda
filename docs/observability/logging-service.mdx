@@ -8,13 +8,13 @@ By default, the PUDA CLI uses SQLite for local storage. This is enough for a loc
 
 For backups, persistent storage, and a more reliable record of the whole runtime environment, run the PUDA logger. It should run 24/7 on an always-on machine, in a Docker container.
 
-The recommended template is [PUDAP/puda-logger](https://github.com/PUDAP/puda-logger). A Python subscriber receives NATS messages, decrypts them when configured, and converts them to Influx line protocol. Telegraf receives that output through `inputs.execd`, then buffers, batches, and writes it to InfluxDB.
+The recommended template is [PUDAP/puda-logger](https://github.com/PUDAP/puda-logger). It has one folder per database (`influxdb`, `clickhouse`, `postgres`, `reductstore`); copy only the one your deployment uses into your [deployment monorepo](../setup/deployment-monorepo). A Python subscriber receives NATS messages, decrypts them when configured, and converts them to Influx line protocol. Telegraf receives that output through `inputs.execd`, then buffers, batches, and writes it to InfluxDB.
 
 The template uses InfluxDB. Most PUDA log queries are filtered by timestamp—runs, commands, telemetry, and events over a time window.
 
 ## Run the logger
 
-Clone the logger template on an always-on machine that can reach your NATS server. This can be the same machine that runs NATS, or another reliable machine on the same network.
+Run the logger on an always-on machine that can reach your NATS server. This can be the same machine that runs NATS, or another reliable machine on the same network.
 
 :::tip
 The database server and the logger do not need to run on the same machine. A common split is InfluxDB on a NAS for durable storage, and the logger on a mini PC closer to NATS. Each host only needs network access to the services it talks to: the server must be reachable from the logger, and the logger must be able to reach NATS.
@@ -22,11 +22,18 @@ The database server and the logger do not need to run on the same machine. A com
 
 ### Start InfluxDB
 
-If you already have an InfluxDB server, reuse it and skip to [Start the logger](#start-the-logger). Otherwise, on the machine that will host the database—for example, a NAS—clone the template and start the server stack:
+If you already have an InfluxDB server, reuse it and skip to [Start the logger](#start-the-logger). Otherwise, add the InfluxDB folder to your [deployment monorepo](../setup/deployment-monorepo) as a plain folder, without a nested `.git`. From the repository root:
 
 ```bash
-git clone https://github.com/PUDAP/puda-logger.git
-cd puda-logger/influxdb/server
+mkdir -p logger/influxdb
+curl -fsSL https://github.com/PUDAP/puda-logger/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=2 -C logger/influxdb puda-logger-main/influxdb
+```
+
+Commit the folder. On the machine that will host the database—for example, a NAS—check out the deployment monorepo and open the server stack:
+
+```bash
+cd puda-<deployment>/logger/influxdb/server
 ```
 
 Create an admin token file for InfluxDB:
@@ -66,11 +73,10 @@ For a small NAS set `INFLUXDB3_NUM_IO_THREADS=4`. For a 32-core ingest host use 
 
 ### Start the logger
 
-On the machine that will run the logger—for example, a mini PC on the lab network—clone the template if needed and configure the logger stack:
+On the machine that will run the logger—for example, a mini PC on the lab network—check out the deployment monorepo and configure the logger stack:
 
 ```bash
-git clone https://github.com/PUDAP/puda-logger.git
-cd puda-logger/influxdb/logger
+cd puda-<deployment>/logger/influxdb/logger
 cp .env.example .env
 ```
 

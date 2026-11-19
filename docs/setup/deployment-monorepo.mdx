@@ -1,0 +1,153 @@
+---
+sidebar_position: 1.5
+---
+
+# Deployment Monorepo
+
+Keep everything a PUDA deployment runs in one Git repository: edge services and drivers, NATS, clock sync, the logger and its database, Grafana, livestreams, and agent skills. The services can run on different computers—a NATS mini PC, a NAS, an operator PC next to each instrument—but their code and configuration live together.
+
+A deployment can be a research lab, a factory line, a pilot plant, or a single cell. Name the repository `puda-<deployment>`, for example `puda-kalyonpv`.
+
+One repository makes a deployment easier to maintain:
+
+- Settings that depend on each other—NATS URLs, tokens, database names, machine IDs—change in one commit.
+- Every host runs from the same history, so you can review, pin, and roll back the whole deployment.
+- Moving a service to another host is a checkout and `docker compose up`, not a search for the right repository.
+- AI agents can read the whole deployment before changing any part of it.
+
+## Layout
+
+```text
+puda-<deployment>/
+├── README.md              # which host runs which folder
+├── .gitignore
+├── edges/
+│   └── <machine_id>/      # one edge service per machine
+├── nats/                  # the chosen NATS layout + jetstream/
+├── chrony/                # clock sync server + client/
+├── logger/
+│   └── <database>/        # only the database you use, e.g. influxdb/
+│       ├── server/
+│       └── logger/
+├── grafana/
+├── livestream/
+└── skills/
+    └── <skill-name>/      # machine and workflow skills
+```
+
+Add only the folders the deployment uses. Several edges on one PC can share a uv workspace; see [Multiple machines on one PC](./integrating-a-new-machine#multiple-machines-on-one-pc).
+
+Examples:
+
+- [PUDAP/puda-kalyonpv](https://github.com/PUDAP/puda-kalyonpv): edge, logger, Grafana, clock sync, and systemd units.
+- [PUDAP/kaist-puda-fast-sintering](https://github.com/PUDAP/kaist-puda-fast-sintering/tree/main/puda): more than ten edges, NATS, InfluxDB, and Grafana under `puda/`, next to the vendor client code.
+- [leehm-beep/puda-SDL-electrolyte](https://github.com/leehm-beep/puda-SDL-electrolyte): a PLC edge, NATS, InfluxDB, Grafana, and a livestream.
+
+## Copy templates as plain folders
+
+PUDA templates are starting points: [puda-logger](https://github.com/PUDAP/puda-logger), [puda-grafana](https://github.com/PUDAP/puda-grafana), [livestream](https://github.com/PUDAP/livestream), [edge-python-template](https://github.com/PUDAP/edge-python-template), [edge-python-gui-template](https://github.com/PUDAP/edge-python-gui-template), and the NATS and chrony layouts in [PUDAP/puda](https://github.com/PUDAP/puda/tree/main/infra).
+
+Copy the files into the deployment repository. Do not `git clone` a template into it, add it as a submodule, or keep a nested `.git` directory. Once copied, the folder belongs to the deployment, and every change is committed to the deployment repository.
+
+Download the template archive and extract only the folder you need. Run these from the repository root:
+
+```bash
+# Edge service, once per machine
+mkdir -p edges/<machine_id>
+curl -fsSL https://github.com/PUDAP/edge-python-template/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=1 -C edges/<machine_id>
+
+# NATS: the chosen layout plus jetstream/
+mkdir -p nats
+curl -fsSL https://github.com/PUDAP/puda/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=3 -C nats puda-main/infra/nats/single-node puda-main/infra/nats/jetstream
+
+# Clock sync, including client/
+mkdir -p chrony
+curl -fsSL https://github.com/PUDAP/puda/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=3 -C chrony puda-main/infra/chrony
+
+# Logger: only the database you use (influxdb, clickhouse, postgres, or reductstore)
+mkdir -p logger/influxdb
+curl -fsSL https://github.com/PUDAP/puda-logger/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=2 -C logger/influxdb puda-logger-main/influxdb
+
+# Grafana
+mkdir -p grafana
+curl -fsSL https://github.com/PUDAP/puda-grafana/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=1 -C grafana
+
+# Livestream
+mkdir -p livestream
+curl -fsSL https://github.com/PUDAP/livestream/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=1 -C livestream
+```
+
+`--strip-components` drops the archive's top directory and the path above the extracted folder. Replace `single-node` with the NATS layout you chose, and `influxdb` with your logger database.
+
+For a private template, clone it outside the deployment repository, copy the folder, and delete the clone:
+
+```bash
+gh repo clone <owner>/<template> /tmp/<template> -- --depth 1
+cp -r /tmp/<template>/<folder> <destination>
+rm -rf /tmp/<template>
+```
+
+Note the template and commit in the deployment `README.md` so later template changes can be compared and ported by hand:
+
+```bash
+git ls-remote https://github.com/PUDAP/puda-logger HEAD
+```
+
+## Keep secrets out of Git
+
+Commit `.env.example` files with placeholders. Never commit `.env` files, tokens, or keys. Some templates rely on a `.gitignore` above the folder you copy, so add one at the repository root:
+
+```gitignore title=".gitignore"
+.env
+admin-token.json
+*.key
+*.pem
+.venv/
+__pycache__/
+```
+
+## Run each folder on its host
+
+Clone the deployment repository on every host, then start only the folders that host runs:
+
+```bash
+git clone https://github.com/<org>/puda-<deployment>.git
+cd puda-<deployment>/nats/single-node
+cp .env.example .env
+docker compose up -d
+```
+
+To update a host, run `git pull`, then recreate that host's services. List hosts and folders in the deployment `README.md`:
+
+```markdown title="README.md"
+| Host | Folders |
+|---|---|
+| nats-pc | nats/single-node, chrony |
+| nas | logger/influxdb/server |
+| mini-pc | logger/influxdb/logger, grafana |
+| robot-pc | edges/robot-arm, livestream |
+```
+
+## Skills
+
+Save the [machine skills](./machine-skills) and [workflow skills](../using-puda/workflow-skills) you write for this deployment under `skills/<skill-name>/` and commit them. On the agent host, install them from the repository root:
+
+```bash
+puda skills install ./skills
+```
+
+`puda skills install` installs the release-matched PUDA skills first, then the local `skills/` folder. After editing a skill, run the same command again.
+
+## Instructions for AI agents
+
+Give your agent this rule before it sets up any part of the deployment:
+
+```text
+This PUDA deployment lives in one monorepo. Add every edge, driver, Docker service, configuration, and skill as a normal folder tracked by that repository. Never git clone a template into it, never add submodules, and never leave a nested .git directory. Copy only the template folder you need, such as the one logger database this deployment uses. Commit .env.example files, never .env files or keys.
+```

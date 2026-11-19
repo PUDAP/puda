@@ -31,11 +31,18 @@ After Docker is installed, confirm that Docker Compose is available:
 docker compose version
 ```
 
-Clone the PUDA repository so you have the NATS layouts and JetStream configs:
+Copy the chosen layout and the JetStream configs into your [deployment monorepo](./deployment-monorepo) as plain folders. Do not clone the PUDA repository into it. From the repository root, replacing `single-node` with your layout:
 
 ```bash
-git clone https://github.com/PUDAP/puda.git
-cd puda/infra/nats
+mkdir -p nats
+curl -fsSL https://github.com/PUDAP/puda/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=3 -C nats puda-main/infra/nats/single-node puda-main/infra/nats/jetstream
+```
+
+Commit the folder, then check out the deployment monorepo on the NATS host:
+
+```bash
+cd puda-<deployment>/nats
 ```
 
 ## Single-node
@@ -70,9 +77,9 @@ This layout has no server or JetStream failover.
 
 ## Three-node
 
-Use three computers on the same network. Copy `three-node-r3/nats1/`, `nats2/`, and `nats3/` to one host each. Follow [`three-node-r3/README.md`](https://github.com/PUDAP/puda/blob/main/infra/nats/three-node-r3/README.md).
+Use three computers on the same network. Copy `three-node-r3` into the deployment monorepo, check it out on all three hosts, and run `nats1/`, `nats2/`, and `nats3/` on one host each. Follow [`three-node-r3/README.md`](https://github.com/PUDAP/puda/blob/main/infra/nats/three-node-r3/README.md).
 
-The [PUDAP/puda-nats-template](https://github.com/PUDAP/puda-nats-template) repository is the same three-computer layout (`machine1`, `machine2`, `machine3`).
+The [PUDAP/puda-nats-template](https://github.com/PUDAP/puda-nats-template) template is the same three-computer layout (`machine1`, `machine2`, `machine3`). Copy it into the deployment monorepo the same way; do not clone it.
 
 On each host:
 
@@ -86,7 +93,7 @@ Fill in reachable addresses for this host and the other two. Route port `6222` m
 docker compose up -d
 ```
 
-After all three nodes are up, apply JetStream **once** from an operator machine that has `infra/nats/jetstream`:
+After all three nodes are up, apply JetStream **once** from an operator machine that has the deployment monorepo:
 
 ```bash
 cd jetstream

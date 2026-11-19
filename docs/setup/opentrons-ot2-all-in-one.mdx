@@ -105,6 +105,8 @@ Before running setup commands, ask me for:
 - the Opentrons OT-2 IP address
 - my workspace directory (use `~/puda` if I do not provide one)
 
+Treat `<workspace>` as this deployment's monorepo. If it is not a Git repository yet, run `git init` in it. Add every service, edge, configuration, and skill as a normal folder tracked by that repository. Never git clone a template into it, never add submodules, and never leave a nested .git directory. Commit .env.example files, never .env files.
+
 Use the values I provide for every command or configuration file that needs them.
 
 ## Step 1: Verify dependencies
@@ -119,11 +121,11 @@ If any dependency is missing, stop and tell me what to install before continuing
 
 ## Step 2: Set up NATS
 
-Set up and start a local NATS server in `<workspace>/puda-nats`:
+Set up and start a local NATS server in `<workspace>/nats`:
 
 ```bash
-mkdir -p <workspace>/puda-nats
-cd <workspace>/puda-nats
+mkdir -p <workspace>/nats
+cd <workspace>/nats
 ```
 
 Create `compose.yml`:
@@ -204,12 +206,13 @@ puda skills install PUDAP/opentrons-skills
 
 ## Step 4: Set up the OT-2 edge service
 
-Clone and configure the OT-2 edge service in `<workspace>`:
+Copy the OT-2 edge service into `<workspace>/edges/opentrons` as a plain folder, without a nested `.git`, and configure it:
 
 ```bash
-cd <workspace>
-git clone https://github.com/pudap/puda-opentrons-edge
-cd puda-opentrons-edge
+mkdir -p <workspace>/edges/opentrons
+curl -fsSL https://github.com/PUDAP/puda-opentrons-edge/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=1 -C <workspace>/edges/opentrons
+cd <workspace>/edges/opentrons
 ```
 
 Copy `.env.example` to `.env` and configure the edge service with `nats://localhost:4222` and the OT-2 IP address I provided.
