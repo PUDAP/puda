@@ -134,20 +134,39 @@ To update a host, run `git pull`, then recreate that host's services. List hosts
 | robot-pc | edges/robot-arm, livestream |
 ```
 
-## Skills
+## Deployment skills
 
-Save the [machine skills](./machine-skills) and [workflow skills](../using-puda/workflow-skills) you write for this deployment under `skills/<skill-name>/` and commit them. On the agent host, install them from the repository root:
+Save the [machine skills](./machine-skills) and [workflow skills](../using-puda/workflow-skills) you write for this deployment under `skills/<skill-name>/` and commit them.
+
+Symlink them into the agent instead of installing copies. Edits—made by you or by the agent—then land in the repository and show up in `git diff`. `puda skills install ./skills` copies the folder, so edits made through the agent would not reach Git.
+
+On the agent host, install the PUDA skills, then link the deployment skills from the repository root:
 
 ```bash
-puda skills install ./skills
+puda skills install
+
+for dir in ~/.agents/skills ~/.hermes/skills ~/.claude/skills; do
+  mkdir -p "$dir"
+  for skill in skills/*/; do
+    name=$(basename "$skill")
+    target="$dir/$name"
+    if [ -e "$target" ] && [ ! -L "$target" ]; then
+      echo "Skipping $target: an installed copy exists; remove it first"
+      continue
+    fi
+    ln -sfn "$PWD/skills/$name" "$target"
+  done
+done
 ```
 
-`puda skills install` installs the release-matched PUDA skills first, then the local `skills/` folder. After editing a skill, run the same command again.
+Keep only the skill directories of the agents you use: `~/.agents/skills` is shared by Codex, Cline, Gemini CLI, and other agents; `~/.hermes/skills` is Hermes; `~/.claude/skills` is Claude Code.
+
+Edits need no reinstall. Run the loop again after adding a skill, then start a new agent session so the agent discovers it. Delete a skill's link when you remove the skill from the repository.
 
 ## Instructions for AI agents
 
 Give your agent this rule before it sets up any part of the deployment:
 
 ```text
-This PUDA deployment lives in one monorepo. Add every edge, driver, Docker service, configuration, and skill as a normal folder tracked by that repository. Never git clone a template into it, never add submodules, and never leave a nested .git directory. Copy only the template folder you need, such as the one logger database this deployment uses. Commit .env.example files, never .env files or keys.
+This PUDA deployment lives in one monorepo. Add every edge, driver, Docker service, configuration, and skill as a normal folder tracked by that repository. Never git clone a template into it, never add submodules, and never leave a nested .git directory. Copy only the template folder you need, such as the one logger database this deployment uses. Commit .env.example files, never .env files or keys. Save deployment skills under skills/ in the repository and symlink them into the agent instead of installing copies, so skill edits are tracked in Git.
 ```
