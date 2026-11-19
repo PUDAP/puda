@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- `puda skills install <path>` and `puda skills update <path>` symlink skills from a local directory instead of copying them through npx, so edits stay in the source repository (for example a deployment monorepo's `skills/`). A path may be one skill folder, a folder of skills, or a repository root with `skills/`. Skills are linked as `~/.agents/skills/<name>` and into the skills directories of installed Hermes (`$HERMES_HOME`), Claude Code and Cursor; every link is printed as `symlinked <target> -> <source>`. Existing symlinks are replaced; copied folders with the same name are kept and reported with a non-zero exit. Missing path-like arguments and folders without skills fail before anything is installed.
+
 ### Changed
 
 - `puda healthcheck` now emits exactly one JSON report for agents. SDK compatibility is included as an advisory `compatibility` object (`supported`/`unsupported`/`unknown`, or `not_checked` with `nats_unreachable`, `no_responders` or `discovery_error`; `discovery_incomplete` when some edges replied before an error), listed after `gateways`. Transport errors appear once, on the affected server; dependent JetStream checks report `status`/`reason` (`not_checked` vs `failed`), and JetStream or discovery permission denials are captured in the report instead of leaking to stderr. Unhealthy reports still exit 1 but no longer print a redundant `Error: NATS healthcheck …` line or compatibility prose on stderr. Configuration and output errors remain visible.

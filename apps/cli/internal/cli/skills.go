@@ -36,15 +36,16 @@ func defaultSkillsRepos(ref string) ([]string, error) {
 // skillsCmd is the parent for skills-related subcommands
 var skillsCmd = &cobra.Command{
 	Use:   "skills",
-	Short: "Official PUDA skills for AI agents",
-	Long:  `Install and update the official PUDA skills for AI agents. Requires Node.js and npx.`,
+	Short: "Official PUDA skills and local deployment skills for AI agents",
+	Long: `Install and update the official PUDA skills for AI agents, and symlink local
+skill folders such as a deployment monorepo's skills/. Requires Node.js and npx.`,
 }
 
 // skillsInstallCmd installs skills from a repo
 var skillsInstallCmd = &cobra.Command{
-	Use:   "install [repo...]",
-	Short: "Install skills from a repository",
-	Long: `Install skills from repositories
+	Use:   "install [repo-or-path...]",
+	Short: "Install skills from repositories; symlink local skill folders",
+	Long: `Install skills from repositories and symlink skills from local folders
 
 With no arguments, installs PUDAP/puda's skills subtree at the installed CLI's
 release tag. --ref <git-reference> selects a branch or tag (for example main
@@ -52,9 +53,28 @@ or v0.1.6); development binaries require an explicit ref. Refs must be simple
 names without slashes, URL metacharacters, or Git revision expressions.
 Missing tags/subtrees fail without falling back to main.
 
-Additional repositories are passed unchanged to npx after the defaults.
-Each source is installed globally with: npx skills add <source> -y -g
-No blanket skills update is run. Existing same-name skills are replaced.`,
+Additional repositories (owner/repo or URLs) are passed unchanged to npx after
+the defaults and installed globally as copies with:
+npx skills add <source> -y -g
+No blanket skills update is run. Existing same-name skills are replaced.
+
+Local directories are symlinked, not copied, so edits made through the agent
+land in the source folder and stay tracked by its Git repository. A local
+source is any existing directory, or an argument starting with ./, ../, / or ~.
+It may be one skill folder (with SKILL.md), a folder of skill folders, or a
+repository root whose skills are in skills/. Each skill is linked as
+~/.agents/skills/<name> -> <source>/<name>, and into the skills directory of
+each installed agent (Hermes at $HERMES_HOME or ~/.hermes, Claude Code at
+~/.claude, Cursor at ~/.cursor), pointing at ~/.agents/skills/<name>.
+Every link is printed as "symlinked <target> -> <source>". Existing symlinks
+are replaced. Copied folders with the same name are never deleted: they are
+reported, and the command exits non-zero after linking the rest. Edits need no
+reinstall; re-run after adding a skill.`,
+	Example: `  # Official PUDA skills for this CLI release
+  puda skills install
+
+  # Official skills plus a deployment monorepo's skills/, symlinked
+  puda skills install ~/puda-<deployment>/skills`,
 	RunE: runSkillsInstall,
 }
 
@@ -68,7 +88,8 @@ This also migrates same-name global skills previously installed from PUDAP/skill
 to PUDAP/puda's skills subtree. --ref selects a branch or tag instead of the
 installed release (for example --ref main or --ref v0.1.6). Refs must be simple
 names without slashes, URL metacharacters, or Git revision expressions.
-Optional repositories are re-added unchanged, after the defaults. Unspecified
+Optional repositories are re-added unchanged, after the defaults; local paths
+are re-linked as in puda skills install. Unspecified
 custom skills and project-local installs are not refreshed or removed.
 Legacy-only skills (such as puda-memory) are not automatically removed.
 No blanket npx skills update is run.`,
@@ -125,12 +146,35 @@ func runSkillsInstall(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	repos = append(repos, args...)
+	// Validate local paths before installing anything.
+	var local []string
+	for _, arg := range args {
+		path, isLocal, err := resolveLocalSkillsSource(arg)
+		if err != nil {
+			return err
+		}
+		if isLocal {
+			if _, err := discoverLocalSkills(path); err != nil {
+				return err
+			}
+			local = append(local, path)
+		} else {
+			repos = append(repos, arg)
+		}
+	}
 	if err := installSkillsGlobally(repos); err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Skills installed globally. Same-name skills replace old sources; legacy-only skills and project-local installs are unchanged.\n")
-	return nil
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "Skills installed globally. Same-name skills replace old sources; legacy-only skills and project-local installs are unchanged.\n")
+	if len(local) == 0 {
+		return nil
+	}
+	linked, err := linkLocalSkills(out, local)
+	if linked > 0 {
+		fmt.Fprintf(out, "Symlinked %d local skill(s). Edits in the source folder apply immediately; re-run after adding a skill.\n", linked)
+	}
+	return err
 }
 
 func runSkillsUpdate(cmd *cobra.Command, args []string) error {
