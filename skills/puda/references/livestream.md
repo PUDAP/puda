@@ -38,18 +38,18 @@ If `MTX_WEBRTCADDITIONALHOSTS` is unknown, detect Tailscale and prefer MagicDNS 
 
 ## Setup
 
-Add [PUDAP/livestream](https://github.com/PUDAP/livestream) to the deployment monorepo as a plain `livestream/` folder (use `livestream/<host>/` for several camera hosts). Reuse the folder if it already exists. Never `git clone` it into the repository. From the repository root:
+Add [PUDAP/livestream](https://github.com/PUDAP/livestream) to the deployment monorepo as a plain `services/livestream/` folder (use `services/livestream/<host>/` for several camera hosts). Reuse the folder if it already exists. Never `git clone` it into the repository. From the repository root:
 
 ```bash
-mkdir -p livestream
+mkdir -p services/livestream
 curl -fsSL https://github.com/PUDAP/livestream/archive/refs/heads/main.tar.gz \
-  | tar -xz --strip-components=1 -C livestream
+  | tar -xz --strip-components=1 -C services/livestream
 ```
 
 Commit the folder. On the **camera host**, check out the deployment monorepo and configure it:
 
 ```bash
-cd <deployment-monorepo>/livestream
+cd <deployment-monorepo>/services/livestream
 cp .env.example .env
 ```
 
