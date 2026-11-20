@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/puda-logo.svg" alt="PUDA" width="140" />
+<img src=".github/assets/puda-logo.svg" alt="PUDA" width="140" />
 
 <h1>PUDA</h1>
 
@@ -110,7 +110,7 @@ Skills live in [`skills/`](skills/README.md) and are versioned with the CLI. `pu
 | [`puda-edge`](skills/puda-edge) | Build and update Python edge drivers for a new machine |
 | [`puda-manual-ui`](skills/puda-manual-ui) | Build manual-control operator UIs |
 
-Migrating from the old `PUDAP/skills` submodule? See the [skills migration guide](docs/skills-migration.md).
+Migrating from the old `PUDAP/skills` submodule? See the [skills migration guide](apps/cli/docs/skills-migration.md).
 
 ## Under the hood
 
@@ -155,7 +155,7 @@ Python packages share one uv workspace ([`pyproject.toml`](pyproject.toml)) whos
 puda = { workspace = true }
 ```
 
-The Go apps keep their own modules and are not part of `uv.lock`. A small root Go module embeds the [`compatibility.json`](compatibility.json) policy the CLI uses to check edge SDK versions; see [CLI / Python SDK compatibility](docs/compatibility.md).
+The Go apps keep their own modules and are not part of `uv.lock`. A small root Go module embeds the [`compatibility.json`](compatibility.json) policy the CLI uses to check edge SDK versions; see [CLI / Python SDK compatibility](apps/cli/docs/compatibility.md).
 
 ## Development
 

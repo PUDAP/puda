@@ -145,7 +145,7 @@ semantics or falsely advertising prerelease support.
 ## Evidence and reproduction
 
 Scratch evidence directory: `/home/puda/.hermes/cache/scratch/puda-historical-compat/`.
-The durable summary/complete per-cell matrix is `docs/compatibility-history.json`.
+The durable summary/complete per-cell matrix is `apps/cli/docs/compatibility-history.json`.
 Scratch files include raw `releases.json`, `tags.json`, `pypi.json`,
 `source-audit.json`, `sdk-source-audit.json`, `cli-artifacts.json`,
 `sdk-artifacts.json`, `all-contract-results.json`, and individual `contract-*.log`.

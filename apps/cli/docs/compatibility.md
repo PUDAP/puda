@@ -90,7 +90,7 @@ unqualified. Old binaries do not acquire advisories or this policy retroactively
   Detailed transport errors stay on the affected server; dependent JetStream
   checks distinguish `not_checked` from `failed`. Completed unhealthy reports exit
   nonzero without a redundant error line. Configuration/output failures remain
-  visible. See the [precise machine contract](../apps/cli/README.md#healthcheck-machine-contract).
+  visible. See the [precise machine contract](../README.md#healthcheck-machine-contract).
 - The `machine ping` alias has been removed; use `machine info`. The protocol
   ping transport is unchanged.
 - Other paths (`machine commands`, `machine run`, protocol execution, watch,
