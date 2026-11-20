@@ -27,6 +27,7 @@ For a dual-NIC host, keep the Internet default route on the intended interface a
 |---|---|
 | `servers[].error` timeout or connection refused | route and listener: `ip route get <broker-ip>`, `scripts/inspect-nats.sh`, `ss -ltnp` on the broker |
 | `servers[].error` TLS or certificate | profile `ca` path, `tls://` vs `nats://` scheme, server certificate name/SAN |
+| `cluster.reachable` > `cluster.brokers` | normal when one broker is configured under several addresses (e.g. LAN and Tailscale); `servers[].id` matches. Not a cluster and not an error |
 | `jetstream.status: failed` | server JetStream configuration and account permissions; `jetstream.error` holds the cause |
 | `compatibility.reason: no_responders` | edges, not the broker: edge logs and NATS connection |
 | `compatibility.reason: discovery_error` | permissions for `puda.cmd.ping` and `_INBOX` replies; `compatibility.error` holds the cause |

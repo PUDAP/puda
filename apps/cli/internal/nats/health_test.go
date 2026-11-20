@@ -187,3 +187,64 @@ func TestUnreachableDependentChecksAreNotChecked(t *testing.T) {
 		t.Fatalf("root error must only be on server: %+v %s", server, dep)
 	}
 }
+
+// One broker reachable through two addresses: two endpoints, one broker.
+func TestSummarizeHealthSameIDIsOneBroker(t *testing.T) {
+	report := summarizeHealth([]ServerHealth{
+		{URL: "nats://192.168.1.10:4222", Status: "ok", Name: "nats", ID: "NSAME"},
+		{URL: "nats://100.64.0.10:4222", Status: "ok", Name: "nats", ID: "NSAME"},
+	}, JetStreamHealth{Status: "ok", OK: true})
+	if report.Status != HealthOK || report.Cluster.Configured != 2 || report.Cluster.Reachable != 2 {
+		t.Fatalf("report=%+v", report)
+	}
+	if report.Cluster.Brokers != 1 || report.Cluster.UnidentifiedEndpoints != 0 {
+		t.Fatalf("cluster=%+v", report.Cluster)
+	}
+}
+
+// Brokers are identified by ID, never by name.
+func TestSummarizeHealthDistinctIDsSameNameAreTwoBrokers(t *testing.T) {
+	report := summarizeHealth([]ServerHealth{
+		{URL: "nats://a:4222", Status: "ok", Name: "nats", ID: "NONE"},
+		{URL: "nats://b:4222", Status: "ok", Name: "nats", ID: "NTWO"},
+	}, JetStreamHealth{Status: "ok", OK: true})
+	if report.Cluster.Brokers != 2 {
+		t.Fatalf("cluster=%+v", report.Cluster)
+	}
+}
+
+// A failed endpoint is still reported and still degrades the result.
+func TestSummarizeHealthFailedEndpointKeepsDegraded(t *testing.T) {
+	report := summarizeHealth([]ServerHealth{
+		{URL: "nats://a:4222", Status: "ok", Name: "nats", ID: "NSAME"},
+		{URL: "nats://b:4222", Status: "error", Error: "connection refused"},
+	}, JetStreamHealth{Status: "ok", OK: true})
+	if report.Status != HealthDegraded || report.Cluster.Reachable != 1 || report.Cluster.Configured != 2 {
+		t.Fatalf("report=%+v", report)
+	}
+	if report.Cluster.Brokers != 1 || len(report.Servers) != 2 || report.Servers[1].Error != "connection refused" {
+		t.Fatalf("report=%+v", report)
+	}
+}
+
+// Missing IDs are counted as unidentified, not guessed or grouped by name.
+func TestSummarizeHealthMissingIDsAreNotGrouped(t *testing.T) {
+	report := summarizeHealth([]ServerHealth{
+		{URL: "nats://a:4222", Status: "ok", Name: "nats"},
+		{URL: "nats://b:4222", Status: "ok", Name: "nats"},
+		{URL: "nats://c:4222", Status: "ok", Name: "nats", ID: "NONE"},
+	}, JetStreamHealth{Status: "ok", OK: true})
+	if report.Cluster.Brokers != 1 || report.Cluster.UnidentifiedEndpoints != 2 || report.Cluster.Reachable != 3 {
+		t.Fatalf("cluster=%+v", report.Cluster)
+	}
+}
+
+func TestSummarizeGatewaysCountsBrokersByID(t *testing.T) {
+	gateways := summarizeGateways([]probe{
+		{server: ServerHealth{URL: "nats://c:4222", Status: "ok", Cluster: "imre", ID: "NREMOTE"}, js: JetStreamHealth{Status: "ok", OK: true}},
+		{server: ServerHealth{URL: "nats://d:4222", Status: "ok", Cluster: "imre", ID: "NREMOTE"}, js: JetStreamHealth{Status: "ok", OK: true}},
+	})
+	if len(gateways) != 1 || gateways[0].Reachable != 2 || gateways[0].Brokers != 1 {
+		t.Fatalf("gateways=%+v", gateways)
+	}
+}

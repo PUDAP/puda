@@ -23,6 +23,14 @@ var healthcheckCmd = &cobra.Command{
 A down cluster node is reported even when another node still accepts connections.
 A successful check also verifies JetStream account access.
 
+Each configured URL is an endpoint. One broker reachable through several
+addresses (for example LAN and Tailscale) is several endpoints but one broker.
+cluster.configured, cluster.reachable and cluster.discovered count endpoint URLs;
+cluster.brokers counts distinct server IDs that responded. Endpoints that report
+no server ID are counted in cluster.unidentified_endpoints, never grouped by name.
+Advertised addresses alone do not prove broker identity or cluster membership.
+A standalone server (no cluster name) is not shown as a cluster in --human output.
+
 The active profile's gateway_servers are client URLs in a
 remote cluster expected through a NATS gateway. Those remotes are probed and
 reported separately; a different cluster name is expected and is not degraded.
@@ -187,28 +195,13 @@ func writeHealthReport(w io.Writer, report pudanats.HealthReport, human bool) er
 	var text strings.Builder
 	w = &text
 	fmt.Fprintf(w, "status: %s\n", report.Status)
-	fmt.Fprintf(w, "servers: %d/%d reachable\n", report.Cluster.Reachable, report.Cluster.Configured)
-	for _, server := range report.Servers {
-		if server.Status != "ok" {
-			fmt.Fprintf(w, "  %s: failed: %s\n", server.URL, server.Error)
-			continue
-		}
-		fmt.Fprintf(
-			w,
-			"  %s: ok %.3fms name=%s cluster=%s js=%t version=%s\n",
-			server.URL,
-			server.RTTMS,
-			server.Name,
-			server.Cluster,
-			server.JetStream,
-			server.Version,
-		)
+	fmt.Fprintf(w, "endpoints: %d/%d reachable\n", report.Cluster.Reachable, report.Cluster.Configured)
+	writeHumanEndpoints(w, "  ", report.Servers)
+	fmt.Fprintf(w, "unique brokers responding: %d%s\n", report.Cluster.Brokers, unidentifiedNote(report.Cluster.UnidentifiedEndpoints))
+	// A standalone server has no cluster name; it is not a cluster.
+	if report.Cluster.Name != "" {
+		fmt.Fprintf(w, "cluster: %s discovered endpoints=%d\n", report.Cluster.Name, len(report.Cluster.Discovered))
 	}
-	clusterLabel := report.Cluster.Name
-	if clusterLabel == "" {
-		clusterLabel = "(none)"
-	}
-	fmt.Fprintf(w, "cluster: %s discovered=%d\n", clusterLabel, len(report.Cluster.Discovered))
 	if report.JetStream.OK {
 		fmt.Fprintf(
 			w,
@@ -250,23 +243,8 @@ func writeHealthReport(w io.Writer, report pudanats.HealthReport, human bool) er
 		if clusterLabel == "" {
 			clusterLabel = "(none)"
 		}
-		fmt.Fprintf(w, "  %s: %s %d/%d\n", clusterLabel, gateway.Status, gateway.Reachable, gateway.Configured)
-		for _, server := range gateway.Servers {
-			if server.Status != "ok" {
-				fmt.Fprintf(w, "    %s: failed: %s\n", server.URL, server.Error)
-				continue
-			}
-			fmt.Fprintf(
-				w,
-				"    %s: ok %.3fms name=%s cluster=%s js=%t version=%s\n",
-				server.URL,
-				server.RTTMS,
-				server.Name,
-				server.Cluster,
-				server.JetStream,
-				server.Version,
-			)
-		}
+		fmt.Fprintf(w, "  %s: %s endpoints=%d/%d reachable unique brokers=%d%s\n", clusterLabel, gateway.Status, gateway.Reachable, gateway.Configured, gateway.Brokers, unidentifiedNote(gateway.UnidentifiedEndpoints))
+		writeHumanEndpoints(w, "    ", gateway.Servers)
 		if gateway.JetStream.OK {
 			fmt.Fprintf(
 				w,
@@ -284,4 +262,42 @@ func writeHealthReport(w io.Writer, report pudanats.HealthReport, human bool) er
 	}
 	_, err := io.WriteString(destination, text.String())
 	return err
+}
+
+// writeHumanEndpoints prints one line per configured endpoint URL, including the
+// server ID that identifies the broker behind it.
+func writeHumanEndpoints(w io.Writer, indent string, servers []pudanats.ServerHealth) {
+	for _, server := range servers {
+		if server.Status != "ok" {
+			fmt.Fprintf(w, "%s%s: failed: %s\n", indent, server.URL, server.Error)
+			continue
+		}
+		id := server.ID
+		if id == "" {
+			id = "(none)"
+		}
+		cluster := ""
+		if server.Cluster != "" {
+			cluster = " cluster=" + server.Cluster
+		}
+		fmt.Fprintf(
+			w,
+			"%s%s: ok %.3fms name=%s id=%s%s js=%t version=%s\n",
+			indent,
+			server.URL,
+			server.RTTMS,
+			server.Name,
+			id,
+			cluster,
+			server.JetStream,
+			server.Version,
+		)
+	}
+}
+
+func unidentifiedNote(count int) string {
+	if count == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (%d reachable endpoint(s) reported no server ID; not counted)", count)
 }
