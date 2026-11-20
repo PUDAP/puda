@@ -102,7 +102,7 @@ func TestWriteHealthReportHuman(t *testing.T) {
 		"endpoints: 1/2 reachable",
 		"nats://a:4222: ok 1.250ms name=nats1 id=(none) cluster=puda js=true version=2.10.22",
 		"nats://b:4222: failed: timeout",
-		"cluster: puda discovered endpoints=1",
+		"cluster: puda\n",
 		"jetstream: ok streams=4 consumers=2 memory=10 storage=20",
 		"gateways: 1",
 		"imre: degraded endpoints=1/2 reachable unique brokers=0",
@@ -160,7 +160,7 @@ func TestWriteHealthReportHumanSeparatesEndpointsFromBrokers(t *testing.T) {
 			t.Fatalf("output missing %q: %s", want, output)
 		}
 	}
-	for _, unwanted := range []string{"servers:", "cluster", "discovered="} {
+	for _, unwanted := range []string{"servers:", "cluster", "discovered"} {
 		if strings.Contains(output, unwanted) {
 			t.Fatalf("output contains %q: %s", unwanted, output)
 		}

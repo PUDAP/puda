@@ -198,9 +198,10 @@ func writeHealthReport(w io.Writer, report pudanats.HealthReport, human bool) er
 	fmt.Fprintf(w, "endpoints: %d/%d reachable\n", report.Cluster.Reachable, report.Cluster.Configured)
 	writeHumanEndpoints(w, "  ", report.Servers)
 	fmt.Fprintf(w, "unique brokers responding: %d%s\n", report.Cluster.Brokers, unidentifiedNote(report.Cluster.UnidentifiedEndpoints))
-	// A standalone server has no cluster name; it is not a cluster.
+	// A standalone server has no cluster name; it is not a cluster. Advertised
+	// addresses (cluster.discovered, JSON only) prove neither identity nor size.
 	if report.Cluster.Name != "" {
-		fmt.Fprintf(w, "cluster: %s discovered endpoints=%d\n", report.Cluster.Name, len(report.Cluster.Discovered))
+		fmt.Fprintf(w, "cluster: %s\n", report.Cluster.Name)
 	}
 	if report.JetStream.OK {
 		fmt.Fprintf(

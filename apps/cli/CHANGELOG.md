@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- `puda healthcheck` no longer conflates endpoints with brokers. `--human` prints `endpoints: N/M reachable` and `unique brokers responding: K`, counting distinct non-empty server IDs from successful probes (never names or URLs), shows each endpoint's server `id`, notes endpoints that reported no ID instead of grouping them, and labels `cluster` counts as `discovered endpoints`. A standalone server is no longer shown as a cluster. JSON keeps every existing field and adds `cluster.brokers` and `gateways[].brokers` (plus `unidentified_endpoints` when non-zero). Probing, status and exit codes are unchanged.
+- `puda healthcheck` no longer conflates endpoints with brokers. `--human` prints `endpoints: N/M reachable` and `unique brokers responding: K`, counting distinct non-empty server IDs from successful probes (never names or URLs), shows each endpoint's server `id`, notes endpoints that reported no ID instead of grouping them, and prints `cluster: <name>` only for a real cluster, without the advertised-address count (that list stays in JSON `cluster.discovered`; advertised addresses prove neither identity nor cluster size). JSON keeps every existing field and adds `cluster.brokers` and `gateways[].brokers` (plus `unidentified_endpoints` when non-zero). Probing, status and exit codes are unchanged.
 
 ## 0.1.6 — 2026-11-19
 
