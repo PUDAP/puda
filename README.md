@@ -143,7 +143,7 @@ puda/
 │   └── chrony/         # Site NTP server; edge hosts sync to it
 ├── skills/             # Release-aligned agent skills
 ├── test-edge/          # Software-only edge for local testing
-├── docs/               # Architecture notes and compatibility policy
+├── docs/               # docs.puda.co source (Docusaurus, standalone pnpm project)
 ├── pyproject.toml      # uv workspace (Python)
 └── package.json        # Nx workspace, installed with pnpm
 ```
@@ -164,9 +164,11 @@ The Go apps keep their own modules and are not part of `uv.lock`. A small root G
 ```bash
 uv sync                     # every Python workspace member in one venv
 cd apps/cli && just build   # build the CLI
+cd docs && pnpm install && pnpm start   # docs site at localhost:3000 (Node ≥ 20)
 ```
 
 - CLI commands and contracts: [`apps/cli/README.md`](apps/cli/README.md) · contributing: [`apps/cli/CONTRIBUTING.md`](apps/cli/CONTRIBUTING.md)
+- Docs site: [`docs/README.md`](docs/README.md) — edit pages under `docs/docs/`
 - Test without hardware: [`test-edge/README.md`](test-edge/README.md)
 - NATS layouts: [`infra/nats/README.md`](infra/nats/README.md)
 - Security reports: [`SECURITY.md`](SECURITY.md)

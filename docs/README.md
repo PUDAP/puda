@@ -1,6 +1,6 @@
-# puda-docs
+# PUDA docs
 
-View the docs at [docs.puda.co](https://docs.puda.co).
+Source for [docs.puda.co](https://docs.puda.co), part of the [PUDA monorepo](../README.md). Run the commands below from this `docs/` directory; it is a standalone pnpm project, separate from the root Nx workspace.
 
 This website is built using [Docusaurus](https://docusaurus.io/), a modern static website generator.
 
