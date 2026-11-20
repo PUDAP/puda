@@ -1,0 +1,54 @@
+---
+sidebar_position: 5
+---
+
+# Hermes Agent
+
+:::tip
+
+Skip this step if you already have an AI agent installed on your machine that can access the filesystem and shell. We recommend [Hermes Agent](https://hermes-agent.nousresearch.com/) because it has a well-built learning loop and gets better at learning your workflows the more you use it.
+
+:::
+
+Watch this video to install Hermes and connect it to Telegram. You can also follow the [Hermes installation guide](https://hermes-agent.nousresearch.com/docs/getting-started/installation).
+
+<div style={{ position: 'relative', paddingBottom: '56.25%', height: 0 }}>
+  <iframe
+    src="https://www.youtube.com/embed/-YFnwfbLpAM"
+    title="Install Hermes and connect it to Telegram"
+    style={{
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      width: '100%',
+      height: '100%',
+      border: 0,
+    }}
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    allowFullScreen
+  />
+</div>
+
+## Telegram Group Privacy Mode
+
+If you connect Hermes to a Telegram group, configure Telegram group privacy mode so Hermes can receive the messages it needs.
+
+In your WSL terminal or Linux terminal, open the Hermes config:
+
+```bash
+cd ~/.hermes
+nano config.yaml
+```
+
+Copy the following configuration into `config.yaml`:
+
+```yaml
+telegram:
+  group_allowed_chats:
+    - "-1001234567890"
+  require_mention: true
+```
+
+Replace `-1001234567890` with your own Telegram group chat ID.
+
+Next, [install the PUDA CLI and skills](./puda-cli-and-skills) on your machine so Hermes can start using PUDA.

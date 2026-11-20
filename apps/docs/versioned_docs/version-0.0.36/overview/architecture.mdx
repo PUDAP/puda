@@ -1,0 +1,31 @@
+---
+sidebar_position: 1
+---
+
+# Architecture
+
+Physical machines speak countless protocols, expose incompatible APIs, and resist the kind of uniform control that software expects. AI agents and autonomous systems need a single, reliable way to observe and act on hardware—without bespoke integrations for every device.
+
+To solve this, we introduce the **Physical Unified Device Architecture (PUDA)**: a hardware-agnostic, LLM-agnostic runtime environment designed to abstract complex hardware interfaces into a single, unified programmable layer. PUDA provides AI agents and software systems with a verifiable control plane over any physical machine, regardless of its underlying architecture.
+
+## Headless and message-driven
+
+Headless by design and message-driven at its core, PUDA shifts the paradigm by treating autonomous agents, rather than humans, as first-class operators. By decoupling high-level AI logic from low-level physical execution, PUDA eliminates the friction of hardware fragmentation, enabling seamless, scalable deployment across diverse environments.
+
+![PUDA architecture overview](./img/puda_architecture_brief.png)
+
+## Design goals
+
+The PUDA architecture is defined by core principles that transform how autonomous intelligence interacts with the physical world.
+
+### Modularity
+
+By partitioning the stack into **Agency**, **Interface**, **Communication**, and **Edge** layers, PUDA ensures that the "brain" of the system is never hard-coded to the "nerves" and "muscles." This separation provides the foundation for hardware and LLM agnosticism, allowing you to swap components as technology evolves.
+
+### Scalability
+
+PUDA is built to scale—supporting up to **1,000,000 devices** and **300,000 commands per second**. Integrating a new machine is designed to be straightforward and rapid, provided the device exposes a good programmatic interface.
+
+### AI-native
+
+PUDA is built AI-first. By providing a fully observable environment where every command generates rich telemetry, we enable agents to operate with a high degree of situational awareness. This leads to verifiable provenance and environment isolation, ensuring that every action is logged, secure, and executed within a safe sandbox.

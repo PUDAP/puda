@@ -1,0 +1,95 @@
+---
+sidebar_position: 3
+---
+
+import CommunicationLayerDiagram from './img/communication-layer.svg';
+
+# Communication
+
+The foundation of PUDA is a high-performance messaging backbone powered by [NATS](https://nats.io). In this layer, every entity—whether a hardware machine, a CLI tool, or a logger—operates as a first-class participant within a unique subject namespace.
+
+<CommunicationLayerDiagram
+  role="img"
+  aria-label="PUDA communication layer"
+  style={{width: '100%', height: 'auto', display: 'block'}}
+/>
+
+This message-centric design provides three core advantages:
+
+1. **Loose coupling** — All clients interact via subjects rather than direct IP addresses, meaning the Agentic Layer remains oblivious to the specific location of an Edge device.
+
+2. **Uniform observability** — Because every action is a discrete NATS message, the entire system state can be logged, audited, or replayed in real time.
+
+3. **Language agnosticism** — Any service that can speak NATS can join the ecosystem—11 officially supported languages and 18 community contributed.
+
+## Subject namespace
+
+PUDA subjects follow a predictable namespace:
+
+```text
+{name}.{machine_id}.{category}.{sub_category}
+```
+
+For example, an Opentron machine publishes and receives subjects under the `puda.opentron` prefix.
+
+### Telemetry
+
+Telemetry uses core NATS without JetStream persistence.
+
+| Subject | Description |
+| --- | --- |
+| `puda.opentron.tlm.heartbeat` | Timestamp-only heartbeat, published every second. |
+| `puda.opentron.tlm.pos` | Real-time machine coordinates. |
+| `puda.opentron.tlm.health` | System vitals such as CPU, memory, and temperature. |
+| `puda.opentron.tlm.status` | Machine state and `run_id`, backed by the key-value store. |
+
+### Commands
+
+Commands use JetStream and include a `run_id` for exactly-once command handling. The `run_id` also acts as a machine lock so only one workflow can operate a machine at a time, preventing workflows from clashing.
+
+The `start` immediate command sets the active `run_id`. The `complete` immediate command clears the active `run_id`.
+
+| Subject | Stream semantics |
+| --- | --- |
+| `puda.opentron.cmd.queue` | WorkQueue, ordered, exactly-once. |
+| `puda.opentron.cmd.immediate` | WorkQueue, ordered, exactly-once. |
+| `puda.opentron.cmd.response.queue` | Interest, retained only until all subscribers acknowledge. |
+| `puda.opentron.cmd.response.immediate` | Interest, retained only until all subscribers acknowledge. |
+
+### Events
+
+Events use JetStream.
+
+| Subject | Description |
+| --- | --- |
+| `puda.opentron.evt.log` | Structured logs with `log_level` and `msg`; currently unused. |
+| `puda.opentron.evt.alert` | Critical machine issues, such as `type: collision` and `severity: critical`. |
+
+### Watch patterns
+
+NATS allows an unlimited number of listeners or loggers to subscribe to the same message stream without changing the machine integration. The [PUDA CLI](./puda-cli) exposes this through `puda machine watch`.
+
+```bash
+puda machine watch puda.opentron.tlm.>
+```
+
+| Pattern | Use case |
+| --- | --- |
+| `puda.*.evt.log` | Watch all logs for all machines. |
+| `puda.opentron.tlm.>` | Watch all telemetry for Opentron. |
+| `puda.*.tlm.heartbeat` | Build a health dashboard for the whole fleet. |
+| `puda.opentron.cmd.>` | Hear everything related to Opentron commands, in and out. |
+| `puda.opentron.cmd.*` | Hear only Opentron command inputs. |
+| `puda.opentron.cmd.response.>` | Hear only Opentron command outputs. |
+
+The same patterns can be used by a logger service. You can log only command responses, or subscribe to any other part of the PUDA namespace that is useful for your lab:
+
+| Pattern | Logging use case |
+| --- | --- |
+| `puda.*.cmd.response.>` | Persist all command results across all machines. |
+| `puda.*.cmd.>` | Persist the full command flow, including inputs and outputs. |
+| `puda.*.tlm.>` | Store telemetry such as heartbeat, position, health, and status. |
+| `puda.*.evt.>` | Store structured events, logs, and alerts. |
+| `puda.>` | Archive the full PUDA message namespace. |
+
+For long-term storage, run the [PUDA Logger](../observability/logging-service), which subscribes to the subjects you care about and writes them to a database.

@@ -1,0 +1,26 @@
+---
+sidebar_position: 2
+---
+
+# Network
+
+PUDA runs as a distributed architecture. Every participant in the system must be able to reach the central NATS server so commands, telemetry, events, and logs can move through the same communication layer.
+
+This includes:
+
+- the PUDA CLI
+- all PUDA edge services
+- any logger service
+- any other service that publishes to or subscribes from NATS
+
+## Recommended setup
+
+We recommend using [Tailscale](https://tailscale.com) to put the machines in your PUDA system on the same private network.
+
+1. Sign up for a free Tailscale account.
+2. Install Tailscale on the machine running the central NATS server.
+3. Install Tailscale on each machine that needs to be connected.
+4. Add devices one by one, following the Tailscale instructions for your operating system.
+5. Confirm that each PUDA CLI, edge service, and logger service can reach the NATS server over the Tailscale network.
+
+Once this is done, you can move on to setting up the communication layer: the NATS server.

@@ -1,0 +1,237 @@
+---
+sidebar_position: 4
+---
+
+# Integrating a New Machine
+
+Each machine in PUDA runs an edge service. The edge service wraps the machine's hardware API, connects to NATS, and exposes machine commands to the rest of the PUDA system.
+
+:::info
+PUDA edge services currently support Python only, because it is the most commonly used language in the lab automation ecosystem. If you prefer to use another language, [contact us](https://www.puda.co/about) with your needs and we can create a PUDA SDK for it.
+:::
+
+Use the [edge-python-template](https://github.com/PUDAP/edge-python-template/tree/1450ca5f8e8f8f627d204954856553fadf23edfd) template to create a new repository. Name it `puda-<machine_id>-edge`, replacing `<machine_id>` with your machine ID. The template depends on the `puda` Python SDK from PyPI. Pin it to **0.0.16** for this CLI release:
+
+```bash
+pip install puda==0.0.16
+```
+
+```bash
+git clone https://github.com/<your-org>/puda-<machine_id>-edge.git
+cd puda-<machine_id>-edge
+```
+
+Then follow the instructions in the `README.md` file.
+
+## Multiple machines on one PC
+
+If several instruments share one operator PC, you do not need a separate repository for each edge service. Combine them into one repo and give each instrument its own subdirectory with its own `MACHINE_ID`, driver, and `main.py`.
+
+[PUDAP/ViPSA](https://github.com/PUDAP/ViPSA) is a working example: a single repo with a uv workspace that runs stage, Zaber, light, and Keithley edge services from one machine.
+
+Structure the repo like this:
+
+```
+puda-<name>/
+├── pyproject.toml          # uv workspace — lists each edge as a member
+├── uv.lock
+├── stage/
+│   ├── .env                # MACHINE_ID=stage
+│   ├── driver.py
+│   └── main.py
+├── zaber/
+│   ├── .env                # MACHINE_ID=zaber
+│   ├── driver.py
+│   └── main.py
+└── light/
+    ├── .env                # MACHINE_ID=light
+    ├── driver.py
+    └── main.py
+```
+
+Declare every edge package in the root `pyproject.toml`:
+
+```toml title="pyproject.toml"
+[tool.uv.workspace]
+members = [
+    "stage",
+    "zaber",
+    "light",
+]
+```
+
+Each subdirectory is a standalone edge service from the [edge-python-template](https://github.com/PUDAP/edge-python-template/tree/1450ca5f8e8f8f627d204954856553fadf23edfd) template. Give each one a unique `MACHINE_ID` in its `.env` file, then start them individually or with a small script that launches every edge process on the PC.
+
+## Driver class
+
+The main integration point is the `driver.py` class. This class should be a thin wrapper around the hardware code for your machine to make it more AI ready. If you already have example code for each command, an AI coding agent can usually turn that into a quick `driver.py` for you.
+
+All public methods on the driver class are exposed as machine commands on PUDA, allowing an AI agent to access them using the PUDA CLI. This CLI release requires Python SDK **0.0.16**.
+
+```bash
+puda machine commands <machine_id>
+```
+
+:::caution
+Only methods defined on this driver wrapper class are exposed to PUDA. Keep every machine action you want an AI agent to discover, call, and orchestrate in this class. Methods that live only in lower-level hardware clients or helper classes will not be available as machine commands unless the driver wrapper exposes them.
+:::
+
+This means the driver method names, docstrings, parameters, and return annotations become part of the command interface that users and agents see.
+
+## Driver best practices
+
+When writing the driver class:
+
+- Add docstrings for every public method.
+- Document each parameter, error thrown and return object in the docstring.
+- Keep commands atomic, with each method performing one clear machine action.
+- Use only primitive objects in method parameters, such as `str`, `int`, `float`, `bool`, and simple lists or dictionaries of primitives.
+- Avoid exposing low-level helper methods as public methods. Use private methods for internal helpers.
+- Raise clear, verbose errors when a command fails so the PUDA CLI, logs, and agents can understand what happened.
+- Define the default lifecycle commands: `shutdown`, `home`, and `reset`.
+
+These are standard good programming practices. In PUDA, they also become useful context for AI agents because the command names, docstrings, types, and errors describe what the machine can do and how failures should be interpreted.
+
+## Default commands
+
+Every driver should define these default commands:
+
+```python title="driver.py"
+class Driver:
+    def shutdown(self) -> bool:
+        """
+        Shutdown the machine. Releases all resources and connections to the machine.
+
+        Returns:
+            bool: True if the shutdown was successful, False otherwise
+        """
+        return True
+
+    def home(self) -> bool:
+        """
+        Homes the machine. Used by PUDA CLI `puda machine home <machine_id>`.
+
+        Returns:
+            bool: True if the home was successful, False otherwise
+        """
+        return True
+
+    def reset(self) -> bool:
+        """
+        Software reset the machine. Used by PUDA CLI `puda machine reset <machine_id>`.
+
+        Returns:
+            bool: True if the reset was successful, False otherwise
+        """
+        return True
+```
+
+## Command design
+
+Prefer atomic commands that map to a single hardware action. Avoid commands that combine unrelated work, hide required inputs, or require complex objects that cannot be represented cleanly in the [protocol file](https://docs.puda.co/docs/overview/under-the-hood#protocol-generation).
+
+When a hardware operation fails, include the command, target values, and hardware response in the error message.
+
+```python title="driver.py"
+def move_to(self, x_mm: float, y_mm: float, z_mm: float) -> bool:
+    """
+    Move the machine head to an absolute position.
+
+    Args:
+        x_mm: Target X position in millimeters.
+        y_mm: Target Y position in millimeters.
+        z_mm: Target Z position in millimeters.
+
+    Returns:
+        bool: True if the move was accepted, False otherwise.
+
+    Raises:
+        RuntimeError: If the hardware rejects the move command.
+    """
+    result = self._hardware.move_to(x_mm=x_mm, y_mm=y_mm, z_mm=z_mm)
+    if not result.ok:
+        raise RuntimeError(
+            "Failed to move machine head "
+            f"to x={x_mm}, y={y_mm}, z={z_mm}: {result.error}"
+        )
+    return True
+```
+
+## Configure the edge service
+
+After the driver commands work, edit `main.py` so the edge service loads the machine-specific environment variables, passes them into the driver, and publishes useful telemetry.
+
+Keep `MACHINE_ID` and `NATS_SERVERS` in `.env`, then add the variables your hardware needs:
+
+```bash title=".env"
+MACHINE_ID=my-machine
+NATS_SERVERS=nats://<nats-server-ip>:4222
+
+# Add variables as needed
+MY_MACHINE_HOST=192.168.1.50
+MY_MACHINE_PORT=4000
+```
+
+Add matching fields to the `Config` class in `main.py`. Use descriptive names and types so missing or invalid configuration fails at startup instead of during a command:
+
+```python title="main.py"
+class Config(BaseSettings):
+    machine_id: str
+    nats_servers: str
+    my_machine_host: str
+    my_machine_port: int = 4000
+
+    model_config = SettingsConfigDict(
+        env_file=Path(__file__).resolve().parent / ".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+    )
+
+    @property
+    def nats_server_list(self) -> list[str]:
+        return [s.strip() for s in self.nats_servers.split(",") if s.strip()]
+```
+
+Then instantiate the driver from that config:
+
+```python title="main.py"
+driver = Driver(
+    host=config.my_machine_host,
+    port=config.my_machine_port,
+)
+```
+
+The telemetry handler should publish at least heartbeat, optional position, health, and state.
+
+```python title="main.py"
+async def telemetry_handler():
+    await edge_nats_client.publish_heartbeat()
+
+    await edge_nats_client.publish_position(driver.get_position())
+
+    await edge_nats_client.publish_health({
+        "connected": driver.is_connected(),
+        "temperature_c": driver.temperature_c(),
+    })
+
+
+def state_handler():
+    return {
+        "state": driver.state,
+        "run_id": driver.active_run_id,
+        "homed": driver.is_homed(),
+        "busy": driver.is_busy(),
+    }
+
+
+runner = EdgeRunner(
+    nats_client=edge_nats_client,
+    machine_driver=driver,
+    telemetry_handler=telemetry_handler,
+    state_handler=state_handler,
+)
+```
+
+Adapt the field names to your machine. For a robot arm, position might include joints and tool pose. For a pump, position might be plunger position, valve position, and current flow rate. For a camera, it might be stage position, focus, exposure, and acquisition state. The important rule is that telemetry should be JSON-serializable, stable over time, and useful to agents, dashboards, and loggers watching subjects such as `puda.<machine_id>.tlm.pos`, `puda.<machine_id>.tlm.health`, and `puda.<machine_id>.tlm.status`.
+
+Once this is done, you can [install the PUDA CLI and skills](./puda-cli-and-skills) in your AI agent so it can command your PUDA-integrated machines.

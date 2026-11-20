@@ -1,0 +1,142 @@
+---
+sidebar_position: 1
+---
+
+# PUDA Logger
+
+By default, the PUDA CLI uses SQLite for local storage. This is enough for a local workstation, quick experiments, and single-user development.
+
+For backups, persistent storage, and a more reliable record of the whole runtime environment, run the PUDA logger. It should run 24/7 on an always-on machine, in a Docker container.
+
+This version of the guide uses [PUDAP/puda-logger at commit `0299c8f`](https://github.com/PUDAP/puda-logger/commit/0299c8fbf047f6c332849c6056cde9443b4159d7), not the current main branch. It uses Telegraf to stream PUDA command and health telemetry from NATS into a central database.
+
+The template includes two database backends. Both use the same NATS subscription pattern; choose the one that matches how you query your logs.
+
+## Choose a database
+
+**InfluxDB (recommended)** — use this when a time-series database is the better fit. Most PUDA log queries are filtered by timestamp—runs, commands, telemetry, and events over a time window—so InfluxDB is the default choice for most deployments.
+
+**PostgreSQL** — use this when a traditional relational database is preferred. PostgreSQL works well for command history, experiment records, joins, backups, and operational reporting where relational queries matter more than time-window performance.
+
+## Run the logger
+
+Clone the logger template on an always-on machine that can reach your NATS server. This can be the same machine that runs NATS, or another reliable machine on the same network.
+
+The steps below use the InfluxDB stack. For PostgreSQL, use the same NATS configuration in the template's `postgres/` stack.
+
+:::tip
+The database server and the logger do not need to run on the same machine. A common split is InfluxDB on a NAS for durable storage, and the logger on a mini PC closer to NATS. Each host only needs network access to the services it talks to: the server must be reachable from the logger, and the logger must be able to reach NATS.
+:::
+
+### Start InfluxDB
+
+On the machine that will host the database—for example, a NAS—clone the template and start the server stack:
+
+```bash
+git clone https://github.com/PUDAP/puda-logger.git
+cd puda-logger
+git checkout --detach 0299c8fbf047f6c332849c6056cde9443b4159d7
+cd influxdb/server
+```
+
+Create an admin token file for InfluxDB:
+
+```bash
+echo '{"token": "<token>", "name": "<name>", "description": "Preconfigured admin token for influxdb-logger"}' > admin-token.json
+```
+
+Copy the server environment file:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and set `INFLUXDB_TOKEN` to the same token value from `admin-token.json`. Change `INFLUXDB_PORT` only if port `8181` is already in use on this host:
+
+```env title=".env"
+INFLUXDB_PORT=8181
+INFLUXDB3_NODE_IDENTIFIER_PREFIX=puda
+INFLUXDB_TOKEN=<token>
+```
+
+Start InfluxDB:
+
+```bash
+docker compose up -d
+```
+
+The Compose template stores InfluxDB data in a Docker volume, so logs remain available across container restarts.
+
+### Start the logger
+
+On the machine that will run the logger—for example, a mini PC on the lab network—clone the template if needed and configure the logger stack:
+
+```bash
+git clone https://github.com/PUDAP/puda-logger.git
+cd puda-logger
+git checkout --detach 0299c8fbf047f6c332849c6056cde9443b4159d7
+cd influxdb/logger
+cp .env.example .env
+```
+
+Edit `.env` and point the logger at your InfluxDB server and NATS broker. Use the same `INFLUXDB_TOKEN` from [Start InfluxDB](#start-influxdb). Set `NATS_SERVERS` to the NATS URL(s) the logger can reach—for example, `nats://<nats-host>:4222`:
+
+```env title=".env"
+INFLUXDB_URL=http://<influxdb-host>:8181
+INFLUXDB_TOKEN=<token>
+INFLUXDB_DATABASE=puda
+INFLUXDB_ORGANIZATION=bears
+NATS_SERVERS=nats://<nats-host>:4222
+```
+
+Start the logger with Docker Compose. Use `--build` on the first run, or after Dockerfile or entrypoint changes:
+
+```bash
+docker compose up -d --build
+```
+
+The `nats-stream-init` service creates the JetStream response streams, then starts the Telegraf-based `influxdb-logger` container. The logger restarts automatically unless stopped.
+
+If you change `telegraf.conf.template`, restart without rebuilding:
+
+```bash
+docker compose restart influxdb-logger
+```
+
+To run without Docker, export the same variables and run `./docker-entrypoint.sh` from `influxdb/logger`. This requires `telegraf` and `envsubst` (from `gettext`) on your PATH.
+
+## What the logger records
+
+The InfluxDB logger uses [Telegraf](https://docs.influxdata.com/telegraf/) to stream PUDA NATS traffic into two measurements:
+
+| Measurement | NATS subjects | Description |
+|---|---|---|
+| `commands` | `puda.*.cmd.*` (requests), `puda.*.cmd.response.*` (responses) | Command and response log |
+| `telemetry` | `puda.*.tlm.health` | Machine health metrics (`cpu`, `mem`, `temp`) |
+
+Command **requests** use a plain core NATS subscription. Command **responses** use Telegraf's ephemeral JetStream push consumer on the `RESPONSE_QUEUE` and `RESPONSE_IMMEDIATE` streams. Telegraf requires version **1.39+**.
+
+:::tip
+For the full field and tag schema, see the [pinned influxdb-logger README](https://github.com/PUDAP/puda-logger/blob/0299c8fbf047f6c332849c6056cde9443b4159d7/influxdb/logger/README.md).
+:::
+
+## Verify logging
+
+After the logger is running, send a command to a PUDA machine:
+
+```bash
+puda machine home <machine_id>
+```
+
+Then inspect the logger container:
+
+```bash
+docker compose logs -f influxdb-logger
+```
+
+You should see the logger connected to NATS and InfluxDB, then processing machine health and command traffic as it arrives.
+
+## Next steps
+
+- Connect [Grafana](./grafana-dashboard) to InfluxDB for dashboards and alerts on machine health and command history.
+- If you run Hermes agents, install [Hermes Logger](./hermes-logger) to persist agent telemetry to the same InfluxDB server.

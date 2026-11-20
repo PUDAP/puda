@@ -1,0 +1,175 @@
+---
+sidebar_position: 2
+---
+
+# Hermes Logger
+
+[Hermes Logger](https://github.com/PUDAP/hermes-logger) is a [Hermes observer plugin](https://github.com/NousResearch/hermes-agent/tree/main/docs/observability) that writes structured agent telemetry to InfluxDB. It captures user prompts, LLM API calls (including extracted reasoning text), tool calls, subagent delegation, and approval flows for every Hermes session on a machine.
+
+Hermes Logger runs on the same host as the Hermes agent. It does not replace the [PUDA Logger](./logging-service), which records PUDA machine traffic from NATS. Use both when you want machine observability and agent observability in the same InfluxDB server.
+
+## Prerequisites
+
+Start an InfluxDB server first by following [Start InfluxDB](./logging-service#start-influxdb) in the PUDA Logger guide. Hermes Logger writes to that server over HTTP on port `8181`.
+
+Use a separate database for Hermes data—for example, `hermes-logs`—so agent telemetry stays separate from the `commands` and `telemetry` measurements the PUDA logger writes.
+
+## Install the plugin
+
+Clone the plugin into your Hermes user plugins folder, or symlink an existing checkout:
+
+```bash
+# Option A: clone directly into place
+git clone https://github.com/PUDAP/hermes-logger ~/.hermes/plugins/hermes-logger
+
+# Option B: symlink an existing checkout
+ln -s /path/to/hermes-logger ~/.hermes/plugins/hermes-logger
+```
+
+Install dependencies (requires Python 3.10 or newer):
+
+```bash
+cd ~/.hermes/hermes-agent/venv/bin
+./pip install -r ~/.hermes/plugins/hermes-logger/requirements.txt
+```
+
+## Configure credentials
+
+Copy the example environment file and set your InfluxDB connection details:
+
+```bash
+cd ~/.hermes/plugins/hermes-logger
+cp .env.example .env
+```
+
+Required variables:
+
+| Variable | Description |
+|---|---|
+| `INFLUXDB_URL` | HTTP(S) address of your InfluxDB server—for example, `http://<influxdb-host>:8181` |
+| `INFLUXDB_TOKEN` | API token with write access to the target database |
+| `INFLUXDB_ORG` | InfluxDB organization name |
+| `INFLUXDB_DATABASE` | Destination database—for example, `hermes-logs` |
+
+Use the same `INFLUXDB_URL` and `INFLUXDB_TOKEN` values from the [InfluxDB server setup](./logging-service#start-influxdb). Set `INFLUXDB_DATABASE` to a dedicated database name for Hermes telemetry.
+
+Optional tuning variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `AGENT_ID` | _(unset)_ | Identifier for the machine or agent running this plugin; added as the `agent_id` tag on every measurement when set |
+| `INFLUXDB_BATCH_SIZE` | `500` | Points buffered before a forced flush |
+| `INFLUXDB_FLUSH_INTERVAL_MS` | `10000` | Maximum milliseconds between automatic flushes |
+| `HERMES_LOGGER_MAX_TEXT_BYTES` | `0` | Truncate text fields longer than this (`0` = unlimited) |
+| `HERMES_LOGGER_LOG_LEVEL` | `INFO` | Plugin log verbosity |
+
+Example `.env`:
+
+```env title=".env"
+INFLUXDB_URL=http://<influxdb-host>:8181
+INFLUXDB_TOKEN=<token>
+INFLUXDB_ORG=<org>
+INFLUXDB_DATABASE=hermes-logs
+AGENT_ID=<machine-or-agent-id>
+```
+
+## Enable the plugin
+
+Enable the plugin in Hermes:
+
+```bash
+hermes plugins enable hermes-logger
+```
+
+Hermes discovers the `plugin.yaml` manifest and calls `register(ctx)` from `__init__.py` at agent start. If any required environment variable is missing, the plugin logs a warning and skips registration so the agent still starts normally.
+
+Restart Hermes after changing `.env` so the plugin picks up the new credentials.
+
+## What Hermes Logger records
+
+| Measurement | What it captures |
+|---|---|
+| `hermes_session` | Session start, end, and reset lifecycle |
+| `hermes_llm_turn` | Per-turn user prompt (`turn_start`) and final agent response (`turn_end`) |
+| `hermes_api_request` | Individual provider API attempts—timing, token usage, sanitized request and response payloads, extracted reasoning text |
+| `hermes_tool_call` | Tool call start and end—name, args, result, duration, status |
+| `hermes_subagent` | Delegated child-agent start and stop with goal and summary |
+| `hermes_approval` | Dangerous-command approval requests and the user's response |
+
+Common tag fields include `session_id`, `task_id`, `turn_id`, `model`, `provider`, `tool_name`, and `status`. Every point is also tagged with `telemetry_schema_version` when Hermes supplies one (currently `hermes.observer.v1`).
+
+Tool call `status` values are `ok`, `error`, `blocked`, or `cancelled`. Approval `choice` values are `once`, `session`, `always`, `deny`, or `timeout`.
+
+## Verify logging
+
+Start or restart Hermes with the plugin enabled, then send a prompt that triggers a tool call. In Grafana **Explore** (see [Grafana Dashboard](./grafana-dashboard)), query the Hermes database:
+
+```sql
+SELECT time, session_id, user_message
+FROM hermes_llm_turn
+WHERE time >= now() - interval '1 hour'
+  AND event = 'turn_start'
+ORDER BY time DESC
+LIMIT 20
+```
+
+You should see new rows appear for recent turns. If nothing shows up, confirm that InfluxDB is reachable from the Hermes host, the token has write access to `INFLUXDB_DATABASE`, and Hermes did not log a missing-credentials warning at startup.
+
+## Example queries
+
+These SQL examples match the InfluxDB 3 setup from the PUDA Logger. Adjust the time window and filters for your dashboards.
+
+**Recent user prompts:**
+
+```sql
+SELECT time, session_id, user_message
+FROM hermes_llm_turn
+WHERE time >= now() - interval '1 hour'
+  AND event = 'turn_start'
+ORDER BY time DESC
+```
+
+**Failed tool calls:**
+
+```sql
+SELECT time, session_id, tool_name, error_type, error_message
+FROM hermes_tool_call
+WHERE time >= now() - interval '1 hour'
+  AND status = 'error'
+ORDER BY time DESC
+```
+
+**Token usage per API request:**
+
+```sql
+SELECT time, session_id, turn_id, model, prompt_tokens, completion_tokens, total_tokens, reasoning_tokens
+FROM hermes_api_request
+WHERE time >= now() - interval '1 hour'
+  AND event = 'api_end'
+ORDER BY time DESC
+```
+
+**Reasoning traces:**
+
+```sql
+SELECT time, session_id, turn_id, model, reasoning, reasoning_tokens
+FROM hermes_api_request
+WHERE time >= now() - interval '1 hour'
+  AND event = 'api_end'
+  AND reasoning <> ''
+ORDER BY time DESC
+```
+
+**Denied or timed-out approvals:**
+
+```sql
+SELECT time, session_id, choice, pattern_key, command
+FROM hermes_approval
+WHERE time >= now() - interval '1 hour'
+  AND choice IN ('deny', 'timeout')
+ORDER BY time DESC
+```
+
+## Next step
+
+Add [Grafana](./grafana-dashboard) dashboards and alerts on top of both PUDA machine data and Hermes agent telemetry. Point a second InfluxDB data source at the `hermes-logs` database, or add Hermes panels to an existing dashboard.

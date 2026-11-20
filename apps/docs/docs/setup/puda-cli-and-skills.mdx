@@ -1,0 +1,77 @@
+---
+sidebar_position: 6
+---
+
+import CopyPromptButton from '@site/src/components/CopyPromptButton';
+
+# PUDA CLI and Skills
+
+Install the PUDA CLI and PUDA skills in the shell environment used by your AI agent. This lets Cursor, Claude, Hermes, or any shell-capable agent discover machines, run PUDA commands, and follow PUDA workflows.
+
+It works best on Linux, where the agent can install the PUDA CLI, inspect project files, run commands, and operate through the same terminal surface that a human would use.
+
+Copy this prompt into your AI agent to run the full setup in one go:
+
+<CopyPromptButton />
+
+Or follow the steps below.
+
+## Install prerequisites
+
+Copy this prompt into your AI agent:
+
+```text
+Before installing the PUDA CLI, install the latest available versions of Python 3, pip, and npx for this system.
+
+After installation, verify that python3, pip, and npx are available by checking their installed versions.
+```
+
+## Install the PUDA CLI
+
+Copy this prompt into your AI agent:
+
+```text
+Install the latest PUDA CLI 0.1.x from https://github.com/PUDAP/puda/releases and add it to my PATH so the puda command is available globally.
+
+After installation, verify that the CLI reports a 0.1.x version.
+```
+
+## Install PUDA skills
+
+Copy this prompt into your AI agent:
+
+```text
+Install PUDA skills using `puda skills install`.
+```
+
+## Log in
+
+Copy this prompt into your AI agent, replacing `<username>` with your PUDA username:
+
+```text
+Log in to PUDA using the username <username>.
+```
+
+## Configure NATS
+
+Copy this prompt into your AI agent, replacing `<nats_servers>` with the server addresses from your [NATS setup](./nats-server):
+
+```text
+Inspect PUDA profiles and configure a named profile for the NATS server URL or comma-separated NATS cluster URLs: <nats_servers>. Select it as the active profile. If it uses TLS and E2EE, ask me for the local CA and lab key file paths.
+```
+
+Use `puda profile` for NATS server connections; `puda config` manages user identity only. Plaintext profiles use `nats://` URLs. Encrypted profiles use `tls://` URLs with both `--ca` and `--key`. See [profile migration and examples](../upgrading-to-0.1.x#move-nats-server-settings-to-profiles).
+
+## Verify the setup
+
+Copy this prompt into your AI agent:
+
+```text
+List the current available PUDA machines.
+```
+
+The machines with edge services running should show up there.
+
+Use `puda machine info <machine_id>` to inspect a machine's advertised `tlm_streams`, then `puda machine watch <advertised-subject> --timeout 15` to verify live samples. Watch takes full NATS subjects, not machine IDs. See [watch subject examples](../upgrading-to-0.1.x#watch-full-nats-subjects).
+
+Next, [build machine skills](./machine-skills) so your AI agent knows how to command each machine safely and consistently.

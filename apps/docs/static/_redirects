@@ -1,0 +1,6 @@
+/docs/0.1.0 /docs 301
+/docs/0.1.0/* /docs/:splat 301
+/docs/0.1.x /docs 301
+/docs/0.1.x/* /docs/:splat 301
+/agent-setup/0.1.0 /agent-setup/0.1.x/prompt.md 301
+/agent-setup/0.1.0/* /agent-setup/0.1.x/:splat 301

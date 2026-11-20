@@ -2,7 +2,7 @@
 
 PUDA's agent skills live in the main `PUDAP/puda` repository as ordinary files in
 `skills/`. They are versioned with CLI releases, not maintained as a nested Git
-repository or submodule. See the [migration guide](../docs/skills-migration.md)
+repository or submodule. See the [migration guide](../apps/cli/docs/skills-migration.md)
 for migration from the separate `PUDAP/skills` repository.
 
 ## Overview
@@ -72,8 +72,8 @@ puda skills update
 ```
 
 Both commands accept `--ref <git-reference>` to select a branch or tag (for example
-`--ref main` or `--ref v0.1.6`). See the [migration guide](../docs/skills-migration.md#installation-policy)
-for ref rules and [lock and coexistence precautions](../docs/skills-migration.md#coexistence-locks-and-migration-precautions).
+`--ref main` or `--ref v0.1.6`). See the [migration guide](../apps/cli/docs/skills-migration.md#installation-policy)
+for ref rules and [lock and coexistence precautions](../apps/cli/docs/skills-migration.md#coexistence-locks-and-migration-precautions).
 
 ## Developing and testing skills
 

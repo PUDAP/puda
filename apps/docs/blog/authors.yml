@@ -1,0 +1,11 @@
+hongzhao:
+  name: Hong Zhao Tan
+  title: Software Engineer
+  url: https://linkedin.com/in/hongzhaotan
+  image_url: https://github.com/agentzhao.png
+  page:
+    permalink: '/hongzhao'
+  socials:
+    x: agentzhao
+    linkedin: hongzhaotan
+    github: agentzhao

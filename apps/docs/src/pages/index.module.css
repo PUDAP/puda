@@ -1,0 +1,212 @@
+/**
+ * CSS files with the .module.css suffix will be treated as CSS modules
+ * and scoped locally.
+ */
+
+.heroBanner {
+  padding: 5rem 0 4rem;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  background-color: var(--ifm-background-color);
+}
+
+:global([data-theme='dark']) .heroBanner {
+  background-color: #121315;
+}
+
+@media screen and (max-width: 996px) {
+  .heroBanner {
+    padding: 3rem 1.5rem;
+  }
+}
+
+.heroTitle {
+  font-size: 3rem;
+  font-weight: 800;
+  color: var(--ifm-heading-color);
+  margin-bottom: 1rem;
+  letter-spacing: -0.02em;
+}
+
+:global([data-theme='dark']) .heroTitle {
+  color: #ffffff;
+}
+
+@media screen and (max-width: 996px) {
+  .heroTitle {
+    font-size: 2.25rem;
+  }
+}
+
+.heroSubtitle {
+  font-size: 1.2rem;
+  color: var(--ifm-color-emphasis-700);
+  max-width: 520px;
+  margin: 0 auto 2.5rem;
+  line-height: 1.6;
+}
+
+:global([data-theme='dark']) .heroSubtitle {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.875rem;
+  flex-wrap: wrap;
+}
+
+.getStartedBtn {
+  font-weight: 700;
+  border-radius: 6px;
+  padding: 0.6rem 1.5rem;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.getStartedBtn:hover {
+  transform: translateY(-1px);
+}
+
+.features {
+  display: flex;
+  align-items: center;
+  padding: 4rem 0 5rem;
+  width: 100%;
+  background: var(--ifm-background-color);
+}
+
+.title {
+  font-size: 2.25rem;
+  font-weight: 800;
+  margin-bottom: 1rem;
+  color: var(--ifm-heading-color);
+}
+
+.description {
+  color: var(--ifm-color-emphasis-700);
+  font-size: 1.125rem;
+  line-height: 1.6;
+  margin: 0 auto 1.5rem;
+  max-width: 680px;
+}
+
+.examples {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 2.5rem auto 2rem;
+  text-align: left;
+}
+
+.exampleCard {
+  background: var(--ifm-background-surface-color);
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 8px;
+  min-height: 17rem;
+  padding: 1.5rem;
+}
+
+.exampleLabel {
+  color: var(--ifm-color-emphasis-800);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.42em;
+  margin-bottom: 1.4rem;
+  text-transform: uppercase;
+}
+
+.exampleCard h3 {
+  color: var(--ifm-heading-color);
+  font-size: 1.35rem;
+  font-weight: 500;
+  line-height: 1.25;
+  margin: 0 0 2.25rem;
+}
+
+.exampleCard p {
+  color: var(--ifm-color-emphasis-700);
+  font-size: 1rem;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.875rem;
+  justify-content: center;
+}
+
+.primaryAction,
+.secondaryAction {
+  border-radius: 6px;
+  font-weight: 700;
+}
+
+.secondaryAction {
+  border-color: var(--ifm-color-emphasis-300);
+  color: var(--ifm-font-color-base);
+}
+
+.secondaryAction:hover {
+  border-color: var(--ifm-color-emphasis-500);
+  color: var(--ifm-font-color-base);
+}
+
+:global([data-theme='dark']) .features {
+  background: #121315;
+}
+
+:global([data-theme='dark']) .description {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+:global([data-theme='dark']) .exampleCard {
+  background: #101212;
+  border-color: rgba(255, 255, 255, 0.11);
+}
+
+:global([data-theme='dark']) .exampleLabel {
+  color: #f0d400;
+}
+
+:global([data-theme='dark']) .exampleCard h3 {
+  color: #ffffff;
+}
+
+:global([data-theme='dark']) .exampleCard p {
+  color: rgba(255, 255, 255, 0.68);
+}
+
+:global([data-theme='dark']) .secondaryAction {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+:global([data-theme='dark']) .secondaryAction:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.32);
+  color: #ffffff;
+}
+
+@media screen and (max-width: 996px) {
+  .features {
+    padding: 3rem 1.5rem;
+  }
+
+  .title {
+    font-size: 1.875rem;
+  }
+
+  .examples {
+    grid-template-columns: 1fr;
+  }
+
+  .exampleCard {
+    min-height: auto;
+  }
+}

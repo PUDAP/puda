@@ -76,8 +76,8 @@ are silent. Ranges are declarations, not exhaustive qualification: unpublished
 SDK 0.0.20 is implied, not tested, and 0.0.22 is a pending local artifact.
 Encryption, telemetry consumers and hardware remain outside the bounded software
 checks. See the
-[historical matrix](../../docs/compatibility-history.md) and the
-[compatibility policy and test evidence](../../docs/compatibility.md).
+[historical matrix](docs/compatibility-history.md) and the
+[compatibility policy and test evidence](docs/compatibility.md).
 
 Source builds require the full checkout: the CLI uses the root Go module to
 embed the one policy file without generated duplication. Released binaries
@@ -162,7 +162,7 @@ This is advisory: prompts and `--yes` retain their existing behavior, warnings u
 stderr, and no SDK or machine is modified. Already-latest and background notifier
 checks do not preflight. Source metadata trusts GitHub/repository ownership, not
 a signed binding to the release binary; see the
-[policy and trust details](../../docs/compatibility.md#update-preflight).
+[policy and trust details](docs/compatibility.md#update-preflight).
 
 ## Protocol run context
 
@@ -258,7 +258,7 @@ after the other skills are linked. Local paths never go through npx.
 Upgrading the CLI and running `puda skills update` re-adds official skills from
 the new release, replacing same-name legacy `PUDAP/skills` lock entries. It does
 not remove legacy-only skills such as `puda-memory`. See the
-[migration guide](../../docs/skills-migration.md) for lock/coexistence details,
+[migration guide](docs/skills-migration.md) for lock/coexistence details,
 local testing before publication, and the old-repository pointer plan.
 
 ## Build and release
