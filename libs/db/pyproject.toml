@@ -5,8 +5,7 @@ description = "PostgreSQL database client library for the PUDA platform"
 readme = "README.md"
 license = "MIT"
 authors = [
-    { name = "zhao", email = "20024592+agentzhao@users.noreply.github.com" },
-    { name = "zhao-bears", email = "247071254+zhao-bears@users.noreply.github.com" },
+    { name = "zhao", email = "hi@agentzhao.me" },
 ]
 requires-python = ">=3.12"
 dependencies = [
