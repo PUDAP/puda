@@ -1,1 +1,4 @@
 autoInstallPeers: true
+
+overrides:
+  axios: ^1.21.1
