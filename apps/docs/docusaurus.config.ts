@@ -44,6 +44,16 @@ const config: Config = {
         deployTarget: 'cloudflare',
       },
     ],
+    [
+      '@docusaurus/plugin-client-redirects',
+      {
+        // Version roots have no page of their own; send them to Getting Started.
+        redirects: [
+          {from: '/docs', to: '/docs/getting-started'},
+          {from: '/docs/0.0.36', to: '/docs/0.0.36/getting-started'},
+        ],
+      },
+    ],
   ],
 
   presets: [
