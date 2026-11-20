@@ -5,7 +5,8 @@ description = "Official Python SDK for PUDA, the runtime environment for Physica
 readme = "README.md"
 license = "MIT"
 authors = [
-    { name = "zhao", email = "20024592+agentzhao@users.noreply.github.com" }
+    { name = "zhao", email = "20024592+agentzhao@users.noreply.github.com" },
+    { name = "zhao-bears", email = "247071254+zhao-bears@users.noreply.github.com" },
 ]
 requires-python = ">=3.10"
 dependencies = [
