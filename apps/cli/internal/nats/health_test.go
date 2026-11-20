@@ -197,7 +197,7 @@ func TestSummarizeHealthSameIDIsOneBroker(t *testing.T) {
 	if report.Status != HealthOK || report.Cluster.Configured != 2 || report.Cluster.Reachable != 2 {
 		t.Fatalf("report=%+v", report)
 	}
-	if report.Cluster.Brokers != 1 || report.Cluster.UnidentifiedEndpoints != 0 {
+	if len(report.Cluster.Brokers) != 1 || report.Cluster.UnidentifiedEndpoints != 0 || strings.Join(report.Cluster.Brokers[0].Endpoints, ",") != "nats://192.168.1.10:4222,nats://100.64.0.10:4222" {
 		t.Fatalf("cluster=%+v", report.Cluster)
 	}
 }
@@ -208,7 +208,7 @@ func TestSummarizeHealthDistinctIDsSameNameAreTwoBrokers(t *testing.T) {
 		{URL: "nats://a:4222", Status: "ok", Name: "nats", ID: "NONE"},
 		{URL: "nats://b:4222", Status: "ok", Name: "nats", ID: "NTWO"},
 	}, JetStreamHealth{Status: "ok", OK: true})
-	if report.Cluster.Brokers != 2 {
+	if len(report.Cluster.Brokers) != 2 {
 		t.Fatalf("cluster=%+v", report.Cluster)
 	}
 }
@@ -222,7 +222,7 @@ func TestSummarizeHealthFailedEndpointKeepsDegraded(t *testing.T) {
 	if report.Status != HealthDegraded || report.Cluster.Reachable != 1 || report.Cluster.Configured != 2 {
 		t.Fatalf("report=%+v", report)
 	}
-	if report.Cluster.Brokers != 1 || len(report.Servers) != 2 || report.Servers[1].Error != "connection refused" {
+	if len(report.Cluster.Brokers) != 1 || len(report.Servers) != 2 || report.Servers[1].Error != "connection refused" {
 		t.Fatalf("report=%+v", report)
 	}
 }
@@ -234,7 +234,7 @@ func TestSummarizeHealthMissingIDsAreNotGrouped(t *testing.T) {
 		{URL: "nats://b:4222", Status: "ok", Name: "nats"},
 		{URL: "nats://c:4222", Status: "ok", Name: "nats", ID: "NONE"},
 	}, JetStreamHealth{Status: "ok", OK: true})
-	if report.Cluster.Brokers != 1 || report.Cluster.UnidentifiedEndpoints != 2 || report.Cluster.Reachable != 3 {
+	if len(report.Cluster.Brokers) != 1 || report.Cluster.UnidentifiedEndpoints != 2 || report.Cluster.Reachable != 3 {
 		t.Fatalf("cluster=%+v", report.Cluster)
 	}
 }
@@ -244,7 +244,7 @@ func TestSummarizeGatewaysCountsBrokersByID(t *testing.T) {
 		{server: ServerHealth{URL: "nats://c:4222", Status: "ok", Cluster: "imre", ID: "NREMOTE"}, js: JetStreamHealth{Status: "ok", OK: true}},
 		{server: ServerHealth{URL: "nats://d:4222", Status: "ok", Cluster: "imre", ID: "NREMOTE"}, js: JetStreamHealth{Status: "ok", OK: true}},
 	})
-	if len(gateways) != 1 || gateways[0].Reachable != 2 || gateways[0].Brokers != 1 {
+	if len(gateways) != 1 || gateways[0].Reachable != 2 || len(gateways[0].Brokers) != 1 {
 		t.Fatalf("gateways=%+v", gateways)
 	}
 }

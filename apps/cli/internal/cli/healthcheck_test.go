@@ -147,7 +147,7 @@ func TestWriteHealthReportHumanSeparatesEndpointsFromBrokers(t *testing.T) {
 			{URL: "nats://192.168.1.10:4222", Status: "ok", Name: "nats", ID: "NSAME", JetStream: true},
 			{URL: "nats://100.64.0.10:4222", Status: "ok", Name: "nats", ID: "NSAME", JetStream: true},
 		},
-		Cluster:   pudanats.ClusterHealth{Configured: 2, Reachable: 2, Brokers: 1, Discovered: []string{"nats://100.64.0.10:4222", "nats://192.168.1.10:4222"}},
+		Cluster:   pudanats.ClusterHealth{Configured: 2, Reachable: 2, Brokers: []pudanats.BrokerHealth{{ID: "NSAME", Endpoints: []string{"nats://192.168.1.10:4222", "nats://100.64.0.10:4222"}}}, Discovered: []string{"nats://100.64.0.10:4222", "nats://192.168.1.10:4222"}},
 		JetStream: pudanats.JetStreamHealth{Status: "ok", OK: true},
 	}
 	var buf bytes.Buffer
@@ -175,7 +175,7 @@ func TestWriteHealthReportHumanUnidentifiedEndpoints(t *testing.T) {
 			{URL: "nats://a:4222", Status: "ok", Name: "nats"},
 			{URL: "nats://b:4222", Status: "ok", Name: "nats"},
 		},
-		Cluster:   pudanats.ClusterHealth{Configured: 2, Reachable: 2, Brokers: 0, UnidentifiedEndpoints: 2},
+		Cluster:   pudanats.ClusterHealth{Configured: 2, Reachable: 2, UnidentifiedEndpoints: 2},
 		JetStream: pudanats.JetStreamHealth{Status: "ok", OK: true},
 	}
 	var buf bytes.Buffer
@@ -187,11 +187,11 @@ func TestWriteHealthReportHumanUnidentifiedEndpoints(t *testing.T) {
 	}
 }
 
-// Existing JSON fields stay; brokers is added alongside the endpoint counts.
+// Existing JSON fields stay; brokers lists each server ID with its endpoints.
 func TestWriteHealthReportJSONKeepsEndpointFieldsAndAddsBrokers(t *testing.T) {
 	report := pudanats.HealthReport{
 		Status:  pudanats.HealthOK,
-		Cluster: pudanats.ClusterHealth{Configured: 2, Reachable: 2, Brokers: 1, Discovered: []string{"nats://a:4222", "nats://b:4222"}},
+		Cluster: pudanats.ClusterHealth{Configured: 2, Reachable: 2, Brokers: []pudanats.BrokerHealth{{ID: "NSAME", Endpoints: []string{"nats://a:4222", "nats://b:4222"}}}, Discovered: []string{"nats://a:4222", "nats://b:4222"}},
 	}
 	var out bytes.Buffer
 	if err := writeHealthReport(&out, report, false); err != nil {
@@ -203,14 +203,17 @@ func TestWriteHealthReportJSONKeepsEndpointFieldsAndAddsBrokers(t *testing.T) {
 			Configured *int     `json:"configured"`
 			Reachable  *int     `json:"reachable"`
 			Discovered []string `json:"discovered"`
-			Brokers    *int     `json:"brokers"`
+			Brokers    []struct {
+				ID        string   `json:"id"`
+				Endpoints []string `json:"endpoints"`
+			} `json:"brokers"`
 		} `json:"cluster"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
 		t.Fatal(err)
 	}
 	c := decoded.Cluster
-	if decoded.Servers == nil || c.Configured == nil || *c.Configured != 2 || c.Reachable == nil || *c.Reachable != 2 || len(c.Discovered) != 2 || c.Brokers == nil || *c.Brokers != 1 {
+	if decoded.Servers == nil || c.Configured == nil || *c.Configured != 2 || c.Reachable == nil || *c.Reachable != 2 || len(c.Discovered) != 2 || len(c.Brokers) != 1 || c.Brokers[0].ID != "NSAME" || len(c.Brokers[0].Endpoints) != 2 {
 		t.Fatalf("json=%s", out.String())
 	}
 }

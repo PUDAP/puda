@@ -23,11 +23,23 @@ var healthcheckCmd = &cobra.Command{
 A down cluster node is reported even when another node still accepts connections.
 A successful check also verifies JetStream account access.
 
+Agents: read status and issues first. Every degraded or unhealthy status has
+at least one issue of that severity; each issue has a code, target, the JSON
+path holding its evidence (source) and a next_step. Advisory issues never
+change status. One cause affecting several resources is one issue.
+
+PUDA resources: the local cluster must have the PUDA streams (COMMAND_QUEUE,
+COMMAND_IMMEDIATE, RESPONSE_QUEUE, RESPONSE_IMMEDIATE) and KV buckets
+(MACHINE_STATE, MACHINE_COMMANDS). Missing, leaderless or below-quorum ones make
+the report unhealthy; one replica in a cluster, or a lagging replica, is
+degraded. LIVESTREAMS and E2E_* are created on demand and only advisory.
+
 Each configured URL is an endpoint. One broker reachable through several
 addresses (for example LAN and Tailscale) is several endpoints but one broker.
 cluster.configured, cluster.reachable and cluster.discovered count endpoint URLs;
-cluster.brokers counts distinct server IDs that responded. Endpoints that report
-no server ID are counted in cluster.unidentified_endpoints, never grouped by name.
+cluster.brokers lists each distinct server ID that responded with its endpoints.
+Endpoints that report no server ID are counted in
+cluster.unidentified_endpoints, never grouped by name.
 Advertised addresses alone do not prove broker identity or cluster membership.
 A standalone server (no cluster name) is not shown as a cluster in --human output.
 
@@ -74,6 +86,7 @@ func runHealthcheck(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	report.Compatibility = checkHealthCompatibility(report, healthcheckTimeout)
+	report.Issues = pudanats.BuildIssues(report)
 	if err := writeHealthReport(cmd.OutOrStdout(), report, healthcheckHuman); err != nil {
 		return err
 	}
@@ -187,6 +200,15 @@ func writeHealthReport(w io.Writer, report pudanats.HealthReport, human bool) er
 	if report.Gateways == nil {
 		report.Gateways = []pudanats.GatewayHealth{}
 	}
+	if report.Issues == nil {
+		report.Issues = []pudanats.HealthIssue{}
+	}
+	if report.Cluster.Brokers == nil {
+		report.Cluster.Brokers = []pudanats.BrokerHealth{}
+	}
+	if report.PUDA.Resources == nil {
+		report.PUDA.Resources = []pudanats.PUDAResource{}
+	}
 	if !human {
 		return writeJSON(w, report)
 	}
@@ -195,9 +217,26 @@ func writeHealthReport(w io.Writer, report pudanats.HealthReport, human bool) er
 	var text strings.Builder
 	w = &text
 	fmt.Fprintf(w, "status: %s\n", report.Status)
+	if len(report.Issues) > 0 {
+		fmt.Fprintln(w, "issues:")
+		for _, issue := range report.Issues {
+			target := ""
+			if issue.Target != "" {
+				target = " " + issue.Target
+			}
+			detail := ""
+			if issue.Detail != "" {
+				detail = ": " + issue.Detail
+			}
+			if issue.Source != "" {
+				detail += " (see " + issue.Source + ")"
+			}
+			fmt.Fprintf(w, "  [%s] %s%s%s\n    next: %s\n", issue.Severity, issue.Code, target, detail, issue.NextStep)
+		}
+	}
 	fmt.Fprintf(w, "endpoints: %d/%d reachable\n", report.Cluster.Reachable, report.Cluster.Configured)
 	writeHumanEndpoints(w, "  ", report.Servers)
-	fmt.Fprintf(w, "unique brokers responding: %d%s\n", report.Cluster.Brokers, unidentifiedNote(report.Cluster.UnidentifiedEndpoints))
+	fmt.Fprintf(w, "unique brokers responding: %d%s\n", len(report.Cluster.Brokers), unidentifiedNote(report.Cluster.UnidentifiedEndpoints))
 	// A standalone server has no cluster name; it is not a cluster. Advertised
 	// addresses (cluster.discovered, JSON only) prove neither identity nor size.
 	if report.Cluster.Name != "" {
@@ -217,6 +256,7 @@ func writeHealthReport(w io.Writer, report pudanats.HealthReport, human bool) er
 	} else {
 		fmt.Fprintf(w, "jetstream: failed: %s\n", report.JetStream.Error)
 	}
+	writeHumanPUDA(w, report.PUDA)
 	if result := report.Compatibility; result != nil {
 		fmt.Fprintf(w, "compatibility: %s (advisory only) cli=%s", result.Status, result.CLIVersion)
 		if result.Reason != "" {
@@ -244,7 +284,7 @@ func writeHealthReport(w io.Writer, report pudanats.HealthReport, human bool) er
 		if clusterLabel == "" {
 			clusterLabel = "(none)"
 		}
-		fmt.Fprintf(w, "  %s: %s endpoints=%d/%d reachable unique brokers=%d%s\n", clusterLabel, gateway.Status, gateway.Reachable, gateway.Configured, gateway.Brokers, unidentifiedNote(gateway.UnidentifiedEndpoints))
+		fmt.Fprintf(w, "  %s: %s endpoints=%d/%d reachable unique brokers=%d%s\n", clusterLabel, gateway.Status, gateway.Reachable, gateway.Configured, len(gateway.Brokers), unidentifiedNote(gateway.UnidentifiedEndpoints))
 		writeHumanEndpoints(w, "    ", gateway.Servers)
 		if gateway.JetStream.OK {
 			fmt.Fprintf(
@@ -301,4 +341,34 @@ func unidentifiedNote(count int) string {
 		return ""
 	}
 	return fmt.Sprintf(" (%d reachable endpoint(s) reported no server ID; not counted)", count)
+}
+
+// writeHumanPUDA prints one line for the PUDA streams and KV buckets, naming
+// only the resources that are not ok.
+func writeHumanPUDA(w io.Writer, puda pudanats.PUDAHealth) {
+	if puda.Status == "" {
+		return
+	}
+	if puda.Status == "not_checked" {
+		fmt.Fprintf(w, "puda resources: not_checked: %s\n", puda.Reason)
+		return
+	}
+	required, ready := 0, 0
+	var problems []string
+	for _, resource := range puda.Resources {
+		if resource.Required {
+			required++
+			if resource.Status == pudanats.ResourceOK {
+				ready++
+			}
+		}
+		if resource.Status != pudanats.ResourceOK && (resource.Required || resource.Status != pudanats.ResourceMissing) {
+			problems = append(problems, resource.Name+"="+resource.Status)
+		}
+	}
+	fmt.Fprintf(w, "puda resources: %s %d/%d required ok", puda.Status, ready, required)
+	if len(problems) > 0 {
+		fmt.Fprintf(w, " (%s)", strings.Join(problems, ", "))
+	}
+	fmt.Fprintln(w)
 }
