@@ -10,9 +10,9 @@
     "apps/*"
   ],
   "devDependencies": {
-    "@nx/js": "22.2.0",
-    "@nx/workspace": "22.2.0",
-    "@nxlv/python": "^21.2.0",
-    "nx": "22.2.0"
+    "@nx/js": "22.7.12",
+    "@nx/workspace": "22.7.12",
+    "@nxlv/python": "^21.3.1",
+    "nx": "22.7.12"
   }
 }
