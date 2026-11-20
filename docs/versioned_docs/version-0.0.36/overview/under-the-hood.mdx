@@ -1,0 +1,249 @@
+---
+sidebar_position: 4
+---
+
+# Under the Hood
+
+## Translating natural language to machine execution
+
+PUDA lets an AI agent turn a natural-language hardware request into a validated protocol, execute that protocol against physical machines, and return structured responses from the hardware.
+
+For example, a user can ask:
+
+```text
+home first machine then measure cv on biologic from -0.1v to 0.1v
+```
+
+The agent does not send this sentence directly to the hardware. It converts the request into a protocol, validates the protocol, runs it through the PUDA CLI, and records the result.
+
+## End-to-end flow
+
+1. The user gives the agent a natural-language instruction.
+2. The agent reads the installed [PUDA skills](https://github.com/pudap/skills), chooses the `puda-protocol` skill, to understand how to craft a valid protocol.
+3. The agent uses `puda machine` to inspect available machines and choose the correct `machine_id`.
+4. The agent uses `puda machine commands <machine_id>` to inspect the available commands and required parameters for each target machine.
+5. The agent creates a JSON protocol with one command per physical action.
+6. The agent validates the file with `puda protocol validate`.
+7. The agent runs the file with `puda protocol run`.
+8. The PUDA CLI sends protocol commands to machines one by one through the communication layer.
+9. Edge services listening to the nats topics receives the command and executes on physical hardware.
+10. Structured responses is sent back.
+10. PUDA writes the run to local SQLite storage and a log file.
+11. The `puda-memory` skill records the protocol and run history in `project.md`.
+
+## Protocol generation
+
+Before writing the protocol, the agent discovers the available machine IDs:
+
+```bash
+puda machine
+```
+
+It then checks the command surface for each machine it needs to use:
+
+```bash
+puda machine commands first
+puda machine commands biologic
+```
+
+This tells the agent which command names are valid for each `machine_id` and what parameters those commands accept. In this example, the agent chooses `home` for `first` and `CV` for `biologic`.
+
+For Biologic, the command discovery output includes the `CV` method signature, accepted parameters, and response data schema:
+
+```text
+CV(self, params: dict[str, Any] | None = None, **kwargs) -> Dict[str, Any]
+    Run CV (Cyclic Voltammetry) test.
+
+    Args:
+        params: Dictionary containing:
+            - start: Start voltage. (float, -10 to 10 V). [Default: 0]
+            - end: End voltage. Boundary voltage in forward scan. (float, -10 to 10 V). [Default: 0.5]
+            - E2: Boundary voltage in backward scan. (float, -10 to 10 V). [Default: 0]
+            - Ef: End voltage in the final cycle scan. (float, -10 to 10 V). [Default: 0]
+            - step: Voltage step. dEN/1000 (float, 1e-4 to 0.05 V). [Default: 0.01]
+            - rate: Scan rate in V/s. (float, 1e-5 to 100 V/s). [Default: 0.01]
+            - average: Average over points. (bool). [Default: False]
+            - N_Cycles: Number of cycles. (int, 0 to 1000). [Default: 0]
+            - voltage_range: Voltage range. Available: ERange.v2_5, ERange.v5, ERange.v10, ERange.AUTO. [Default: AUTO]
+            - current_range: Current range. Available: IRange.p100, IRange.n1, IRange.u1, IRange.m1, IRange.m10, IRange.a1, IRange.AUTO. [Default: AUTO]
+            - channels: List of channel numbers. [Required]
+            - retrieve_data: Whether to automatically retrieve data after running. [Default: True]
+
+    Returns:
+        Dict[str, List[List[float]]]: Channel-keyed measurement data.
+
+        Data schema (CV):
+            row = [potential, current, time, extra, flag]
+            primary_x = "potential"
+            primary_y = "current"
+```
+
+From that output, the agent knows `channels` is required, `start` and `end` map to the requested voltage range, and `rate` can be set explicitly or left at its default.
+
+The agent then turns the sentence into an explicit protocol. In this example, the user asked for two actions:
+
+- home the `first` machine
+- run cyclic voltammetry on the `biologic` machine from `-0.1 V` to `0.1 V`
+
+The generated protocol looks like this:
+
+```json
+{
+  "project_id": "cc4341dc-3f46-49e9-b9bf-c60550ea6344",
+  "protocol_id": "feaa6dc6-8559-4902-88dd-daed44b88840",
+  "user_id": "6b494398-3276-429c-ad66-84a49d0a5835",
+  "username": "zhao",
+  "description": "CV from -0.1V to 0.1V on biologic (home then measure)",
+  "timestamp": "2026-03-31T08:54:48Z",
+  "commands": [
+    {
+      "step_number": 1,
+      "name": "home",
+      "machine_id": "first",
+      "params": {}
+    },
+    {
+      "step_number": 2,
+      "name": "CV",
+      "machine_id": "biologic",
+      "params": {
+        "channels": [0],
+        "start": -0.1,
+        "end": 0.1,
+        "rate": 0.05
+      }
+    }
+  ]
+}
+```
+
+The important shift is that the ambiguous sentence becomes a **deterministic** artifact. Each command has a `step_number`, `name`, `machine_id`, and `params`. The same protocol can be validated, audited, re-run, or shared.
+
+:::tip
+
+To run commands on different machines in parallel, say so in natural language. The agent will generate a protocol where those commands share the same `step_number`.
+
+:::
+
+## Validation and run
+
+After creating the protocol file, the agent validates it:
+
+```bash
+puda protocol validate -f protocols/feaa6dc6-8559-4902-88dd-daed44b88840.json
+```
+
+Validation checks that the protocol shape is correct before anything reaches a physical machine. If validation fails, the agent fixes the protocol and validates again.
+
+Once the protocol is valid, the agent runs it:
+
+```bash
+puda protocol run -f protocols/feaa6dc6-8559-4902-88dd-daed44b88840.json
+```
+
+At run time, PUDA generates a `run_id`, opens a log file, connects to NATS, and loads the commands from the protocol.
+
+```text
+Loaded 2 commands from protocol, executing 2 command(s) starting at step 1
+Sending START commands to all machines: [first biologic]
+Sending command 1/2: home (step 1) to machine first
+Command 1/2 succeeded: home (step 1)
+Sending command 2/2: CV (step 2) to machine biologic
+Command 2/2 succeeded: CV (step 2)
+All 2 commands completed successfully
+Sending COMPLETE commands to all machines: [first biologic]
+```
+
+`START` locks the participating machines to the run. Commands are then sent in step order. In this example, `home` (step 1) completes before `CV` (step 2) starts. `COMPLETE` releases the run when all steps finish.
+
+## Hardware response
+
+Each machine response is structured. The response includes metadata about the run, the command that was executed, and the result returned by the edge service.
+
+For the `home` command, the response is a simple success:
+
+```json
+{
+  "header": {
+    "version": "1.0",
+    "message_type": "response",
+    "user_id": "6b494398-3276-429c-ad66-84a49d0a5835",
+    "username": "zhao",
+    "machine_id": "first",
+    "run_id": "d7a1990a-6847-42e1-8aac-06cac89fbaf8",
+    "timestamp": "2026-03-31T09:00:36Z"
+  },
+  "command": {
+    "name": "home",
+    "params": {},
+    "step_number": 1,
+    "version": "1.0",
+    "machine_id": "first"
+  },
+  "response": {
+    "status": "success",
+    "completed_at": "2026-03-31T09:00:36Z"
+  }
+}
+```
+
+For the Biologic `CV` command, the response can include measured data:
+
+```json
+{
+  "header": {
+    "version": "1.0",
+    "message_type": "response",
+    "user_id": "6b494398-3276-429c-ad66-84a49d0a5835",
+    "username": "zhao",
+    "machine_id": "biologic",
+    "run_id": "d7a1990a-6847-42e1-8aac-06cac89fbaf8",
+    "timestamp": "2026-03-31T09:00:43Z"
+  },
+  "command": {
+    "name": "CV",
+    "params": {
+      "channels": [0],
+      "start": -0.1,
+      "end": 0.1,
+      "rate": 0.05
+    },
+    "step_number": 2,
+    "version": "1.0",
+    "machine_id": "biologic"
+  },
+  "response": {
+    "status": "success",
+    "completed_at": "2026-03-31T09:00:43Z",
+    "data": {
+      "0": [
+        [0.39829280972480774, 0.0000010593693104965496, 0.00009999999747378752, 4.21939179213903e-7, 0],
+        [-0.07652489840984344, 2.770115941075346e-7, 0.20324999486547313, -2.1198284097427874e-8, 0]
+        ...
+        ...
+      ]
+    }
+  }
+}
+```
+
+The full response is available in the run log. Downstream tools can use the `run_id`, `machine_id`, command metadata, and returned data to build reports, plots, or audit trails.
+
+## Persistence
+
+PUDA records the run in several places:
+
+- The local SQLite database stores command and run metadata for local lookup.
+- The run log captures the full execution trace, including the protocol, NATS connection, command dispatch, responses, and completion status.
+- The `project.md` file records long-term project memory.
+
+After the protocol is created or run, the `puda-memory` skill updates `project.md` with links to the protocol and log:
+
+```md
+- 2026-03-31T08:54:48Z created [feaa6dc6-8559-4902-88dd-daed44b88840](protocols/feaa6dc6-8559-4902-88dd-daed44b88840.json)
+- 2026-03-31T09:00:43Z ran [feaa6dc6-8559-4902-88dd-daed44b88840](protocols/feaa6dc6-8559-4902-88dd-daed44b88840.json) - logs: [d7a1990a-6847-42e1-8aac-06cac89fbaf8](logs/d7a1990a-6847-42e1-8aac-06cac89fbaf8.log)
+```
+
+Optionally, a separate [PUDA logger](../observability/logging-service) can be configured to store everything on a central [InfluxDB](https://www.influxdata.com/) database.
+
+This makes the natural-language request reproducible. The original instruction, generated protocol, physical execution, hardware response, and project memory are all connected by IDs and files.

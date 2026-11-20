@@ -1,0 +1,8 @@
+{
+  "label": "Setup",
+  "position": 3,
+  "link": {
+    "type": "generated-index",
+    "description": "Setup software infrastructure for your PUDA system"
+  }
+}

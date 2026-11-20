@@ -1,0 +1,101 @@
+---
+sidebar_position: 1
+---
+
+# Connection Troubleshoot
+
+Restart an edge service when it stops responding, after you change configuration, or after you deploy new driver code.
+
+## Confirm the machine is offline
+
+List machines that are publishing heartbeats:
+
+```bash
+puda machine list
+```
+
+If the machine is missing, the edge service is not connected to NATS or is not running.
+
+## Restart from the PUDA CLI
+
+If the edge service implements the update subject, you can restart it remotely over NATS with `puda machine update`. The edge pulls the configured source, publishes a response on `puda.<machine_id>.update.response`, disconnects, and re-executes.
+
+Fetch from the existing git remote and reset to `main`:
+
+```bash
+puda machine update <machine_id>
+```
+
+Pull a specific branch, tag, or commit:
+
+```bash
+puda machine update <machine_id> \
+  --ref https://github.com/PUDAP/<repo>/tree/<branch-or-sha>
+```
+
+For a Docker-based edge, pull a new image and restart:
+
+```bash
+puda machine update <machine_id> \
+  --source-type docker \
+  --ref ghcr.io/pudap/<image>:<tag>
+```
+
+The update response is the confirmation that the pull succeeded. The edge does not publish a separate "restart complete" message.
+
+Watch traffic while the edge reconnects:
+
+```bash
+puda machine watch -m <machine_id> --subjects tlm.heartbeat
+```
+
+Then confirm the machine appears again:
+
+```bash
+puda machine list
+```
+
+## Restart on the machine
+
+Use this when you have shell access to the machine running the edge service, or when the remote update path is not available.
+
+### Docker
+
+From the edge project directory on the machine:
+
+```bash
+docker compose restart
+```
+
+If you changed the image or Compose file, rebuild and recreate the container instead:
+
+```bash
+docker compose up -d --build
+```
+
+### Local process
+
+If you run the edge service directly with `uv` or `python`, stop the process and start it again from the edge directory:
+
+```bash
+uv run python main.py
+```
+
+For a systemd unit, use:
+
+```bash
+sudo systemctl restart <edge-service-name>
+```
+
+## After restart
+
+1. Confirm the machine appears in `puda machine list`.
+2. Check that commands are registered:
+
+   ```bash
+   puda machine commands <machine_id>
+   ```
+
+3. Send a safe test command, such as a state query or home command, before resuming workflows.
+
+If the edge still does not appear, verify that the machine can reach the NATS server. See [Network](../setup/network) and [NATS Server](../setup/nats-server).

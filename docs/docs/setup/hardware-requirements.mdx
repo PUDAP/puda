@@ -1,0 +1,37 @@
+---
+sidebar_position: 1
+---
+
+# Hardware Requirements
+
+PUDA deployments usually have two kinds of machines: an AI agent host and one or more edge devices. The AI agent host runs the coding agent and connects to PUDA services. Edge devices run machine-specific adapters near the hardware.
+
+## AI Agent Host
+
+For a Cloud API setup, use at least:
+
+| Resource | Recommended minimum |
+| --- | --- |
+| CPU | 1 to 2 cores |
+| System RAM | 4 GB |
+| GPU / VRAM | Not required |
+| Storage | 2 GB to 5 GB free disk space |
+
+This is for agents that call cloud-hosted AI models. It does not include local LLM inference.
+
+## Edge Devices
+
+Edge devices run machine-specific services such as [`puda-opentrons-edge`](https://github.com/PUDAP/puda-opentrons-edge). These services do not run the AI model locally; they connect to PUDA over NATS and call the machine or instrument API on the local network.
+
+For a lightweight Python edge service, use at least:
+
+| Resource | Recommended minimum |
+| --- | --- |
+| CPU | 1 core |
+| System RAM | 1 GB |
+| GPU / VRAM | Not required |
+| Storage | 1 GB to 2 GB free disk space |
+| Network | Reachable NATS server and reachable machine API, such as the Opentrons OT-2 IP address |
+| Runtime | Linux with Python 3.14+ and `uv` |
+
+Use 2 CPU cores and 2 GB RAM if the edge device will also run Docker, camera streaming, local data processing, or multiple machine adapters.

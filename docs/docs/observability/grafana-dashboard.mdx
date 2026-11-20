@@ -1,0 +1,182 @@
+---
+sidebar_position: 3
+---
+
+# Grafana Dashboard
+
+Once the [PUDA Logger](./logging-service) is writing to InfluxDB, you can add Grafana for dashboards, exploration, and alerts. Grafana queries the same `machine_status` and `machine_commands` measurements the logger writes from NATS.
+
+We provide a template at [PUDAP/puda-grafana](https://github.com/PUDAP/puda-grafana). It runs Grafana 13 with provisioned InfluxDB data sources and file-based dashboards for PUDA machines. If you also run [Hermes Logger](./hermes-logger), the template includes a second data source for the `hermes-logs` database.
+
+Grafana can run on any machine that has network access to the InfluxDB server on port `8181`.
+
+## Run Grafana
+
+Add the template to your [deployment monorepo](../setup/deployment-monorepo) as a plain folder, without a nested `.git`. From the repository root:
+
+```bash
+mkdir -p services/grafana
+curl -fsSL https://github.com/PUDAP/puda-grafana/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=1 -C services/grafana
+```
+
+Commit the folder. On the machine that will host Grafana, check out the deployment monorepo and configure Grafana:
+
+```bash
+cd puda-<deployment>/services/grafana
+cp .env.example .env
+```
+
+Edit `.env` and point `INFLUXDB_URL` at the InfluxDB server from the [PUDA Logger setup](./logging-service#start-influxdb). Use the same token and database names you configured for the PUDA Logger and Hermes Logger:
+
+```env title=".env"
+INFLUXDB_URL=http://<influxdb-host>:8181
+INFLUXDB_TOKEN=<token>
+INFLUXDB_PUDA_DATABASE=puda
+INFLUXDB_HERMES_DATABASE=hermes-logs
+GF_SECURITY_ADMIN_USER=admin
+GF_SECURITY_ADMIN_PASSWORD=<admin_password>
+```
+
+Start Grafana and bootstrap the databases:
+
+```bash
+docker compose up -d
+./scripts/init.sh
+```
+
+`init.sh` ensures the `puda` and `hermes-logs` databases exist in InfluxDB, waits for Grafana to become healthy, and resets Grafana state once if superseded dashboard UIDs from older versions are detected.
+
+Open Grafana at `http://<grafana-host>:3000`. Default credentials are `admin` / `admin` unless you changed them in `.env`. Anonymous viewer access is enabled, so dashboards load without signing in.
+
+:::tip
+Dashboard JSON files are bind-mounted from `./dashboards`, so you can edit a dashboard file and refresh the browser—Grafana polls provisioned dashboards every 10 seconds. You do not need to rebuild the Docker image.
+:::
+
+## Dashboards
+
+The template ships with lab dashboards provisioned from `./dashboards`:
+
+| Dashboard | URL | Description |
+|---|---|---|
+| Bears | `/d/bears` | All machines in BEARS Lab |
+| First | `/d/first` | First and Biologic machine |
+| Opentrons | `/d/opentrons` | Opentrons |
+| IFIM | `/d/ifim` | IFIM PL system |
+| VIPSA | `/d/vipsa-v2` | VIPSA |
+| Joule Heater | `/d/joule_heater` | Joule Heater status and command logs |
+
+Add or customize dashboards by editing the JSON files in `dashboards/` or creating new ones in the Grafana UI and exporting them back to `services/grafana/dashboards/` in your deployment monorepo.
+
+## Data sources
+
+Grafana provisions two InfluxDB data sources automatically:
+
+| Data source | Database | Used for |
+|---|---|---|
+| PUDA InfluxDB | `INFLUXDB_PUDA_DATABASE` (default: `puda`) | Machine health and command data from the PUDA logger |
+| InfluxDB Hermes | `INFLUXDB_HERMES_DATABASE` (default: `hermes-logs`) | Hermes agent session, tool, and API telemetry |
+
+Both use InfluxDB 3 with SQL as the query language. Use the same token and database names you configured when starting the [InfluxDB server](./logging-service#start-influxdb) and [logger](./logging-service#start-the-logger).
+
+:::tip
+If dashboards show no data from a remote Grafana host, confirm that port `8181` is reachable from the Grafana machine and that the token has read access to both databases.
+:::
+
+## Explore machine data
+
+Open **Explore**, select **PUDA InfluxDB**, and set the format to **Time series**. These queries match the logger schema (`telemetry` and `commands` tables in the `puda` database).
+
+### Current machine status (last-value cache)
+
+After `influxdb-cache-init` has created `telemetry_last`, this is an in-memory lookup of the latest health row per machine — not a table scan:
+
+```sql
+SELECT *
+FROM last_cache('telemetry', 'telemetry_last')
+```
+
+Use a **Table** or **Stat** panel. Entries expire after the cache TTL (default 10 minutes), so a machine that has stopped sending health drops out.
+
+### Machine status timeline
+
+Shows the health timeline the logger writes from `puda.*.tlm.health` (60s means):
+
+```sql
+SELECT time, machine_id, status, cpu, mem, temp
+FROM telemetry
+WHERE time >= now() - interval '24 hours'
+ORDER BY time DESC
+```
+
+Use a **Time series** or **State timeline** panel. Each `machine_id` becomes a series; `status` values include `online`, `offline`, and machine-specific states such as Opentrons run status.
+
+### Recent commands
+
+Lists command requests the logger captured from `puda.*.cmd.queue` and `puda.*.cmd.immediate`:
+
+```sql
+SELECT time, machine_id, cmd_name, status, username
+FROM commands
+WHERE time >= now() - interval '24 hours'
+  AND msg_type = 'command'
+ORDER BY time DESC
+LIMIT 100
+```
+
+Use a **Table** panel for an audit log of who sent which command to which machine.
+
+### Command responses and failures
+
+Shows responses from `puda.*.cmd.response.queue` and `puda.*.cmd.response.immediate`:
+
+```sql
+SELECT time, machine_id, cmd_name, status, response_code, response_message
+FROM commands
+WHERE time >= now() - interval '7 days'
+  AND msg_type = 'response'
+ORDER BY time DESC
+LIMIT 100
+```
+
+Filter on `status != 'success'` or non-empty `response_code` to highlight failed commands.
+
+## Alerts (optional)
+
+Grafana can alert when a machine goes offline or when command failures spike. Example alert conditions:
+
+- **Machine offline**: no row in `last_cache('telemetry', 'telemetry_last')` for a given `machine_id`
+- **Command failure**: more than N rows in `commands` with `msg_type = 'response'` and `status != 'success'` in the last 15 minutes
+
+Configure notification channels under **Alerting → Contact points**, then attach them to dashboard panel alerts or Grafana alert rules.
+
+## Verify the setup
+
+After sending a test command:
+
+```bash
+puda machine home <machine_id>
+```
+
+Confirm in Grafana **Explore** or on a provisioned dashboard that:
+
+1. A new row appears in `machine_commands` with `msg_type = 'command'`
+2. A matching response row appears with `msg_type = 'response'`
+3. `telemetry` (or `last_cache('telemetry', 'telemetry_last')`) shows the machine while health messages are arriving
+
+If queries return no data, check that the [logger is running](./logging-service#verify-logging) and that the data source **Database** and **Token** in `.env` match the logger configuration.
+
+## Useful commands
+
+```bash
+# Start Grafana
+docker compose up -d
+./scripts/init.sh
+
+# Stop containers
+docker compose down
+
+# Stop and wipe Grafana state (reprovisions dashboards from ./dashboards)
+docker compose down -v
+./scripts/init.sh
+```

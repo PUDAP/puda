@@ -1,0 +1,135 @@
+---
+sidebar_position: 3
+---
+
+# Observability Troubleshoot
+
+Use this page when Hermes can run PUDA commands, but command results or Hermes events are not appearing in InfluxDB, logger output, or the Grafana event timeline.
+
+## Confirm the logger is running
+
+For PUDA machine command logs, go to the `puda-logger/influxdb/logger` directory and check the logger container:
+
+```bash
+docker compose ps
+```
+
+Then follow the logger output:
+
+```bash
+docker compose logs -f influxdb-logger
+```
+
+The logger should connect to NATS and InfluxDB without repeated restart loops.
+
+## Check NATS connectivity
+
+Make sure the PUDA logger uses the same NATS server address as Hermes, the PUDA CLI, and edge services.
+
+Open the logger environment file:
+
+```bash
+nano .env
+```
+
+Confirm `NATS_SERVERS` points to the reachable NATS address:
+
+```env title=".env"
+NATS_SERVERS=nats://<nats-server-ip>:4222
+```
+
+Also confirm `INFLUXDB_URL`, `INFLUXDB_TOKEN`, and `INFLUXDB_DATABASE` match the InfluxDB server used by Grafana.
+
+If the logger runs inside Docker, `localhost` usually means the logger container itself. Use the host IP, Tailscale IP, Docker network service name, or another address that is reachable from inside the container.
+
+## Verify data reaches InfluxDB
+
+Send a safe PUDA command from the same environment Hermes uses:
+
+```bash
+puda machine list
+puda machine home <machine_id>
+```
+
+Then check the PUDA logger output directly:
+
+```bash
+docker compose logs -f influxdb-logger
+```
+
+You should see the logger process incoming machine health or command traffic and write it to InfluxDB.
+
+On the InfluxDB server host, also inspect the InfluxDB container logs:
+
+```bash
+docker compose logs -f
+```
+
+If the logger shows write errors, fix the logger `.env` values for `INFLUXDB_URL`, `INFLUXDB_TOKEN`, and `INFLUXDB_DATABASE`. If the logger is quiet after a command runs, troubleshoot the logger's NATS connection first.
+
+## Confirm logger subjects
+
+The default logger should subscribe to command response streams:
+
+```text
+puda.*.cmd.response.queue
+puda.*.cmd.response.immediate
+```
+
+If Hermes is running workflows that only publish telemetry, events, or custom subjects, extend the logger subscriptions to include those subjects, such as:
+
+```text
+puda.*.tlm.>
+puda.*.evt.>
+puda.>
+```
+
+Only use `puda.>` when you intentionally want a broad namespace archive.
+
+## Check InfluxDB writes
+
+If the logger receives messages but InfluxDB stays empty, inspect the logger logs for write errors:
+
+```bash
+docker compose logs -f influxdb-logger
+```
+
+Common causes are wrong `INFLUXDB_URL`, `INFLUXDB_TOKEN`, or `INFLUXDB_DATABASE` values in `.env`.
+
+Restart the logger after changing environment variables:
+
+```bash
+docker compose up -d --force-recreate influxdb-logger
+```
+
+## Grafana event timeline is empty
+
+If Grafana does not show Hermes event status or the event timeline is blank, first confirm the Hermes logger plugin is enabled in Hermes.
+
+Check the Hermes plugin configuration and make sure the Hermes logger plugin is listed as enabled:
+
+```bash
+hermes plugins enable hermes-logger
+```
+
+Then confirm the plugin dependencies are installed in the same environment where Hermes runs:
+
+```bash
+cd ~/.hermes/plugins/hermes-logger
+pip install -r requirements.txt
+```
+
+After enabling the plugin or installing dependencies, restart Hermes so the logger plugin is loaded.
+
+Then send a simple command to the Hermes chat, such as asking it to list available PUDA machines or check machine status. Open the Grafana dashboard and watch the event timeline while the command runs.
+
+You should see Hermes events appear in the timeline as the chat request moves through the run, tool calls, and final response. If the timeline is still empty, confirm the `INFLUXDB_HERMES_DATABASE` value in Grafana matches the `INFLUXDB_DATABASE` value used by Hermes Logger.
+
+## After fixing
+
+1. Run a safe command through Hermes or the PUDA CLI.
+2. Confirm the command response appears in `docker compose logs -f influxdb-logger`.
+3. Confirm the row appears in the database or dashboard that reads from it.
+4. For Hermes chat events, confirm Grafana shows the event timeline for the test command.
+
+For initial logger setup, see [PUDA Logger](../observability/logging-service). For Hermes telemetry setup, see [Hermes Logger](../observability/hermes-logger). For Grafana setup, see [Grafana Dashboard](../observability/grafana-dashboard). For NATS setup, see [NATS Server](../setup/nats-server).

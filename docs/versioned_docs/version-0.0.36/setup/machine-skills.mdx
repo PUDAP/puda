@@ -1,0 +1,115 @@
+---
+sidebar_position: 7
+---
+
+# Machine Skills
+
+After your AI agent can see PUDA machines, teach it how to use each machine. Do this in natural language first: give the agent specific operating instructions, ask it to test them against the available PUDA commands, and turn the resulting patterns into machine skills.
+
+A machine skill is operational memory for a specific machine or workflow. It can describe limits, required startup and shutdown behavior, normal command sequences, unsafe actions, recovery steps, and complete workflows that the agent should follow repeatedly.
+
+## Inspect the machine
+
+Start by asking the agent to list the commands exposed by the machine:
+
+```text
+Inspect the available PUDA commands for <machine_id>.
+
+For each command, summarize what it does, its parameters, return value, and any safety-relevant details from the docstring.
+```
+
+Then ask it to identify gaps in the command interface:
+
+```text
+Review the available commands for <machine_id> and tell me what information is missing before you can operate this machine safely.
+
+Focus on position limits, homing behavior, calibration state, required setup steps, cleanup steps, and actions that could damage the machine or sample.
+```
+
+## Teach operating rules
+
+Give the agent concrete rules for the machine. Prefer exact values, command names, and expected verification steps.
+
+```text
+For <machine_id>, follow these rules:
+
+- Always home the machine before the first movement command in a session.
+- Never move outside x=0 to 300 mm, y=0 to 200 mm, and z=0 to 80 mm.
+- After every move command, query the current position and verify that the reported position matches the target within 0.5 mm.
+- If position verification fails, stop the workflow and report the target position, actual position, and command response.
+- Before picking up liquid, confirm that the correct tip or tool is attached.
+- At the end of every liquid-handling workflow, drop the tip and move the head to the safe parking position.
+```
+
+These rules can cover common machine constraints:
+
+- Soft limits for robots, stages, pumps, heaters, valves, and cameras.
+- Things the agent should not do, such as moving below a safe Z height, opening a valve out of sequence, heating without liquid present, or reusing a disposable tip.
+- Things to do first, such as homing, checking health, confirming calibration, warming up a device, or loading a method.
+- Things to do last, such as dropping a tip, closing valves, turning off a heater, parking a robot, saving output files, or resetting temporary state.
+- Verification steps, such as checking position after movement, checking pressure after valve changes, checking flow after pump commands, or confirming a camera frame was saved.
+
+## Build a machine skill
+
+Once the operating rules are clear, ask the agent to write them into a reusable skill:
+
+```text
+Create a machine skill for <machine_id>.
+
+The skill should include:
+- What the machine is used for.
+- The available PUDA commands and when to use them.
+- Soft limits and safety constraints.
+- Startup steps that must always run first.
+- Cleanup steps that must always run last.
+- Verification steps after important commands.
+- Actions that must never be attempted.
+- Recovery steps for common failures.
+- Example workflows written as exact PUDA command sequences.
+```
+
+Then ask the agent to use the skill immediately:
+
+```text
+Using the new <machine_id> skill, plan a safe test workflow that homes the machine, moves to one known safe position, verifies the position, returns to the parking position, and reports every command before running it.
+```
+
+Run small tests first. A good first workflow should move slowly, stay inside conservative limits, and verify state after each physical action.
+
+## Create workflow skills
+
+Machine skills can also describe higher-level workflows that combine several commands or several machines. For example:
+
+```text
+Create a workflow skill for dispensing reagent A into well B3.
+
+The workflow must:
+- Home the robot if it has not already been homed.
+- Pick up a clean tip.
+- Move to the reagent A reservoir using the known safe approach path.
+- Aspirate 50 uL.
+- Move to well B3 using the known safe approach path.
+- Dispense 50 uL.
+- Verify the final position.
+- Drop the tip.
+- Park the robot.
+```
+
+Workflow skills should include both the normal path and failure handling. If a command fails, the agent should stop, preserve the current state, and report what happened instead of guessing the next physical action.
+
+## Refine with real runs
+
+After each dry run or real run, update the skill with what you learned:
+
+```text
+Update the <machine_id> skill with these observations:
+
+- The safe parking position is x=20 mm, y=20 mm, z=60 mm.
+- The Z axis must be raised to at least 50 mm before any XY move.
+- Position queries can lag by up to 1 second after a move, so wait briefly before verifying position.
+- If the machine reports BUSY, wait and query state again instead of issuing another movement command.
+```
+
+Keep the skill precise. The goal is for the agent to develop reliable habits for that machine: know the limits, check state before action, verify after action, and clean up at the end.
+
+Next, configure the [PUDA Logger](../observability/logging-service) for persistent command-response storage and backups.

@@ -1,0 +1,30 @@
+---
+sidebar_position: 2
+---
+
+# PUDA CLI
+
+LLMs are exceptionally good with text-based interfaces. CLIs and Markdown are a natural fit because:
+
+- Large chunks of LLM training data come from codebases and terminal interactions.
+- CLIs provide structured, parseable output.
+- Error messages become immediate context for self-correction.
+
+The **PUDA CLI** (implemented in Go) exposes programmatically the same capabilities an agent would use. Humans, scripts, and LLMs all drive the platform through the same versioned surface. There is no hidden API reserved for internal tools.
+
+To use the CLI, simply ask the agent what the PUDA CLI can do.
+
+## Progressive discovery
+
+The CLI is intentionally navigable by an AI agent without preloading long documentation. The agent can start from a top-level command, then progressively discover the next layer through the built-in help flag.
+
+```bash
+puda --help
+puda machine --help
+```
+
+Each layer of help describes available commands, flags, and expected inputs—enough for an agent to plan the next step without reading external docs first.
+
+## Errors as navigation
+
+Every error contains both **what went wrong** and **what to do instead**. The error becomes immediate context for the AI agent to rethink its approach or loop the human in for help.

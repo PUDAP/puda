@@ -1,0 +1,398 @@
+---
+sidebar_position: 0
+---
+
+# Opentrons OT-2 All-in-One Setup
+
+This guide sets up a single machine to run the full PUDA stack for an Opentrons OT-2:
+
+- NATS
+- Hermes or another AI agent
+- PUDA machine skills
+- the Opentrons OT-2 edge service
+
+Use this all-in-one setup for testing PUDA with a single OT-2. For larger lab deployments, follow the rest of the setup guide for the networked setup: run NATS and logging on an always-on server, and keep the OT-2 edge service on the machine that can reach the robot.
+
+## What you need
+
+:::tip
+Prepare a Linux machine on the same network as the OT-2. We recommend Ubuntu or Debian. On Windows, use WSL with Ubuntu.
+:::
+
+Before starting, prepare:
+
+- Docker and Docker Compose
+- Python 3 and uv
+- the OT-2 IP address
+- Hermes, Cursor, Claude, or another AI agent with filesystem and shell access
+
+If the OT-2 and operator machine are on different networks, set up the network first. Tailscale is the recommended option for small labs. See [Network](./network).
+
+## Install dependencies
+
+Install all dependencies on the operator machine before asking an agent to configure PUDA or start the OT-2 edge service:
+
+- Docker Engine with the Docker Compose plugin
+- Hermes or another AI agent with filesystem and shell access
+- Python 3
+- uv
+
+For Docker, follow the official Docker Engine instructions for your Linux distribution:
+
+[Install Docker Engine](https://docs.docker.com/engine/install/)
+
+After installation, verify that Docker and Docker Compose are available:
+
+```bash
+docker --version
+docker compose version
+```
+
+Install Python 3 using your Linux distribution's package manager, then verify it:
+
+```bash
+python3 --version
+```
+
+Install uv using the official installer:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Then verify uv:
+
+```bash
+uv --version
+```
+
+Watch this video for the Opentrons OT-2 all-in-one setup:
+
+<div style={{ position: 'relative', paddingBottom: '56.25%', height: 0 }}>
+  <iframe
+    src="https://www.youtube.com/embed/MOCJ_P6Cwb0"
+    title="Opentrons OT-2 all-in-one setup"
+    style={{
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      width: '100%',
+      height: '100%',
+      border: 0,
+    }}
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    allowFullScreen
+  />
+</div>
+
+## Install AI Agent
+
+Install Hermes or your preferred AI agent before continuing. Skip this if you already have an AI agent that can access the filesystem and shell. Otherwise, install Hermes Agent and connect it to Telegram. See [Hermes Agent](./hermes-agent).
+
+The agent must be able to run shell commands, edit files, and use the PUDA CLI.
+
+## Copy the setup prompt
+
+After the dependencies are installed, copy this prompt into the AI agent. The agent should ask for your PUDA user ID, OT-2 IP address, and workspace directory before running commands.
+
+This will install and run the NATS Server, PUDA CLI, default puda skills and [opentrons-skills](https://github.com/PUDAP/opentrons-skills), as well as the edge service for opentrons.
+
+````text title="Copy this prompt into your AI agent"
+Set up this machine as a PUDA all-in-one host for an Opentrons OT-2.
+
+Before running setup commands, ask me for:
+- my PUDA user ID
+- the Opentrons OT-2 IP address
+- my workspace directory (use `~/puda` if I do not provide one)
+
+Treat `<workspace>` as this deployment's monorepo. If it is not a Git repository yet, run `git init` in it. Add every service, edge, configuration, and skill as a normal folder tracked by that repository. Never git clone a template into it, never add submodules, and never leave a nested .git directory. Commit .env.example files, never .env files.
+
+Use the values I provide for every command or configuration file that needs them.
+
+## Step 1: Verify dependencies
+
+Verify that these dependencies are installed and available:
+- docker
+- docker compose
+- python3
+- uv
+
+If any dependency is missing, stop and tell me what to install before continuing.
+
+## Step 2: Set up NATS
+
+Set up and start a local NATS server in `<workspace>/services/nats`:
+
+```bash
+mkdir -p <workspace>/services/nats
+cd <workspace>/services/nats
+```
+
+Create `compose.yml`:
+
+```yaml
+services:
+  nats:
+    image: nats:2.12.2
+    container_name: nats
+    restart: always
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+      - "1883:1883"
+    volumes:
+      - nats:/data
+      - ./nats.conf:/etc/nats/nats.conf:ro
+    command: "-c /etc/nats/nats.conf"
+
+volumes:
+  nats:
+```
+
+Create `nats.conf`:
+
+```conf
+# Client connection port
+port: 4222
+
+# HTTP monitoring port
+http_port: 8222
+
+# mqtt config
+mqtt {
+  port: 1883
+}
+
+# Max payload size for messages
+max_payload: 64MB
+
+# JETSTREAM CONFIGURATION
+# https://docs.nats.io/running-a-nats-service/configuration/resource_management
+jetstream {
+    store_dir: "/data/jetstream"
+    max_mem: 4G
+    max_file: 10G
+
+    request_queue_limit: 1000
+    limits {
+      max_ha_assets = 2000
+    }
+}
+```
+
+Start NATS:
+
+```bash
+docker compose up -d
+```
+
+## Step 3: Install the PUDA CLI
+
+Install the latest PUDA CLI 0.1.x from https://github.com/PUDAP/puda/releases and add it to my PATH so the `puda` command is available globally.
+
+After installation, verify that the CLI reports a 0.1.x version.
+
+Log in to PUDA using:
+
+```bash
+puda login --username <username>
+```
+
+Install the OT-2 PUDA skill:
+
+```bash
+puda skills install PUDAP/opentrons-skills
+```
+
+## Step 4: Set up the OT-2 edge service
+
+Copy the OT-2 edge service into `<workspace>/edges/opentrons` as a plain folder, without a nested `.git`, and configure it:
+
+```bash
+mkdir -p <workspace>/edges/opentrons
+curl -fsSL https://github.com/PUDAP/puda-opentrons-edge/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=1 -C <workspace>/edges/opentrons
+cd <workspace>/edges/opentrons
+```
+
+Copy `.env.example` to `.env` and configure the edge service with `nats://localhost:4222` and the OT-2 IP address I provided.
+
+Start the service dependencies:
+
+```bash
+docker compose up -d
+```
+
+Start the OT-2 edge service:
+
+```bash
+uv run edge/main.py
+```
+
+After the service starts, verify that it registered with PUDA:
+
+```bash
+puda machine list
+```
+
+If the machine is missing, check that Docker services are running and that the OT-2 edge service can reach both the OT-2 robot and NATS.
+````
+
+## Add Custom Labware
+
+Use this section when your protocol needs labware that is not one of the standard Opentrons labware types.
+
+Custom labware definitions are JSON files. Add the definition file to this package so the Opentrons driver can discover it.
+
+### Add the labware definition file
+
+Place the custom labware JSON file in:
+
+```text
+opentrons/labware/
+```
+
+Example:
+
+```text
+opentrons/labware/my_custom_plate_1.json
+```
+
+The file must include `parameters.loadName`. The driver uses this value as the labware type name.
+
+Example JSON fields to check:
+
+```json
+{
+  "namespace": "custom",
+  "version": 1,
+  "metadata": {
+    "displayName": "My Custom Plate"
+  },
+  "parameters": {
+    "loadName": "my_custom_plate_1"
+  }
+}
+```
+
+### Confirm the labware is discovered
+
+From the main `opentrons` folder, run:
+
+```bash
+uv run python -c "from opentrons.protocol import get_labware_types; print(get_labware_types())"
+```
+
+Confirm your `parameters.loadName` value appears in the printed list.
+
+### Use the custom labware in a protocol
+
+Use the `parameters.loadName` value as `labware_type` when loading labware.
+
+Example:
+
+```python
+ProtocolCommand(command_type="load_labware", params={
+    "name": "custom_plate",
+    "labware_type": "my_custom_plate_1",
+    "location": "3",
+})
+```
+
+When a custom labware type is found in `opentrons/labware/`, the protocol builder generates an Opentrons `load_labware_from_definition()` call automatically.
+
+After adding or changing a labware JSON file, restart the Opentrons Edge service so it reloads the labware list.
+
+Custom labware is embedded into generated protocols with Opentrons `load_labware_from_definition()`, so a separate labware upload step is not required.
+
+## Run a Protocol from Chat
+
+### Describe the protocol
+
+Send the protocol request in natural language with exact lab details.
+
+When sending the prompt in chat, mention the bot so it receives and responds to the request.
+
+Example prompt:
+
+```text
+Create an Opentrons OT-2 protocol for PUDA.
+
+Use a P300 single gen2 pipette on the right mount.
+Use a P300 uL tip rack in slot 11.
+Source is placed in slot 2 using a Corning 96-well plate.
+The mixing plate is placed in slot 3 using a Corning 96-well plate.
+Transfer 300 uL of water from source well D6 to mixing plate wells A1 through A6.
+Do not run the protocol until I approve it.
+```
+
+### Review and approve execution
+
+Agent will provide a protocol summary to the user after the protocol is created.
+
+Example summary:
+
+```text
+Created and validated the new PUDA Opentrons protocol. I did not run it. Opentrons is still idle.
+
+Protocol
+
+Field            Value
+Protocol ID      61262efb-0a5e-49da-915a-de15333ba001
+File             /home/opentron/puda-opentrons-water-transfer/protocols/61262efb-0a5e-49da-915a-de15333ba001.json
+PUDA validation  passed
+project.md       updated
+Run status       not run
+SHA256           c34f74a79a431bd4ec791489a68b9441b4f1887b47f4932823ee6d6093b3455c
+
+Transfer setup
+
+Item               Setting
+Pipette            p300_single_gen2
+Mount              right
+Tip rack           opentrons_96_tiprack_300ul in slot 11
+Source plate       corning_96_wellplate_360ul_flat in slot 2
+Mixing plate       corning_96_wellplate_360ul_flat in slot 3
+Source well        D6
+Destination wells  A1-A6
+Volume             300 uL per destination well
+Tips               fresh tip for each destination well
+End state          homes robot; no tip attached
+
+Validation/static checks:
+
+6x pick_up_tip
+6x aspirate(300, source D6)
+6x dispense(300, destination)
+6x blow_out
+6x drop_tip
+no transfer(), distribute(), mix(), or air_gap
+uses requirements = {"robotType": "OT-2", "apiLevel": "2.15"} only, avoiding duplicate apiLevel upload issues
+
+When you approve, I can run:
+
+cd /home/opentron/puda-opentrons-water-transfer
+puda protocol run -f protocols/61262efb-0a5e-49da-915a-de15333ba001.json
+```
+
+After you confirm the setup matches the physical robot deck, mention the bot and send:
+
+```text
+approve and run
+```
+
+### Watch the first run
+
+During the first run:
+
+- Stay near the robot.
+- Watch the first few movements carefully.
+- Be ready to pause or stop the run.
+- Record any unexpected behavior in `project.md` or your lab notebook.
+
+> **Safety rule:** Stay near the robot during the first run. Be ready to pause or stop the robot if labware, tips, or liquid positions are wrong.
+
+## Using opentrons with PUDA
+
+
+From here, use [Using PUDA](https://github.com/PUDAP/puda-docs/blob/main/docs/category/using-puda) to run protocols, build repeatable OT-2 workflows, and more.

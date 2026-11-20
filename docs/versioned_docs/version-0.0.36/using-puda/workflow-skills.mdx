@@ -1,0 +1,100 @@
+---
+sidebar_position: 2
+---
+
+# Workflow Skills
+
+A workflow skill is reusable operational memory for a multi-step task. It describes the exact sequence of PUDA commands, verification steps, and failure handling an agent should follow to complete a task reliably.
+
+Workflow skills sit above [machine skills](../setup/machine-skills). A machine skill teaches an agent how to operate one machine safely. A workflow skill teaches an agent how to combine commands—and sometimes several machines—into a repeatable procedure.
+
+## When to create a workflow skill
+
+Create a workflow skill when:
+
+- You run the same procedure more than once, such as dispensing into a well, calibrating a device, or preparing a sample.
+- The task spans several machines, such as liquid handling followed by imaging or measurement.
+- The sequence has ordering constraints, verification gates, or cleanup steps that must not be skipped.
+- You want the agent to stop and report instead of improvising after a failure.
+
+## Start from machine skills
+
+Before writing a workflow skill, make sure machine skills exist for every machine the workflow touches. The workflow should reference those constraints instead of redefining them.
+
+Ask the agent to inspect the machines involved:
+
+```text
+List the machines required for this workflow and confirm that machine skills exist for each one.
+
+For any machine without a skill, summarize the missing safety rules, limits, startup steps, and cleanup steps before we continue.
+```
+
+## Write the workflow skill
+
+Describe the task in plain language first, then ask the agent to turn it into a skill:
+
+```text
+Create a workflow skill for dispensing reagent A into well B3.
+
+The workflow must:
+- Home the robot if it has not already been homed.
+- Pick up a clean tip.
+- Move to the reagent A reservoir using the known safe approach path.
+- Aspirate 50 uL.
+- Move to well B3 using the known safe approach path.
+- Dispense 50 uL.
+- Verify the final position.
+- Drop the tip.
+```
+
+A good workflow skill should include:
+
+- **Purpose** — what the workflow accomplishes and when to use it.
+- **Prerequisites** — required machine state, consumables, calibration, or prior steps.
+- **Command sequence** — exact PUDA commands in order, with parameters.
+- **Verification gates** — checks after important steps, such as position, pressure, or image capture.
+- **Cleanup** — steps that must run even when the workflow fails partway through.
+- **Failure handling** — optional instructions for what to do when a command fails, including when to stop and report.
+- **Example runs** — one or more complete command sequences the agent can follow.
+
+## Add optional failure handling
+
+Workflow skills can describe both the normal path and the safe stop path. If a command fails, the agent can ask the user for approval before retrying. If you do not want the agent to retry, say so explicitly in the workflow skill.
+
+```text
+Add failure handling to the workflow skill:
+
+- If any move command fails, stop immediately and report the target position, actual position, and command response.
+- If aspiration or dispense fails, ask before retrying. If retries are not allowed, report the failure and leave the robot in its current state.
+- If verification fails, stop the workflow and do not continue to the next step.
+- Always run cleanup steps when it is safe to do so, even after a failure.
+```
+
+## Test with a dry run
+
+Before running on real samples, ask the agent to plan the workflow without executing physical actions:
+
+```text
+Using the workflow skill, plan a dry run for <workflow_name>.
+
+List every command in order, the expected machine state after each step, and every verification gate. Do not run any commands yet.
+```
+
+Then run a small real test with conservative parameters. Confirm that startup, verification, cleanup, and failure handling all behave as expected.
+
+## Refine after real runs
+
+Update the skill with observations from each run:
+
+```text
+Update the <workflow_name> workflow skill with these observations:
+
+- The safe approach path to well B3 for first machine requires raising Z to at least 50 mm before any XY move.
+- The workflow completes reliably with 45 uL instead of 50 uL for this reagent viscosity.
+```
+
+Keep the skill precise. The goal is for the agent to follow the same reliable procedure every time: check prerequisites, execute in order, verify at the gates, clean up at the end, and stop safely when something goes wrong.
+
+## References
+
+- [opentrons workflow skill example](https://github.com/PUDAP/opentrons-skills/blob/main/workflow/SKILL.md)

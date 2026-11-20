@@ -1,0 +1,8 @@
+{
+  "label": "Observability",
+  "position": 5,
+  "link": {
+    "type": "generated-index",
+    "description": "AI agents can already monitor your machines in real time. Add logging for backup and Grafana when humans need dashboards and alerts too."
+  }
+}

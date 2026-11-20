@@ -1,0 +1,73 @@
+---
+sidebar_position: 6
+---
+
+import CopyPromptButton from '@site/src/components/CopyPromptButton';
+
+# PUDA CLI and Skills
+
+Install the PUDA CLI and PUDA skills in the shell environment used by your AI agent. This lets Cursor, Claude, Hermes, or any shell-capable agent discover machines, run PUDA commands, and follow PUDA workflows.
+
+It works best on Linux, where the agent can install the PUDA CLI, inspect project files, run commands, and operate through the same terminal surface that a human would use.
+
+Copy this prompt into your AI agent to run the full setup in one go:
+
+<CopyPromptButton />
+
+Or follow the steps below.
+
+## Install prerequisites
+
+Copy this prompt into your AI agent:
+
+```text
+Before installing the PUDA CLI, install the latest available versions of Python 3, pip, and npx for this system.
+
+After installation, verify that python3, pip, and npx are available by checking their installed versions.
+```
+
+## Install the PUDA CLI
+
+Copy this prompt into your AI agent:
+
+```text
+Install PUDA CLI v0.0.36 from https://github.com/PUDAP/puda/releases/tag/v0.0.36 and add it to my PATH so the puda command is available globally.
+
+After installation, verify that the CLI reports version 0.0.36.
+```
+
+## Install PUDA skills
+
+Copy this prompt into your AI agent:
+
+```text
+Install PUDA skills using `puda skills install`.
+```
+
+## Log in
+
+Copy this prompt into your AI agent, replacing `<username>` with your PUDA username:
+
+```text
+Log in to PUDA using the username <username>.
+```
+
+## Configure NATS
+
+Copy this prompt into your AI agent, replacing `<nats_servers>` with the server addresses from your [NATS setup](./nats-server):
+
+```text
+Configure PUDA to use the NATS server URL or comma-separated NATS cluster URLs: <nats_servers>.
+```
+
+## Verify the setup
+
+Copy this prompt into your AI agent:
+
+```text
+List the current available PUDA machines.
+```
+
+The machines with edge services running should show up there.
+
+Next, [build machine skills](./machine-skills) so your AI agent knows how to command each machine safely and consistently.
