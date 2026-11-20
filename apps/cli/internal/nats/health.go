@@ -41,10 +41,18 @@ type ClusterHealth struct {
 	Configured int      `json:"configured"`
 	Reachable  int      `json:"reachable"`
 	Discovered []string `json:"discovered"`
-	// Brokers is the number of distinct non-empty server IDs that responded.
-	Brokers int `json:"brokers"`
+	// Brokers lists each distinct non-empty server ID that responded, with the
+	// configured endpoints that reached it, in configuration order.
+	Brokers []BrokerHealth `json:"brokers"`
 	// UnidentifiedEndpoints responded without a server ID and are not in Brokers.
 	UnidentifiedEndpoints int `json:"unidentified_endpoints,omitempty"`
+}
+
+// BrokerHealth is one broker (one server ID) and the endpoints that reached it.
+type BrokerHealth struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name,omitempty"`
+	Endpoints []string `json:"endpoints"`
 }
 
 // JetStreamHealth is the account-level JetStream probe from a reachable node.
@@ -66,7 +74,7 @@ type GatewayHealth struct {
 	Configured int    `json:"configured"`
 	Reachable  int    `json:"reachable"`
 	// Brokers and UnidentifiedEndpoints follow ClusterHealth's definitions.
-	Brokers               int             `json:"brokers"`
+	Brokers               []BrokerHealth  `json:"brokers"`
 	UnidentifiedEndpoints int             `json:"unidentified_endpoints,omitempty"`
 	Servers               []ServerHealth  `json:"servers"`
 	JetStream             JetStreamHealth `json:"jetstream"`
@@ -92,11 +100,16 @@ type MachineCompatibilityHealth struct {
 
 // HealthReport is the full NATS server/cluster healthcheck result.
 type HealthReport struct {
-	Status    string          `json:"status"`
+	Status string `json:"status"`
+	// Issues explains every non-ok status (and advisories) with a next step;
+	// read status and issues first.
+	Issues    []HealthIssue   `json:"issues"`
 	Servers   []ServerHealth  `json:"servers"`
 	Cluster   ClusterHealth   `json:"cluster"`
 	JetStream JetStreamHealth `json:"jetstream"`
-	Gateways  []GatewayHealth `json:"gateways"`
+	// PUDA reports the local cluster's PUDA streams and KV buckets.
+	PUDA     PUDAHealth      `json:"puda"`
+	Gateways []GatewayHealth `json:"gateways"`
 	// Advisory only; listed after the NATS checks that determine Status.
 	Compatibility *CompatibilityHealth `json:"compatibility,omitempty"`
 }
@@ -136,6 +149,7 @@ func SplitServerURLs(servers string) []string {
 type probe struct {
 	server ServerHealth
 	js     JetStreamHealth
+	puda   PUDAHealth
 }
 
 // CheckHealth probes each configured NATS URL independently and summarizes
@@ -151,21 +165,22 @@ func CheckHealth(servers, gatewayServers string, timeout time.Duration) (HealthR
 		timeout = 2 * time.Second
 	}
 
-	local := probeURLs(urls, timeout)
+	local := probeURLs(urls, timeout, true)
 	report := summarizeHealth(collectServers(local), firstJetStream(local))
-	report.Gateways = summarizeGateways(probeURLs(SplitServerURLs(gatewayServers), timeout))
+	report = applyPUDAHealth(report, firstPUDA(local))
+	report.Gateways = summarizeGateways(probeURLs(SplitServerURLs(gatewayServers), timeout, false))
 	return applyGatewayStatus(report), nil
 }
 
-func probeURLs(urls []string, timeout time.Duration) []probe {
+func probeURLs(urls []string, timeout time.Duration, withPUDA bool) []probe {
 	results := make([]probe, len(urls))
 	var wg sync.WaitGroup
 	for i, url := range urls {
 		wg.Add(1)
 		go func(i int, url string) {
 			defer wg.Done()
-			server, js := ProbeServer(url, timeout)
-			results[i] = probe{server: server, js: js}
+			server, js, puda := probeServer(url, timeout, withPUDA)
+			results[i] = probe{server: server, js: js, puda: puda}
 		}(i, url)
 	}
 	wg.Wait()
@@ -193,8 +208,25 @@ func firstJetStream(results []probe) JetStreamHealth {
 	return js
 }
 
+// firstPUDA returns the PUDA resource check from the same endpoint whose
+// JetStream result is reported.
+func firstPUDA(results []probe) PUDAHealth {
+	for _, result := range results {
+		if result.server.Status == "ok" && result.js.OK {
+			return result.puda
+		}
+	}
+	return PUDAHealth{Status: "not_checked", Reason: "jetstream_unavailable", Resources: []PUDAResource{}}
+}
+
 // ProbeServer connects to a single NATS URL without failing over to other nodes.
 func ProbeServer(serverURL string, timeout time.Duration) (ServerHealth, JetStreamHealth) {
+	server, js, _ := probeServer(serverURL, timeout, false)
+	return server, js
+}
+
+func probeServer(serverURL string, timeout time.Duration, withPUDA bool) (ServerHealth, JetStreamHealth, PUDAHealth) {
+	puda := PUDAHealth{Status: "not_checked", Reason: "jetstream_unavailable", Resources: []PUDAResource{}}
 	health := ServerHealth{URL: serverURL, Status: "error"}
 	// Only this probe connection owns these handlers. Keep the first async
 	// error (e.g. a JetStream API/reply permission violation) for the report
@@ -216,12 +248,12 @@ func ProbeServer(serverURL string, timeout time.Duration) (ServerHealth, JetStre
 	)
 	if err != nil {
 		health.Error = err.Error()
-		return health, JetStreamHealth{Status: "not_checked", Reason: "nats_unreachable"}
+		return health, JetStreamHealth{Status: "not_checked", Reason: "nats_unreachable"}, puda
 	}
 	nc, err := natsio.Connect(serverURL, opts...)
 	if err != nil {
 		health.Error = err.Error()
-		return health, JetStreamHealth{Status: "not_checked", Reason: "nats_unreachable"}
+		return health, JetStreamHealth{Status: "not_checked", Reason: "nats_unreachable"}, puda
 	}
 	// Flush does not wait for async handlers: Close, then await the FIFO
 	// closed callback so no handler runs after the probe returns.
@@ -234,7 +266,7 @@ func ProbeServer(serverURL string, timeout time.Duration) (ServerHealth, JetStre
 	if err := nc.FlushTimeout(timeout); err != nil {
 		closeAndWait()
 		health.Error = err.Error()
-		return health, JetStreamHealth{Status: "not_checked", Reason: "nats_unreachable"}
+		return health, JetStreamHealth{Status: "not_checked", Reason: "nats_unreachable"}, puda
 	}
 	health.RTTMS = float64(time.Since(start).Microseconds()) / 1000.0
 	health.Status = "ok"
@@ -246,6 +278,9 @@ func ProbeServer(serverURL string, timeout time.Duration) (ServerHealth, JetStre
 	health.JetStream = jsEnabled
 	health.DiscoveredServers = uniqueSorted(nc.DiscoveredServers())
 	js := jetStreamFromConn(nc, timeout)
+	if js.OK && withPUDA {
+		puda = pudaFromConn(nc, timeout)
+	}
 	closeAndWait()
 	// A denied $JS.API publish or reply subscription surfaces only as a
 	// request timeout; report the captured server cause instead.
@@ -256,7 +291,7 @@ func ProbeServer(serverURL string, timeout time.Duration) (ServerHealth, JetStre
 		default:
 		}
 	}
-	return health, js
+	return health, js, puda
 }
 
 func jetStreamFromConn(nc *natsio.Conn, timeout time.Duration) JetStreamHealth {
@@ -266,7 +301,11 @@ func jetStreamFromConn(nc *natsio.Conn, timeout time.Duration) JetStreamHealth {
 	}
 	info, err := js.AccountInfo()
 	if err != nil {
-		return JetStreamHealth{Status: "failed", Reason: "jetstream_error", Error: err.Error()}
+		reason := "jetstream_error"
+		if jetStreamNoQuorum(err.Error()) {
+			reason = "jetstream_no_quorum"
+		}
+		return JetStreamHealth{Status: "failed", Reason: reason, Error: err.Error()}
 	}
 	return JetStreamHealth{
 		Status:    "ok",
@@ -278,11 +317,12 @@ func jetStreamFromConn(nc *natsio.Conn, timeout time.Duration) JetStreamHealth {
 	}
 }
 
-// countBrokers counts distinct non-empty server IDs among reachable endpoints.
-// Names and URLs never identify a broker: two servers may share a name, and one
-// server may be reachable at several URLs.
-func countBrokers(servers []ServerHealth) (brokers, unidentified int) {
-	ids := make(map[string]struct{})
+// groupBrokers groups reachable endpoints by non-empty server ID. Names and URLs
+// never identify a broker: two servers may share a name, and one server may be
+// reachable at several URLs. Endpoints without an ID are only counted.
+func groupBrokers(servers []ServerHealth) (brokers []BrokerHealth, unidentified int) {
+	brokers = []BrokerHealth{}
+	index := make(map[string]int)
 	for _, server := range servers {
 		if server.Status != "ok" {
 			continue
@@ -292,9 +332,33 @@ func countBrokers(servers []ServerHealth) (brokers, unidentified int) {
 			unidentified++
 			continue
 		}
-		ids[id] = struct{}{}
+		i, seen := index[id]
+		if !seen {
+			i = len(brokers)
+			index[id] = i
+			brokers = append(brokers, BrokerHealth{ID: id, Name: server.Name, Endpoints: []string{}})
+		}
+		brokers[i].Endpoints = append(brokers[i].Endpoints, server.URL)
 	}
-	return len(ids), unidentified
+	return brokers, unidentified
+}
+
+// applyPUDAHealth attaches the PUDA resource check and lets it lower status:
+// a missing or leaderless required resource makes PUDA unusable (unhealthy);
+// an under-replicated or lagging one is degraded.
+func applyPUDAHealth(report HealthReport, puda PUDAHealth) HealthReport {
+	report.PUDA = finishPUDAHealth(puda, report.Cluster.Name != "")
+	if report.PUDA.Resources == nil {
+		report.PUDA.Resources = []PUDAResource{}
+	}
+	switch {
+	case report.Status == HealthUnhealthy:
+	case report.PUDA.Status == "failed":
+		report.Status = HealthUnhealthy
+	case report.PUDA.Status == "degraded":
+		report.Status = HealthDegraded
+	}
+	return report
 }
 
 func summarizeHealth(servers []ServerHealth, js JetStreamHealth) HealthReport {
@@ -313,7 +377,7 @@ func summarizeHealth(servers []ServerHealth, js JetStreamHealth) HealthReport {
 	}
 
 	clusterName := uniqueJoin(clusterNames)
-	brokers, unidentified := countBrokers(servers)
+	brokers, unidentified := groupBrokers(servers)
 	report := HealthReport{
 		Servers:   servers,
 		JetStream: js,
@@ -390,7 +454,7 @@ func summarizeGateways(results []probe) []GatewayHealth {
 			}
 		}
 		js := firstJetStream(probes)
-		brokers, unidentified := countBrokers(servers)
+		brokers, unidentified := groupBrokers(servers)
 		gateway := GatewayHealth{
 			Cluster:               name,
 			Configured:            len(servers),

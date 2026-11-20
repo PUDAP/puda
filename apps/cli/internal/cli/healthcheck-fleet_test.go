@@ -65,12 +65,40 @@ func healthcheckTestBroker(t *testing.T, jetstream bool, extraArgs ...string) (s
 		nc, err := natsio.Connect(url, natsio.Timeout(50*time.Millisecond), natsio.NoReconnect())
 		if err == nil {
 			t.Cleanup(nc.Close)
+			if jetstream {
+				provisionPUDAResources(t, nc)
+			}
 			return url, nc, stop
 		}
 	}
 	stop()
 	t.Fatalf("loopback broker did not become ready: %s", log.String())
 	return "", nil, nil
+}
+
+// provisionPUDAResources creates the required PUDA streams and KV buckets with
+// one replica, as setup_streams.sh does on a single-node deployment. A broker
+// whose account cannot create them is left as is.
+func provisionPUDAResources(t *testing.T, nc *natsio.Conn) {
+	t.Helper()
+	js, err := nc.JetStream()
+	if err != nil {
+		return
+	}
+	for _, name := range []string{"COMMAND_QUEUE", "COMMAND_IMMEDIATE", "RESPONSE_QUEUE", "RESPONSE_IMMEDIATE"} {
+		subject := "puda.*.cmd." + strings.ToLower(strings.TrimPrefix(strings.TrimPrefix(name, "COMMAND_"), "RESPONSE_"))
+		if strings.HasPrefix(name, "RESPONSE_") {
+			subject = "puda.*.cmd.response." + strings.ToLower(strings.TrimPrefix(name, "RESPONSE_"))
+		}
+		if _, err := js.AddStream(&natsio.StreamConfig{Name: name, Subjects: []string{subject}, Storage: natsio.MemoryStorage}); err != nil {
+			return
+		}
+	}
+	for _, bucket := range []string{"MACHINE_STATE", "MACHINE_COMMANDS"} {
+		if _, err := js.CreateKeyValue(&natsio.KeyValueConfig{Bucket: bucket, Storage: natsio.MemoryStorage}); err != nil {
+			return
+		}
+	}
 }
 
 // healthcheckRestrictedBroker starts a broker whose only user is denied one subject.
@@ -531,7 +559,7 @@ func TestHealthcheckFleetAllResponders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	kv, err := js.CreateKeyValue(&natsio.KeyValueConfig{Bucket: "MACHINE_STATE"})
+	kv, err := js.KeyValue("MACHINE_STATE")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -564,5 +592,45 @@ func TestHealthcheckFleetAllResponders(t *testing.T) {
 	}
 	if strings.Contains(out, "stale-offline") {
 		t.Fatal("consulted stale stored state")
+	}
+}
+
+// A broker with JetStream but without the PUDA resources answers every NATS
+// probe, yet no command can be queued: the report must be unhealthy and the
+// issue must carry the provisioning command.
+func TestHealthcheckProcessMissingPUDAResourceIsUnhealthy(t *testing.T) {
+	url, nc, _ := healthcheckTestBroker(t, true)
+	js, err := nc.JetStream()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := js.DeleteStream("COMMAND_QUEUE"); err != nil {
+		t.Fatal(err)
+	}
+	healthcheckTestConfig(t, url, "")
+	report := runHealthcheckProcess(t, 1)
+	if report.Status != "unhealthy" || !report.JetStream.OK || report.PUDA.Status != "failed" {
+		t.Fatalf("status=%s jetstream=%+v puda=%+v", report.Status, report.JetStream, report.PUDA)
+	}
+	if len(report.Issues) != 1 || report.Issues[0].Code != "puda_resources_missing" || report.Issues[0].Target != "COMMAND_QUEUE" || !strings.Contains(report.Issues[0].NextStep, "NATS_URL="+url+" REPLICAS=1") {
+		t.Fatalf("issues=%+v", report.Issues)
+	}
+	if len(report.Cluster.Brokers) != 1 || report.Cluster.Brokers[0].Endpoints[0] != url {
+		t.Fatalf("brokers=%+v", report.Cluster.Brokers)
+	}
+}
+
+// A healthy provisioned standalone broker has an empty, non-null issue list.
+func TestHealthcheckProcessHealthyHasEmptyIssues(t *testing.T) {
+	url, _, _ := healthcheckTestBroker(t, true)
+	healthcheckTestConfig(t, url, "")
+	cmd := healthcheckProcess(t, "healthcheck", "--timeout=2s")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("err=%v stdout=%s", err, stdout.String())
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"issues": []`)) || !bytes.Contains(stdout.Bytes(), []byte(`"status": "ok"`)) {
+		t.Fatalf("stdout=%s", stdout.String())
 	}
 }

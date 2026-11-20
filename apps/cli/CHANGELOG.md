@@ -2,9 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- `puda healthcheck` checks the PUDA JetStream resources, not just that JetStream answers. The new `puda` section reports each stream and KV bucket (status, replicas, leader, lagging replicas, consumers). Required resources that are missing, leaderless or below quorum make the report `unhealthy` (exit 1); a single replica in a cluster or a lagging replica is `degraded`. A broker with JetStream but no PUDA streams was previously `ok`.
+- `puda healthcheck` adds a top-level `issues` list. Each issue has `code`, `severity` (`unhealthy`, `degraded` or `advisory`), `target`, `source` (JSON path to the evidence; error text is not duplicated) and a concrete `next_step`, such as the exact `setup_streams.sh` command with the right `NATS_URL` and `REPLICAS`. Every non-ok status has a matching issue, and one cause affecting several resources is one issue. `--human` prints the issues first.
+- Lost JetStream quorum is reported as `jetstream_no_quorum` / `puda_resource_no_quorum`, including the window after nodes stop while an old leader still claims leadership.
+
 ### Fixed
 
-- `puda healthcheck` no longer conflates endpoints with brokers. `--human` prints `endpoints: N/M reachable` and `unique brokers responding: K`, counting distinct non-empty server IDs from successful probes (never names or URLs), shows each endpoint's server `id`, notes endpoints that reported no ID instead of grouping them, and prints `cluster: <name>` only for a real cluster, without the advertised-address count (that list stays in JSON `cluster.discovered`; advertised addresses prove neither identity nor cluster size). JSON keeps every existing field and adds `cluster.brokers` and `gateways[].brokers` (plus `unidentified_endpoints` when non-zero). Probing, status and exit codes are unchanged.
+- `puda healthcheck` no longer conflates endpoints with brokers. `--human` prints `endpoints: N/M reachable` and `unique brokers responding: K`, counting distinct non-empty server IDs from successful probes (never names or URLs), shows each endpoint's server `id`, notes endpoints that reported no ID instead of grouping them, and prints `cluster: <name>` only for a real cluster, without the advertised-address count (that list stays in JSON `cluster.discovered`; advertised addresses prove neither identity nor cluster size). JSON keeps every existing field and adds `cluster.brokers` / `gateways[].brokers`, each broker's server `id`, `name` and the `endpoints` that reached it (plus `unidentified_endpoints` when non-zero).
 
 ## 0.1.6 — 2026-11-19
 
