@@ -56,7 +56,8 @@ Runs, samples and measurements are stored per project. `puda project hash` retur
 Install the CLI from the [latest release](https://github.com/PUDAP/puda/releases/latest) (Linux x86_64 shown; macOS, Windows and ARM builds are attached too):
 
 ```bash
-curl -fsSL https://github.com/PUDAP/puda/releases/latest/download/puda_linux_x86_64.tar.gz | tar -xz puda
+curl -fsSL https://github.com/PUDAP/puda/releases/latest/download/puda_linux_x86_64.tar.gz \
+  | tar -xz puda
 sudo install puda /usr/local/bin/ && puda version
 ```
 
@@ -82,13 +83,12 @@ Full setup — NATS server, edges, clock sync, security — is at **[docs.puda.c
 
 ```mermaid
 flowchart LR
-    A[AI agent<br/>+ PUDA skills] -->|puda CLI| N((NATS))
-    N --> E1[Edge<br/>robot arm]
-    N --> E2[Edge<br/>pump]
-    N --> E3[Edge<br/>instrument]
-    E1 & E2 & E3 -->|responses + telemetry| N
-    N --> L[(Logger<br/>database)]
-    A -->|puda db / project hash| L
+    A["AI agent + PUDA skills"] -- "puda CLI" --> N(("NATS"))
+    N <--> E1["Edge: robot arm"]
+    N <--> E2["Edge: pump"]
+    N <--> E3["Edge: instrument"]
+    N -- "responses and telemetry" --> L[("Logger database")]
+    A -- "query and hash runs" --> L
 ```
 
 1. **Edges** wrap each machine's driver and expose atomic commands plus telemetry over NATS.
