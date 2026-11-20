@@ -63,7 +63,7 @@ const config: Config = {
               banner: 'none',
             },
           },
-          editUrl: 'https://github.com/PUDAP/puda/tree/main/docs/',
+          editUrl: 'https://github.com/PUDAP/puda/tree/main/apps/docs/',
         },
         blog: {
           showReadingTime: true,
@@ -71,7 +71,7 @@ const config: Config = {
             type: ['rss', 'atom'],
             xslt: true,
           },
-          editUrl: 'https://github.com/PUDAP/puda/tree/main/docs/',
+          editUrl: 'https://github.com/PUDAP/puda/tree/main/apps/docs/',
           // Useful options to enforce blogging best practices
           onInlineTags: 'warn',
           onInlineAuthors: 'warn',
