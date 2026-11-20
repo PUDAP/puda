@@ -1,6 +1,6 @@
 # Single-node NATS
 
-Local/development deployment with one NATS 2.14.5 server, JetStream, MQTT,
+Local/development deployment with one NATS 2.15.3 server, JetStream, MQTT,
 and NATS UI.
 
 ## Start
@@ -37,3 +37,4 @@ production-like HA testing.
 
 - `max_connections`: 200,000
 - container `nofile`: 524,288 soft and hard
+- `default_max_consumers`: -1 (unlimited consumers per stream)

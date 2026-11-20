@@ -1,6 +1,6 @@
 services:
   nats1:
-    image: nats:2.14.5
+    image: nats:2.15.3
     container_name: nats1
     restart: always
     ulimits:
