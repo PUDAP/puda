@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -98,14 +99,14 @@ func TestWriteHealthReportHuman(t *testing.T) {
 	output := buf.String()
 	for _, want := range []string{
 		"status: degraded",
-		"servers: 1/2 reachable",
-		"nats://a:4222: ok 1.250ms name=nats1 cluster=puda js=true version=2.10.22",
+		"endpoints: 1/2 reachable",
+		"nats://a:4222: ok 1.250ms name=nats1 id=(none) cluster=puda js=true version=2.10.22",
 		"nats://b:4222: failed: timeout",
-		"cluster: puda discovered=1",
+		"cluster: puda\n",
 		"jetstream: ok streams=4 consumers=2 memory=10 storage=20",
 		"gateways: 1",
-		"imre: degraded 1/2",
-		"nats://c:4222: ok 2.500ms name=nats-c cluster=imre js=true version=2.10.22",
+		"imre: degraded endpoints=1/2 reachable unique brokers=0",
+		"nats://c:4222: ok 2.500ms name=nats-c id=(none) cluster=imre js=true version=2.10.22",
 		"nats://d:4222: failed: timeout",
 		"jetstream: ok streams=3 consumers=1 memory=0 storage=0",
 	} {
@@ -132,7 +133,84 @@ func TestWriteHealthReportHumanJetStreamFailure(t *testing.T) {
 	if !strings.Contains(output, "status: unhealthy") || !strings.Contains(output, "jetstream: failed: JetStream not enabled") {
 		t.Fatalf("output=%s", output)
 	}
-	if !strings.Contains(output, "cluster: (none) discovered=1") {
-		t.Fatalf("output=%s", output)
+	if strings.Contains(output, "cluster:") {
+		t.Fatalf("standalone server reported as a cluster: %s", output)
+	}
+}
+
+// One standalone broker reachable through LAN and Tailscale is two endpoints and
+// one broker, and is not presented as a cluster.
+func TestWriteHealthReportHumanSeparatesEndpointsFromBrokers(t *testing.T) {
+	report := pudanats.HealthReport{
+		Status: pudanats.HealthOK,
+		Servers: []pudanats.ServerHealth{
+			{URL: "nats://192.168.1.10:4222", Status: "ok", Name: "nats", ID: "NSAME", JetStream: true},
+			{URL: "nats://100.64.0.10:4222", Status: "ok", Name: "nats", ID: "NSAME", JetStream: true},
+		},
+		Cluster:   pudanats.ClusterHealth{Configured: 2, Reachable: 2, Brokers: 1, Discovered: []string{"nats://100.64.0.10:4222", "nats://192.168.1.10:4222"}},
+		JetStream: pudanats.JetStreamHealth{Status: "ok", OK: true},
+	}
+	var buf bytes.Buffer
+	if err := writeHealthReport(&buf, report, true); err != nil {
+		t.Fatal(err)
+	}
+	output := buf.String()
+	for _, want := range []string{"endpoints: 2/2 reachable", "unique brokers responding: 1\n", "id=NSAME"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q: %s", want, output)
+		}
+	}
+	for _, unwanted := range []string{"servers:", "cluster", "discovered"} {
+		if strings.Contains(output, unwanted) {
+			t.Fatalf("output contains %q: %s", unwanted, output)
+		}
+	}
+}
+
+// Endpoints without a server ID are reported, never grouped into a broker.
+func TestWriteHealthReportHumanUnidentifiedEndpoints(t *testing.T) {
+	report := pudanats.HealthReport{
+		Status: pudanats.HealthOK,
+		Servers: []pudanats.ServerHealth{
+			{URL: "nats://a:4222", Status: "ok", Name: "nats"},
+			{URL: "nats://b:4222", Status: "ok", Name: "nats"},
+		},
+		Cluster:   pudanats.ClusterHealth{Configured: 2, Reachable: 2, Brokers: 0, UnidentifiedEndpoints: 2},
+		JetStream: pudanats.JetStreamHealth{Status: "ok", OK: true},
+	}
+	var buf bytes.Buffer
+	if err := writeHealthReport(&buf, report, true); err != nil {
+		t.Fatal(err)
+	}
+	if want := "unique brokers responding: 0 (2 reachable endpoint(s) reported no server ID; not counted)"; !strings.Contains(buf.String(), want) {
+		t.Fatalf("output missing %q: %s", want, buf.String())
+	}
+}
+
+// Existing JSON fields stay; brokers is added alongside the endpoint counts.
+func TestWriteHealthReportJSONKeepsEndpointFieldsAndAddsBrokers(t *testing.T) {
+	report := pudanats.HealthReport{
+		Status:  pudanats.HealthOK,
+		Cluster: pudanats.ClusterHealth{Configured: 2, Reachable: 2, Brokers: 1, Discovered: []string{"nats://a:4222", "nats://b:4222"}},
+	}
+	var out bytes.Buffer
+	if err := writeHealthReport(&out, report, false); err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Servers []any `json:"servers"`
+		Cluster struct {
+			Configured *int     `json:"configured"`
+			Reachable  *int     `json:"reachable"`
+			Discovered []string `json:"discovered"`
+			Brokers    *int     `json:"brokers"`
+		} `json:"cluster"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	c := decoded.Cluster
+	if decoded.Servers == nil || c.Configured == nil || *c.Configured != 2 || c.Reachable == nil || *c.Reachable != 2 || len(c.Discovered) != 2 || c.Brokers == nil || *c.Brokers != 1 {
+		t.Fatalf("json=%s", out.String())
 	}
 }

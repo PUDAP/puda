@@ -31,12 +31,20 @@ type ServerHealth struct {
 	Error             string   `json:"error,omitempty"`
 }
 
-// ClusterHealth summarizes configured vs reachable cluster membership.
+// ClusterHealth summarizes the configured endpoints. Configured, Reachable and
+// Discovered count endpoint URLs, not brokers: one broker reachable through two
+// addresses (e.g. LAN and Tailscale) is two endpoints. Brokers counts distinct
+// server IDs among reachable endpoints; endpoints that reported no ID are
+// counted in UnidentifiedEndpoints instead of being grouped by name.
 type ClusterHealth struct {
 	Name       string   `json:"name,omitempty"`
 	Configured int      `json:"configured"`
 	Reachable  int      `json:"reachable"`
 	Discovered []string `json:"discovered"`
+	// Brokers is the number of distinct non-empty server IDs that responded.
+	Brokers int `json:"brokers"`
+	// UnidentifiedEndpoints responded without a server ID and are not in Brokers.
+	UnidentifiedEndpoints int `json:"unidentified_endpoints,omitempty"`
 }
 
 // JetStreamHealth is the account-level JetStream probe from a reachable node.
@@ -53,12 +61,15 @@ type JetStreamHealth struct {
 
 // GatewayHealth is one expected remote cluster reached through a NATS gateway.
 type GatewayHealth struct {
-	Cluster    string          `json:"cluster,omitempty"`
-	Status     string          `json:"status"`
-	Configured int             `json:"configured"`
-	Reachable  int             `json:"reachable"`
-	Servers    []ServerHealth  `json:"servers"`
-	JetStream  JetStreamHealth `json:"jetstream"`
+	Cluster    string `json:"cluster,omitempty"`
+	Status     string `json:"status"`
+	Configured int    `json:"configured"`
+	Reachable  int    `json:"reachable"`
+	// Brokers and UnidentifiedEndpoints follow ClusterHealth's definitions.
+	Brokers               int             `json:"brokers"`
+	UnidentifiedEndpoints int             `json:"unidentified_endpoints,omitempty"`
+	Servers               []ServerHealth  `json:"servers"`
+	JetStream             JetStreamHealth `json:"jetstream"`
 }
 
 // CompatibilityHealth is advisory and never determines NATS health.
@@ -267,6 +278,25 @@ func jetStreamFromConn(nc *natsio.Conn, timeout time.Duration) JetStreamHealth {
 	}
 }
 
+// countBrokers counts distinct non-empty server IDs among reachable endpoints.
+// Names and URLs never identify a broker: two servers may share a name, and one
+// server may be reachable at several URLs.
+func countBrokers(servers []ServerHealth) (brokers, unidentified int) {
+	ids := make(map[string]struct{})
+	for _, server := range servers {
+		if server.Status != "ok" {
+			continue
+		}
+		id := strings.TrimSpace(server.ID)
+		if id == "" {
+			unidentified++
+			continue
+		}
+		ids[id] = struct{}{}
+	}
+	return len(ids), unidentified
+}
+
 func summarizeHealth(servers []ServerHealth, js JetStreamHealth) HealthReport {
 	reachable := 0
 	discovered := make([]string, 0)
@@ -283,6 +313,7 @@ func summarizeHealth(servers []ServerHealth, js JetStreamHealth) HealthReport {
 	}
 
 	clusterName := uniqueJoin(clusterNames)
+	brokers, unidentified := countBrokers(servers)
 	report := HealthReport{
 		Servers:   servers,
 		JetStream: js,
@@ -292,6 +323,9 @@ func summarizeHealth(servers []ServerHealth, js JetStreamHealth) HealthReport {
 			Configured: len(servers),
 			Reachable:  reachable,
 			Discovered: uniqueSorted(discovered),
+
+			Brokers:               brokers,
+			UnidentifiedEndpoints: unidentified,
 		},
 	}
 
@@ -356,12 +390,15 @@ func summarizeGateways(results []probe) []GatewayHealth {
 			}
 		}
 		js := firstJetStream(probes)
+		brokers, unidentified := countBrokers(servers)
 		gateway := GatewayHealth{
-			Cluster:    name,
-			Configured: len(servers),
-			Reachable:  reachable,
-			Servers:    servers,
-			JetStream:  js,
+			Cluster:               name,
+			Configured:            len(servers),
+			Reachable:             reachable,
+			Brokers:               brokers,
+			UnidentifiedEndpoints: unidentified,
+			Servers:               servers,
+			JetStream:             js,
 		}
 		switch {
 		case reachable == 0:
