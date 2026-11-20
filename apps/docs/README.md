@@ -58,4 +58,4 @@ If you are using GitHub pages for hosting, this command is a convenient way to b
 
 ## Deployment
 
-docs.puda.co is deployed by Cloudflare Workers Builds (worker `puda-docs`, root directory `apps/docs`) on every push to `main` that changes `apps/docs/`.
+docs.puda.co is deployed by Cloudflare Workers Builds (worker `puda-docs`, root directory `apps/docs`) on every push to `main` that changes `apps/docs/`. Build command: `pnpm run build`; deploy command: `npx wrangler deploy` (uploads `build/` per `wrangler.jsonc`).
