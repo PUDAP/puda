@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200" role="img" aria-label="PUDA">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1B2A4A"/>
+      <stop offset="1" stop-color="#0B1222"/>
+    </linearGradient>
+  </defs>
+  <rect width="200" height="200" rx="36" fill="url(#bg)"/>
+  <!-- network links (agent <-> machines) -->
+  <g stroke="#3FD0C9" stroke-width="3" stroke-linecap="round" opacity="0.55">
+    <line x1="150" y1="44" x2="168" y2="70"/>
+    <line x1="150" y1="44" x2="128" y2="34"/>
+  </g>
+  <g fill="#3FD0C9">
+    <circle cx="150" cy="44" r="7"/>
+    <circle cx="168" cy="70" r="5"/>
+    <circle cx="128" cy="34" r="5"/>
+  </g>
+  <!-- robot arm -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="62" y1="146" x2="80" y2="92"/>
+    <line x1="80" y1="92" x2="126" y2="76"/>
+    <path d="M126 76 L136 92 M126 76 L142 72"/>
+  </g>
+  <rect x="38" y="146" width="50" height="16" rx="6" fill="#FFFFFF"/>
+  <circle cx="80" cy="92" r="11" fill="#FF7A2F" stroke="#FFFFFF" stroke-width="4"/>
+  <circle cx="62" cy="146" r="9" fill="#FF7A2F" stroke="#FFFFFF" stroke-width="4"/>
+  <circle cx="126" cy="76" r="8" fill="#FF7A2F" stroke="#FFFFFF" stroke-width="4"/>
+</svg>
