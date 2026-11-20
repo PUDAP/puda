@@ -19,6 +19,7 @@
 	"dependencies": {
 		"@docusaurus/core": "3.10.1",
 		"@docusaurus/faster": "3.10.1",
+		"@docusaurus/plugin-client-redirects": "3.10.1",
 		"@docusaurus/preset-classic": "3.10.1",
 		"@mdx-js/react": "^3.0.0",
 		"@writechoice/docusaurus-plugin-llms-txt": "^0.1.11",
