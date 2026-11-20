@@ -1,6 +1,6 @@
 # PUDA CLI changelog
 
-## Unreleased
+## 0.1.7-rc1 — 2026-11-20 (prerelease)
 
 ### Added
 
