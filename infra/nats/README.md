@@ -51,6 +51,28 @@ three-node-r3/nats3/
 
 See [`three-node-r3/README.md`](./three-node-r3/README.md).
 
+## NATS version
+
+All layouts pin `nats:2.15.3`. NATS 2.15 limits each stream to 1000 consumers by
+default. PUDA creates one `COMMAND_QUEUE` and one `COMMAND_IMMEDIATE` consumer
+per machine, so every `nats.conf` sets `jetstream.limits.default_max_consumers: -1`
+(unlimited, the pre-2.15 behaviour). Without it, the 1001st machine cannot
+connect.
+
+Upgrading an existing deployment:
+
+- Change the image and `nats.conf` together. NATS 2.14 refuses to start with
+  `default_max_consumers` (`unknown field`), and 2.15 without it stops at 1000
+  machines.
+- Single node: pull both files, then `docker compose up -d`.
+- Three-node cluster: NATS recommends 2.15 only from 2.14.7 or later. First restart
+  one node at a time on `nats:2.14.10` with the old `nats.conf`, then one node at a
+  time on `nats:2.15.3` with the new `nats.conf`. Avoid stream scale or move
+  operations until all three nodes run 2.15.
+- Downgrading to 2.14: remove `default_max_consumers` first.
+
+See the [NATS 2.15 upgrade guide](https://docs.nats.io/release-notes/upgrade-to-2.15).
+
 ## Optional TLS
 
 `single-node-e2e/` and `three-node-r3-e2e/` are the same layouts with TLS on

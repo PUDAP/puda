@@ -97,6 +97,7 @@ nats://<nats1-ip>:<nats1-port>,nats://<nats2-ip>:<nats2-port>,nats://<nats3-ip>:
 - `max_connections`: 200,000
 - container `nofile`: 524,288 soft and hard
 - `max_ha_assets`: 250,000
+- `default_max_consumers`: -1 (unlimited consumers per stream)
 
 `max_ha_assets` only removes a configuration ceiling. Validate memory, disk,
 JetStream API latency, restart recovery, and reconnect storms before operating
