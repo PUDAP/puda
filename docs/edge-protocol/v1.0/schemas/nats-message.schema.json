@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docs.puda.co/schemas/edge-protocol/1.0/nats-message.schema.json",
+  "title": "PUDA NATSMessage (command, response, update request/response)",
+  "description": "Envelope on puda.<id>.cmd.queue, .cmd.immediate, .cmd.response.queue, .cmd.response.immediate, .update and .update.response. Receivers MUST ignore unknown fields.",
+  "type": "object",
+  "required": [
+    "header"
+  ],
+  "properties": {
+    "header": {
+      "type": "object",
+      "required": [
+        "version",
+        "message_type",
+        "user_id",
+        "username",
+        "machine_id",
+        "timestamp"
+      ],
+      "properties": {
+        "version": {
+          "const": "1.0"
+        },
+        "message_type": {
+          "enum": [
+            "command",
+            "response",
+            "log",
+            "alert",
+            "media"
+          ]
+        },
+        "user_id": {
+          "type": "string"
+        },
+        "username": {
+          "type": "string"
+        },
+        "machine_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "description": "Machine ID. Must be a single NATS subject token; see spec \u00a73."
+        },
+        "run_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "UUID of the run. The CLI sends \"\" for pause/resume/reset; edges MUST echo it unchanged."
+        },
+        "timestamp": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$",
+          "description": "UTC, ISO 8601. Reference implementations emit second precision: YYYY-MM-DDTHH:MM:SSZ."
+        }
+      }
+    },
+    "command": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "name",
+        "step_number",
+        "machine_id"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "params": {
+          "type": "object",
+          "default": {}
+        },
+        "kwargs": {
+          "type": "object",
+          "default": {},
+          "description": "Merged over params; kwargs win on key conflicts."
+        },
+        "step_number": {
+          "type": "integer"
+        },
+        "version": {
+          "type": "string",
+          "default": "1.0"
+        },
+        "machine_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "description": "Machine ID. Must be a single NATS subject token; see spec \u00a73."
+        }
+      }
+    },
+    "response": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "status",
+        "completed_at"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "success",
+            "error"
+          ]
+        },
+        "completed_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$",
+          "description": "UTC, ISO 8601. Reference implementations emit second precision: YYYY-MM-DDTHH:MM:SSZ."
+        },
+        "code": {
+          "anyOf": [
+            {
+              "enum": [
+                "COMMAND_CANCELLED",
+                "JSON_DECODE_ERROR",
+                "EXECUTION_ERROR",
+                "EXECUTION_LOCKED",
+                "UNKNOWN_COMMAND",
+                "PAUSE_ERROR",
+                "RESUME_ERROR",
+                "NO_EXECUTION",
+                "RUN_ID_MISMATCH",
+                "MISSING_RUN_ID",
+                "CANCEL_ERROR",
+                "MACHINE_PAUSED",
+                "MACHINE_ESTOPPED",
+                "ESTOP_NOT_SUPPORTED"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "data": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Handler result. Non-object results are wrapped as {\"result\": value}."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "error"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "code"
+            ],
+            "properties": {
+              "code": {
+                "enum": [
+                  "COMMAND_CANCELLED",
+                  "JSON_DECODE_ERROR",
+                  "EXECUTION_ERROR",
+                  "EXECUTION_LOCKED",
+                  "UNKNOWN_COMMAND",
+                  "PAUSE_ERROR",
+                  "RESUME_ERROR",
+                  "NO_EXECUTION",
+                  "RUN_ID_MISMATCH",
+                  "MISSING_RUN_ID",
+                  "CANCEL_ERROR",
+                  "MACHINE_PAUSED",
+                  "MACHINE_ESTOPPED",
+                  "ESTOP_NOT_SUPPORTED"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "header": {
+            "properties": {
+              "message_type": {
+                "const": "command"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "header": {
+            "properties": {
+              "message_type": {
+                "const": "response"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "response"
+        ],
+        "properties": {
+          "response": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  ]
+}

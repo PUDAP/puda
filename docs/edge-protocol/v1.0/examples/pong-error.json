@@ -1,0 +1,6 @@
+{
+  "status": "error",
+  "machine_id": "proto-test",
+  "timestamp": "2026-11-23T13:26:36Z",
+  "message": "expected ping"
+}

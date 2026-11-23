@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docs.puda.co/schemas/edge-protocol/1.0/machine-state.schema.json",
+  "title": "MACHINE_STATE value",
+  "description": "Value at KV bucket MACHINE_STATE, key <machine_id>. Machine-specific fields are merged at top level.",
+  "type": "object",
+  "required": [
+    "timestamp",
+    "state",
+    "run_id"
+  ],
+  "properties": {
+    "timestamp": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$",
+      "description": "UTC, ISO 8601. Reference implementations emit second precision: YYYY-MM-DDTHH:MM:SSZ."
+    },
+    "state": {
+      "enum": [
+        "idle",
+        "busy",
+        "paused",
+        "error",
+        "estopped",
+        "offline"
+      ]
+    },
+    "run_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": true
+}

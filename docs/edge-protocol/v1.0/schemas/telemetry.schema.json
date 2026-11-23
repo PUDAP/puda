@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docs.puda.co/schemas/edge-protocol/1.0/telemetry.schema.json",
+  "title": "Telemetry payloads",
+  "$defs": {
+    "heartbeat": {
+      "type": "object",
+      "required": [
+        "timestamp"
+      ],
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$",
+          "description": "UTC, ISO 8601. Reference implementations emit second precision: YYYY-MM-DDTHH:MM:SSZ."
+        }
+      }
+    },
+    "sample": {
+      "type": "object",
+      "required": [
+        "timestamp",
+        "data"
+      ],
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$",
+          "description": "UTC, ISO 8601. Reference implementations emit second precision: YYYY-MM-DDTHH:MM:SSZ."
+        },
+        "data": {
+          "type": "object"
+        }
+      },
+      "description": "puda.<id>.tlm.health and puda.<id>.tlm.stream.<name>."
+    },
+    "health": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/sample"
+        }
+      ],
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "cpu": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "mem": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "temp": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/heartbeat"
+    },
+    {
+      "$ref": "#/$defs/sample"
+    }
+  ]
+}

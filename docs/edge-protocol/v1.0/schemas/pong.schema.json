@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docs.puda.co/schemas/edge-protocol/1.0/pong.schema.json",
+  "title": "Ping reply",
+  "description": "Reply to puda.<id>.cmd.ping and puda.cmd.ping. Clients ignore replies whose status is not \"pong\" or that lack machine_id.",
+  "type": "object",
+  "required": [
+    "status",
+    "machine_id",
+    "timestamp"
+  ],
+  "oneOf": [
+    {
+      "properties": {
+        "status": {
+          "const": "pong"
+        }
+      },
+      "required": [
+        "sdk_version",
+        "run_status"
+      ]
+    },
+    {
+      "properties": {
+        "status": {
+          "const": "error"
+        }
+      },
+      "required": [
+        "message"
+      ]
+    }
+  ],
+  "properties": {
+    "status": {
+      "enum": [
+        "pong",
+        "error"
+      ]
+    },
+    "machine_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "description": "Machine ID. Must be a single NATS subject token; see spec \u00a73."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$",
+      "description": "UTC, ISO 8601. Reference implementations emit second precision: YYYY-MM-DDTHH:MM:SSZ."
+    },
+    "sdk_version": {
+      "type": "string"
+    },
+    "uptime_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "run_status": {
+      "enum": [
+        "idle",
+        "busy"
+      ]
+    },
+    "description": {
+      "type": "string",
+      "description": "One-line machine summary."
+    },
+    "tlm_streams": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "subject",
+          "interval"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "interval": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "local_ip": {
+      "type": "string"
+    },
+    "tailscale_ip": {
+      "type": "string"
+    },
+    "magicdns": {
+      "type": "string"
+    },
+    "e2e_encrypt_kid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}$"
+    },
+    "e2e_decrypt_kids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}$"
+      },
+      "maxItems": 2
+    },
+    "e2e_persist": {
+      "type": "boolean"
+    },
+    "message": {
+      "type": "string"
+    }
+  }
+}

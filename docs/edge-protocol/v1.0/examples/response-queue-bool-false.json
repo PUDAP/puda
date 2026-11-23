@@ -1,0 +1,30 @@
+{
+  "header": {
+    "version": "1.0",
+    "message_type": "response",
+    "user_id": "00000000-0000-4000-8000-000000000001",
+    "username": "puda",
+    "machine_id": "proto-test",
+    "run_id": "22222222-2222-4333-8444-555555555555",
+    "timestamp": "2026-11-23T13:25:27Z"
+  },
+  "command": {
+    "name": "echo_bool",
+    "params": {
+      "enabled": false
+    },
+    "kwargs": {},
+    "step_number": 1,
+    "version": "1.0",
+    "machine_id": "proto-test"
+  },
+  "response": {
+    "status": "success",
+    "completed_at": "2026-11-23T13:25:27Z",
+    "code": null,
+    "message": null,
+    "data": {
+      "result": false
+    }
+  }
+}

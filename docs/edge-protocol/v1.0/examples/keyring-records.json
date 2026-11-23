@@ -1,0 +1,14 @@
+[
+  {
+    "new_key": "<base64 32-byte key, redacted>",
+    "old_key": "<base64 32-byte key, redacted>",
+    "encrypt_kid": "bf9ce550",
+    "_sealed_with_kid": "bf9ce550"
+  },
+  {
+    "new_key": "<base64 32-byte key, redacted>",
+    "old_key": "<base64 32-byte key, redacted>",
+    "encrypt_kid": "2a7c6ae5",
+    "_sealed_with_kid": "bf9ce550"
+  }
+]

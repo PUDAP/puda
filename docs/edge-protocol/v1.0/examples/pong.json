@@ -1,0 +1,20 @@
+{
+  "status": "pong",
+  "machine_id": "proto-test",
+  "timestamp": "2026-11-23T13:24:44Z",
+  "sdk_version": "0.0.23",
+  "uptime_seconds": 26.582,
+  "run_status": "idle",
+  "description": "Software-only PUDA test machine. Commands are simulated in memory; no hardware is required.",
+  "tlm_streams": [
+    {
+      "name": "pos",
+      "subject": "puda.proto-test.tlm.stream.pos",
+      "interval": 3.0,
+      "description": "Current simulated cartesian position."
+    }
+  ],
+  "local_ip": "192.0.2.10",
+  "tailscale_ip": "100.64.0.10",
+  "magicdns": "edge-host.example.ts.net"
+}

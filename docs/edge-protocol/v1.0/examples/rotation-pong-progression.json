@@ -1,0 +1,32 @@
+[
+  {
+    "e2e_encrypt_kid": "bf9ce550",
+    "e2e_decrypt_kids": [
+      "bf9ce550"
+    ],
+    "e2e_persist": true
+  },
+  {
+    "e2e_encrypt_kid": "bf9ce550",
+    "e2e_decrypt_kids": [
+      "bf9ce550",
+      "2a7c6ae5"
+    ],
+    "e2e_persist": true
+  },
+  {
+    "e2e_encrypt_kid": "2a7c6ae5",
+    "e2e_decrypt_kids": [
+      "2a7c6ae5",
+      "bf9ce550"
+    ],
+    "e2e_persist": true
+  },
+  {
+    "e2e_encrypt_kid": "2a7c6ae5",
+    "e2e_decrypt_kids": [
+      "2a7c6ae5"
+    ],
+    "e2e_persist": true
+  }
+]

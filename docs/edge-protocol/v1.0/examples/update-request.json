@@ -1,0 +1,21 @@
+{
+  "header": {
+    "version": "1.0",
+    "message_type": "command",
+    "user_id": "00000000-0000-4000-8000-000000000001",
+    "username": "puda",
+    "machine_id": "proto-test",
+    "run_id": "f469f611-d913-4dfe-a883-579448dc3b7a",
+    "timestamp": "2026-11-23T13:25:08Z"
+  },
+  "command": {
+    "name": "update",
+    "params": {
+      "ref": "invalid.invalid/none:0",
+      "source_type": "docker"
+    },
+    "step_number": 0,
+    "version": "1.0",
+    "machine_id": "proto-test"
+  }
+}
