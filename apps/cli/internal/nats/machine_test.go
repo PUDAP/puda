@@ -1,8 +1,12 @@
 package nats
 
 import (
+	"errors"
 	"strings"
 	"testing"
+	"time"
+
+	natsio "github.com/nats-io/nats.go"
 )
 
 func TestParsePong(t *testing.T) {
@@ -143,5 +147,41 @@ func TestSubjectsNameHeartbeat(t *testing.T) {
 	}
 	if subjectsNameHeartbeat([]string{"puda.*.>", "puda.first.tlm.>"}) {
 		t.Fatal("wildcard subjects must not include heartbeats")
+	}
+}
+
+func replies(msgs ...*natsio.Msg) func(time.Duration) (*natsio.Msg, error) {
+	return func(time.Duration) (*natsio.Msg, error) {
+		if len(msgs) == 0 {
+			return nil, natsio.ErrTimeout
+		}
+		msg := msgs[0]
+		msgs = msgs[1:]
+		return msg, nil
+	}
+}
+
+func TestAwaitPongSkipsNakBeforePong(t *testing.T) {
+	next := replies(
+		&natsio.Msg{Subject: "_INBOX.x", Data: []byte("-NAK")},
+		&natsio.Msg{Subject: "_INBOX.x", Data: []byte(`{"status":"pong","machine_id":"m1"}`)},
+	)
+	pong, err := awaitPong(next, time.Now().Add(time.Second))
+	if err != nil || pong.MachineID != "m1" {
+		t.Fatalf("pong=%+v err=%v", pong, err)
+	}
+}
+
+func TestAwaitPongErrors(t *testing.T) {
+	deadline := time.Now().Add(time.Second)
+	if _, err := awaitPong(replies(&natsio.Msg{Data: []byte("-NAK")}), deadline); err == nil || !strings.Contains(err.Error(), "invalid pong response") {
+		t.Fatalf("only NAK: err=%v", err)
+	}
+	if _, err := awaitPong(replies(), deadline); !errors.Is(err, natsio.ErrTimeout) {
+		t.Fatalf("no reply: err=%v", err)
+	}
+	noResponders := &natsio.Msg{Header: natsio.Header{"Status": []string{"503"}}}
+	if _, err := awaitPong(replies(noResponders), deadline); !errors.Is(err, natsio.ErrNoResponders) {
+		t.Fatalf("503: err=%v", err)
 	}
 }
