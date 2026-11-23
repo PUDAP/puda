@@ -1,5 +1,11 @@
 # PUDA CLI changelog
 
+## Unreleased
+
+### Fixed
+
+- `puda machine info` and the immediate lifecycle commands that ping first (`start`, `complete`, `reset`, ...) no longer report online machines as `invalid pong response`. A direct ping now reads every reply until a valid pong arrives or the timeout expires, so another subscriber on `puda.<id>.cmd.*` (such as a service answering `-NAK`) answering first is ignored. Remote edges (for example over Tailscale) were affected most because they always lose that race. If only non-pong replies arrive, the error reads `invalid pong response: no valid pong before timeout (ignored N non-pong replies)`.
+
 ## 0.1.7-rc1 — 2026-11-20 (prerelease)
 
 ### Added

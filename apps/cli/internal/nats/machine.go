@@ -220,6 +220,11 @@ func subjectsNameHeartbeat(subjects []string) bool {
 }
 
 // PingMachines sends direct Core NATS ping requests concurrently.
+//
+// Each request collects every reply on its own inbox until a valid pong from
+// the target machine arrives or the timeout expires. Other subscribers on
+// puda.<id>.cmd.* (for example a JetStream consumer answering -NAK) may reply
+// first; their replies are ignored instead of marking the machine offline.
 func PingMachines(nc *natsio.Conn, machineIDs []string, timeout time.Duration) []PingResult {
 	unique := uniqueMachineIDs(machineIDs)
 	results := make([]PingResult, len(unique))
@@ -228,29 +233,72 @@ func PingMachines(nc *natsio.Conn, machineIDs []string, timeout time.Duration) [
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			started := time.Now()
-			body, err := Seal(machinePingSubject(machineID), []byte("ping"))
-			if err != nil {
-				results[i] = PingResult{MachineID: machineID, Status: "error", Error: err.Error()}
-				return
-			}
-			msg, err := nc.Request(machinePingSubject(machineID), body, timeout)
-			latencyMS := float64(time.Since(started)) / float64(time.Millisecond)
-			if err != nil {
-				results[i] = PingResult{MachineID: machineID, Status: "error", LatencyMS: latencyMS, Error: err.Error()}
-				return
-			}
-			pong, ok := parsePongReply(msg)
-			if !ok {
-				results[i] = PingResult{MachineID: machineID, Status: "error", LatencyMS: latencyMS, Error: "invalid pong response"}
-				return
-			}
-			pong.LatencyMS = latencyMS
-			results[i] = pong
+			results[i] = pingMachine(nc, machineID, timeout)
 		}()
 	}
 	wg.Wait()
 	return results
+}
+
+func pingMachine(nc *natsio.Conn, machineID string, timeout time.Duration) PingResult {
+	started := time.Now()
+	subject := machinePingSubject(machineID)
+	fail := func(err string) PingResult {
+		latencyMS := float64(time.Since(started)) / float64(time.Millisecond)
+		return PingResult{MachineID: machineID, Status: "error", LatencyMS: latencyMS, Error: err}
+	}
+	body, err := Seal(subject, []byte("ping"))
+	if err != nil {
+		return PingResult{MachineID: machineID, Status: "error", Error: err.Error()}
+	}
+	inbox := natsio.NewInbox()
+	sub, err := nc.SubscribeSync(inbox)
+	if err != nil {
+		return fail(fmt.Sprintf("failed to subscribe to ping reply: %v", err))
+	}
+	defer sub.Unsubscribe()
+	if err := nc.PublishRequest(subject, inbox, body); err != nil {
+		return fail(fmt.Sprintf("failed to publish ping: %v", err))
+	}
+	pong, err := awaitPong(sub.NextMsg, time.Now().Add(timeout))
+	if err != nil {
+		return fail(err.Error())
+	}
+	pong.LatencyMS = float64(time.Since(started)) / float64(time.Millisecond)
+	return pong
+}
+
+// awaitPong reads replies until a valid pong arrives. Replies
+// that are not pongs are skipped; if only such replies arrive before the
+// deadline, the error says so.
+func awaitPong(next func(time.Duration) (*natsio.Msg, error), deadline time.Time) (PingResult, error) {
+	ignored := 0
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		msg, err := next(remaining)
+		if errors.Is(err, natsio.ErrTimeout) {
+			break
+		}
+		if err != nil {
+			return PingResult{}, err
+		}
+		if len(msg.Data) == 0 && msg.Header.Get("Status") == "503" {
+			return PingResult{}, natsio.ErrNoResponders
+		}
+		pong, ok := parsePongReply(msg)
+		if !ok {
+			ignored++
+			continue
+		}
+		return pong, nil
+	}
+	if ignored > 0 {
+		return PingResult{}, fmt.Errorf("invalid pong response: no valid pong before timeout (ignored %d non-pong replies)", ignored)
+	}
+	return PingResult{}, natsio.ErrTimeout
 }
 
 // SubscribeMachineSubjects subscribes to each subject (see WatchSubjects) and
