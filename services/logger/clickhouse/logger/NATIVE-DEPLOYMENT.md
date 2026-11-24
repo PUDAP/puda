@@ -124,7 +124,7 @@ deploy is renewed. Preserve existing services, files, consumers and publisher.
    separate local archive from the matching source; never print it:
 
    ```sh
-   cd /home/puda/workspace/pudap/puda-logger/clickhouse/logger
+   cd /home/puda/workspace/pudap/puda/services/logger/clickhouse/logger
    install -d -m 0700 /home/puda/.config/puda/native-control
    .venv/bin/python native_control.py bootstrap \
      --source /home/puda/workspace/pudap/puda-development-nats/secrets/diagnostic-client/e2e.key \
@@ -196,7 +196,7 @@ one trusted writer is supported; this is not distributed transactional rotation.
 ## Reproduction and verified limits
 
 ```sh
-cd /home/puda/workspace/pudap/puda-logger/clickhouse/logger
+cd /home/puda/workspace/pudap/puda/services/logger/clickhouse/logger
 export RUN_NATIVE_INTEGRATION=1
 export CLICKHOUSE_TEST_BINARY=/home/puda/.hermes/cache/scratch/nats-engine-binaries/clickhouse-common-static-26.10.2.103/usr/bin/clickhouse
 export NATS_TEST_BINARY=/home/puda/.hermes/cache/scratch/nats-engine-binaries/nats-server-v2.15.2-linux-amd64/nats-server

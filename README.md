@@ -136,6 +136,8 @@ puda/
 │   ├── cli/            # Go CLI agents use to talk to PUDA
 │   ├── docs/           # docs.puda.co source (Docusaurus, standalone pnpm project)
 │   └── loadgen/        # Go load generator for NATS and fleet-scale tests
+├── services/
+│   └── logger/         # NATS → database logger templates (InfluxDB, ClickHouse, PostgreSQL, ReductStore)
 ├── libs/
 │   ├── python-sdk/     # Python SDK, published as `puda` on PyPI
 │   └── db/             # PostgreSQL client (puda-db)
@@ -148,12 +150,14 @@ puda/
 └── package.json        # Nx workspace, installed with pnpm
 ```
 
-Python packages share one uv workspace ([`pyproject.toml`](pyproject.toml)) whose members are `libs/*`, `services/*` and `test-edge`; there is no `services/` directory yet. Workspace packages reference each other locally:
+Python packages share one uv workspace ([`pyproject.toml`](pyproject.toml)) whose members are `libs/*` and `test-edge`. Workspace packages reference each other locally:
 
 ```toml
 [tool.uv.sources]
 puda = { workspace = true }
 ```
+
+`services/logger` holds user templates, not workspace members: each logger pins the published `puda` package from PyPI, so it builds the same way when copied into a deployment repository.
 
 The Go apps keep their own modules and are not part of `uv.lock`. The CLI checks each edge's reported `protocol_version`; see [Edge protocol compatibility](apps/cli/docs/compatibility.md).
 
