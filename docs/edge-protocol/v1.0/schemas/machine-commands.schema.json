@@ -6,7 +6,8 @@
   "type": "object",
   "required": [
     "commands",
-    "catalog"
+    "catalog",
+    "hooks"
   ],
   "properties": {
     "commands": {
@@ -18,6 +19,21 @@
       "items": {
         "$ref": "#/$defs/entry"
       }
+    },
+    "hooks": {
+      "type": "array",
+      "description": "Lifecycle hooks the edge implements (spec §11.2), sorted. Never listed in catalog.",
+      "items": {
+        "enum": [
+          "abort",
+          "estop",
+          "pause",
+          "reset",
+          "resume",
+          "shutdown"
+        ]
+      },
+      "uniqueItems": true
     }
   },
   "$defs": {

@@ -47,5 +47,11 @@
         "confirm": false
       }
     }
+  ],
+  "hooks": [
+    "pause",
+    "reset",
+    "resume",
+    "shutdown"
   ]
 }

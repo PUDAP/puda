@@ -225,7 +225,7 @@ Rules:
 - Only commands listed in the catalog (§11) are dispatchable. Names starting with `_` MUST be rejected.
 - An unknown name gets `UNKNOWN_COMMAND` with the message `Unknown or restricted command: <name>`.
 - Handler failure MUST produce `status: error`, `code: EXECUTION_ERROR`, and a `message` that describes the failure (targets, hardware response). Never report failure with a "successful" `false`.
-- `estop` sent through the queue MUST be rejected with `EXECUTION_ERROR` and the message `estop is an immediate command; use puda machine estop <machine_id>`.
+- Lifecycle hook names (§11.2) sent through the queue MUST be rejected with `EXECUTION_ERROR`, matched case-insensitively, in place of dispatch (§9.2 row 7, after the run checks). The reference messages are `<verb> is an immediate command; use puda machine <verb> <machine_id>` for `pause`, `resume`, `reset` and `estop`, `abort is a lifecycle hook; use puda machine complete --abort <machine_id>`, and `shutdown is a lifecycle hook and is not remotely callable`. Sent as an immediate command, `abort` and `shutdown` are unknown verbs (`UNKNOWN_COMMAND`).
 - A second queued command arriving while one runs cannot happen given the serial rule in §8.2. If an implementation allows it anyway, it MUST reply `EXECUTION_LOCKED`.
 
 ### 8.6 Response codes
@@ -264,7 +264,7 @@ The edge MUST evaluate these checks in this order:
 | 4 | `run_id` is `null` | `+ACK` | `EXECUTION_ERROR` "Command requires run_id" | — | — |
 | 5 | No active run | `+ACK` | `RUN_ID_MISMATCH` "Send START command to start a run before sending commands" | — | — |
 | 6 | `run_id` ≠ active run | `+ACK` | `RUN_ID_MISMATCH` "Run ID mismatch: expected active run, got <run_id>" | — | — |
-| 7 | Command is `estop` | `+TERM` | `EXECUTION_ERROR` | cleared | — |
+| 7 | Command is a lifecycle hook (§11.2) | `+TERM` | `EXECUTION_ERROR` naming the CLI action (§8.5) | cleared | — |
 | 8 | Name not dispatchable | `+TERM` | `UNKNOWN_COMMAND` | cleared | `busy` → `error` |
 | 9 | Handler raises | `+TERM` | `EXECUTION_ERROR` | cleared | `busy` → `error` |
 | 10 | Stopped by `estop` or `complete` with `abort` | `+TERM` | `COMMAND_CANCELLED` (`data` is the handler's result, if it returned) | cleared | `estopped`, or `idle` + `null` after abort |
@@ -280,7 +280,7 @@ Immediate verbs are matched case-insensitively. Any other name is dispatched to 
 |---|---|---|---|---|
 | `start` | `run_id` set; no estop latch; no active run | Run becomes active | `success` / `MISSING_RUN_ID` / `MACHINE_ESTOPPED` / `RUN_ID_MISMATCH` "cannot start, <active> is currently running" | `idle` + `run_id` |
 | `complete` | `run_id` = active run, and no command of the run running unless `params.abort` | Run cleared; see §9.8 | `success` / `EXECUTION_LOCKED` / `MISSING_RUN_ID` / `RUN_ID_MISMATCH` "Run <id> not active" | `idle`, `run_id: null` |
-| `pause` | — | Pause latch set; driver `pause` called if it is in the catalog | Driver result, or `success` if absent | `paused` + active run |
+| `pause` | — | Pause latch set; driver `pause` hook called if implemented (§11.2) | Driver result, or `success` if absent | `paused` + active run |
 | `resume` | No estop latch | Pause latch cleared; driver `resume` called if present | Driver result, or `success` if absent / `MACHINE_ESTOPPED` | `idle` + active run, or `busy` if a command is running |
 | `reset` | — | Run cleared; driver `reset` called if present. On success the estop latch is cleared. | Driver result, or `success` if absent | `idle` on success, `error` on failure |
 | `estop` | — | §9.6 | — | `estopped` |
@@ -352,7 +352,7 @@ Immediate commands act on the machine *now*, so a backlog of them must not repla
 2. **Refusal.** If a queued command of the run is running and `params.abort` is not `true`, respond `EXECUTION_LOCKED` with `data.running` = `{"name", "step_number", "elapsed_s"}` and `data.queued` = the number of queued commands not yet answered behind it (`null` if unknown). The run stays active ([example](v1.0/examples/response-immediate-complete-locked.json)).
 3. **Abort.** With `params.abort: true` the edge MUST:
    1. Count `queued` before stopping anything.
-   2. Call the driver's `abort` if the catalog has it, on a thread or task that does not wait behind the running command (like §9.6 step 2).
+   2. Call the driver's `abort` hook if implemented (§11.2), on a thread or task that does not wait behind the running command (like §9.6 step 2).
    3. Wait up to 5 s for the running command to return. If it does not, stop waiting for it.
    4. Answer the running command `COMMAND_CANCELLED` (§9.2 row 10, [example](v1.0/examples/response-queue-aborted.json)) and terminate its message.
    5. Clear the run, put `idle` + `null`, publish `evt.log` at level `WARNING`, and respond `success` with `data` = `{"aborted": {name, step_number, elapsed_s} | null, "driver_abort": bool, "finished": bool, "queued": int | null}` ([example](v1.0/examples/response-immediate-complete-abort.json)). `finished: false` means the hardware call may still be running. A driver `abort` that raises adds `driver_error`.
@@ -409,7 +409,8 @@ The catalog is put once per connect to KV `MACHINE_COMMANDS`, key `<id>` ([schem
         "confirm": true
       }
     }
-  ]
+  ],
+  "hooks": ["estop", "reset"]
 }
 ```
 
@@ -417,9 +418,25 @@ The catalog is put once per connect to KV `MACHINE_COMMANDS`, key `<id>` ([schem
 - Each `catalog` entry MUST contain `name`, `signature`, `doc` and `safety`. `doc` and `safety` MAY be `null` but MUST be present; the CLI rejects entries missing them.
 - A non-null `safety` MUST contain all five fields. `summary` is a non-empty string, `hazards` is an array, and `confirm` is a boolean.
 - `confirm: true` makes the CLI ask the operator before sending the command. It is advisory metadata and does not change edge dispatch.
-- The catalog SHOULD list the lifecycle commands the driver actually implements: `home`, `reset`, `pause`, `resume`, `abort`, `estop`, `shutdown`.
+- `hooks` MUST list the lifecycle hooks the edge implements (§11.2), sorted, and MAY be empty. Clients treat a missing `hooks` field as unknown; SDK 0.0.23 and older do not send it.
+- Lifecycle hooks MUST NOT appear in `catalog` or `commands`. `home` is an ordinary command.
 
-### 11.2 Signature grammar
+### 11.2 Lifecycle hooks
+
+A hook is machine behaviour that the edge runs as part of a protocol action, not a command a client calls directly. The set is fixed:
+
+| Hook | Called by | Without it |
+|---|---|---|
+| `pause` | `pause`, after the queue is held (§9.4) | `success` |
+| `resume` | `resume`, after the queue is released | `success` |
+| `reset` | `reset`, after the run is cleared | `success`; the estop latch is still cleared |
+| `estop` | `estop`, on its own thread (§9.6) | `ESTOP_NOT_SUPPORTED`; the latch is still set |
+| `abort` | `complete` with `abort`, on its own thread (§9.8) | `driver_abort: false`, `finished: false` |
+| `shutdown` | Graceful edge shutdown, before `offline` is put | nothing |
+
+Hooks are advertised only through `hooks`, are never dispatchable as driver commands (§8.5), and are not valid protocol steps; neither are `start` and `complete`, which the protocol runner sends itself. In the Python SDK hooks are plain methods found by name; decorating one with `@command` is a startup error (`LifecycleHookError`).
+
+### 11.3 Signature grammar
 
 `puda protocol validate` parses `signature` to type-check protocol steps, so a non-Python edge MUST emit a Python-style signature:
 
@@ -623,7 +640,7 @@ A JetStream-delivered message arrives on the subscription's inbox with its MSG s
 
 - **Memory.** A TLS session plus JSON parse buffers plus a 16 KiB command buffer fits comfortably on an ESP32-S3 with PSRAM. Allocate the catalog value in flash.
 - **Tasks.** Run the NATS reader, queue executor and immediate handler as separate tasks. The estop path MUST NOT wait on the queue executor's mutex. Keep the motion loop on its own core, and keep hardware interlocks independent of the network.
-- **Catalog.** Generate `commands`, `catalog` and the C dispatch table from one command spec (YAML/JSON) at build time. Emit `parameters` schemas (§11.2) so `puda protocol validate` does not depend on parsing Python-looking signatures.
+- **Catalog.** Generate `commands`, `catalog`, `hooks` and the C dispatch table from one command spec (YAML/JSON) at build time. Emit `parameters` schemas (§11.3) so `puda protocol validate` does not depend on parsing Python-looking signatures.
 - **Time.** Gate startup on SNTP sync (§4.3).
 - **Keys.** Keep the ring in NVS (encrypted NVS if available). Use the hardware AES-GCM through mbedTLS.
 - **Updates.** Map `update` with `source_type: "ota"` to ESP-IDF OTA. Publish the response, then reboot. Heartbeats resume after boot.
