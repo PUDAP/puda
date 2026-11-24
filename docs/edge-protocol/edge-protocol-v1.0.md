@@ -118,15 +118,13 @@ On every successful connect, and after every reconnect, an edge MUST:
 
 1. If E2E is configured, read `E2E_KEYRING/current` and adopt it (§13.5) **before** consuming commands.
 2. Subscribe to `puda.<id>.cmd.ping` and `puda.cmd.ping`.
-3. Bind the immediate consumer (§8.3) and the queue consumer (§8.2).
+3. Bind the immediate consumer (§8.3), **then** the queue consumer (§8.2), so stale immediate commands are discarded (§9.7) before queued work is pulled.
 4. Subscribe to `puda.<id>.update` if it supports updates.
 5. Put the catalog to `MACHINE_COMMANDS/<id>`.
-6. Put state `idle` to `MACHINE_STATE/<id>`, or `estopped` if the estop latch is set (§9.6).
+6. Put state `idle` with the active `run_id` (normally `null` after a restart) to `MACHINE_STATE/<id>`, or `estopped` if the estop latch is set (§9.6).
 7. Start heartbeats (§12).
 
-An edge SHOULD drain or discard stale immediate commands (§9.7) before it starts pulling from the queue.
-
-> **Observed.** Python binds the queue consumer first and then the immediate consumer, and publishes state `idle` with `run_id: null` even when a replayed `start` has just activated a run (D-5). After a broker restart it ends up with two NATS connections and answers ping twice (D-4). See [transcript 01](v1.0/transcripts/01-startup-and-discovery.md) and [transcript 05](v1.0/transcripts/05-lifecycle-and-recovery.md).
+> **Observed.** After a broker restart Python ends up with two NATS connections and answers ping twice (D-4). See [transcript 01](v1.0/transcripts/01-startup-and-discovery.md) and [transcript 05](v1.0/transcripts/05-lifecycle-and-recovery.md).
 
 ## 8. Commands
 
@@ -333,9 +331,14 @@ On hardware with a physical e-stop input, the edge SHOULD also enter this latche
 
 `COMMAND_QUEUE` and `COMMAND_IMMEDIATE` are work-queue streams, so messages published while an edge is offline wait for it.
 
-> **Observed (D-5).** Recreating the immediate durable with `deliver_policy: all` replays every stale immediate command on startup, including `start`, `estop` and `reset`. The queue consumer binds first, so queued commands race ahead of the replayed `start` and fail with `RUN_ID_MISMATCH`. The replayed `start` then leaves an active run hidden behind a state of `run_id: null`, and every new `start` fails until `reset` ([transcript 05, `offline_backlog`](v1.0/transcripts/05-lifecycle-and-recovery.md)).
+Immediate commands act on the machine *now*, so a backlog of them must not replay. Recreating the immediate durable with `deliver_policy: all` delivers every immediate command published while the edge was offline, including `start`, `estop` and `reset`.
 
-Edges SHOULD reject immediate commands whose `header.timestamp` is older than 10 s at receipt. Such commands are acked and get no action and no response. A future version may make this a MUST (§18).
+- The edge MUST discard an immediate command whose **stored time** is more than `immediate_max_age` before its receipt. The default is 10 s; it MAY be configurable, and disabling it is not conforming.
+- The stored time is the JetStream server timestamp of the message: the `timestamp` field of the delivery metadata, which is the 8th token (nanoseconds since the Unix epoch) of the reply subject `$JS.ACK.COMMAND_IMMEDIATE.cmd_immed_<id>.<delivered>.<stream_seq>.<consumer_seq>.<timestamp>.<pending>`. `header.timestamp` MUST NOT be used: it is the client's clock and second-precision. The comparison uses the edge's synchronised clock (§4.3); if the stored time cannot be read the command is processed.
+- A discarded command MUST be acked, MUST NOT act, and MUST be answered `EXECUTION_ERROR` "Stale immediate command discarded: stored <age>s ago (max <max>s); the edge was offline when it was sent", so a client that is still waiting learns why ([example](v1.0/examples/response-immediate-stale.json)). It does not change state.
+- Queued commands published while the edge was offline remain in `COMMAND_QUEUE` and are evaluated normally; after a restart there is no active run, so they get `RUN_ID_MISMATCH`.
+
+`deliver_policy: new` was rejected as an alternative: undelivered messages would stay in the stream and count against `max_msgs_per_subject` (100).
 
 ## 10. Machine state (`MACHINE_STATE`)
 
@@ -551,7 +554,7 @@ Each was reproduced against the live stack with SDK 0.0.23. Transcript names ref
 | D-2 | `cancel` does not interrupt the running queued command. State says `idle`/`null` while it runs. | The operator believes the work stopped. Queued work stays blocked. | 04 `cancel_flow` | open |
 | D-3 | `pause` writes `run_id` from the header (`""` from the CLI). `resume` writes `null` while a run is still active. | State KV misreports the run. | 04 `run3_pause`, `run3_resume` | open |
 | D-4 | After a broker restart the edge holds two connections and answers ping twice. | Duplicate pongs, duplicate subscriptions. | `connz` showed 2 edge connections; `nats req --replies=0` got 2 pongs | open |
-| D-5 | Stale immediate commands replay on startup; the queue binds before immediate; a hidden active run blocks `start`. | Stale `start`/`estop`/`reset` act minutes or days later. | 05 `offline_backlog` | open |
+| D-5 | Stale immediate commands replay on startup; the queue binds before immediate; a hidden active run blocks `start`. | Stale `start`/`estop`/`reset` act minutes or days later. | 05 `offline_backlog` | 0.0.24: stale immediates discarded, immediate binds first (§7, §9.7) |
 | D-6 | Malformed queue or immediate messages produce no response. | Client waits for its full timeout. | 03 `malformed` | open |
 | D-7 | Edge issues `STREAM.CREATE` for KV buckets and would `STREAM.UPDATE` command streams whose config differs. | May override provisioned settings. | 01 `startup` | open |
 | D-8 | `pause`, `resume` and `cancel` return `UNKNOWN_COMMAND` when the driver lacks the method, after applying the effect. | The CLI reports failure for an action that happened. | 04 `min_driver` | open |
@@ -569,11 +572,10 @@ The Communication page (`apps/docs/docs/overview/communication.mdx`) does not ma
 ## 18. Open issues for 1.1
 
 1. Advertise `protocol_version` and `sdk_name` in the pong. Today the CLI compatibility check keys on `sdk_version` against Python SDK ranges, so a C edge always shows "compatibility unknown".
-2. Make immediate-command staleness (§9.7) a MUST, and specify the startup ordering normatively.
-3. Fix D-1, D-2, D-3 and D-8 in the Python SDK and then remove the "Observed" notes.
-4. Decide whether malformed commands that can still be correlated get a response (D-6).
-5. Define broker authentication (NKEY/JWT) for edges outside a trusted network.
-6. Consider an MQTT binding. The broker already exposes MQTT, and ESP-IDF has a native MQTT client. Work-queue consumption and ack semantics would need to be specified first.
+2. Fix D-1, D-2, D-3 and D-8 in the Python SDK and then remove the "Observed" notes.
+3. Decide whether malformed commands that can still be correlated get a response (D-6).
+4. Define broker authentication (NKEY/JWT) for edges outside a trusted network.
+5. Consider an MQTT binding. The broker already exposes MQTT, and ESP-IDF has a native MQTT client. Work-queue consumption and ack semantics would need to be specified first.
 
 ---
 
