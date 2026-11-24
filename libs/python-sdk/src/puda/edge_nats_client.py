@@ -105,6 +105,7 @@ class EdgeNatsClient:
         *,
         ca_file: str | None = None,
         e2e_key_file: str | None = None,
+        immediate_max_age: float | None = 10.0,
     ):
         """
         Args:
@@ -116,11 +117,15 @@ class EdgeNatsClient:
                 URLs are never rewritten. Environment variables are not read.
             e2e_key_file: Payload key path, independent of TLS. None or ""
                 disables encryption for this client; no environment lookup.
+            immediate_max_age: Discard immediate commands that JetStream stored
+                more than this many seconds ago (sent while the edge was offline).
+                Measured on the server clock. None disables the check.
         """
         self.servers = servers
         self._connect_kwargs = e2e.connect_kwargs(servers, ca_file)
         self.encryption = e2e.Context(e2e_key_file)
         self.machine_id = machine_id
+        self.immediate_max_age = immediate_max_age
         self.description = _normalize_description(description)
         self.sdk_version = _sdk_version()
         self._started_at = time.monotonic()

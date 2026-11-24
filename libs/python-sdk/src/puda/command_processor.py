@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Awaitable, Callable
 
 from nats.aio.msg import Msg
@@ -27,6 +28,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 KEEP_ALIVE_INTERVAL = 25  # seconds
+# Immediate commands stored longer ago than this are discarded: they were sent
+# while the edge was offline and must not act now (a stale start, reset or estop).
+IMMEDIATE_MAX_AGE = 10.0  # seconds
 
 CommandHandler = Callable[[NATSMessage], Awaitable[CommandResponse]]
 
@@ -246,6 +250,23 @@ class CommandProcessor:
 
             command_name = message.command.name.lower()
             run_id = message.header.run_id
+            age = self._stored_age(msg)
+            max_age = getattr(self._client, "immediate_max_age", IMMEDIATE_MAX_AGE)
+            if max_age is not None and age is not None and age > max_age:
+                logger.warning(
+                    "Discarding stale immediate command %s (stored %.1fs ago, max %.1fs)",
+                    command_name, age, max_age,
+                )
+                await self._publish_command_response(
+                    msg,
+                    _error(
+                        CommandResponseCode.EXECUTION_ERROR,
+                        f"Stale immediate command discarded: stored {age:.1f}s ago "
+                        f"(max {max_age:g}s); the edge was offline when it was sent",
+                    ),
+                    self._client.response_immediate,
+                )
+                return
             response = await self._dispatch_immediate(command_name, run_id, message, handler)
             await self._publish_command_response(msg, response, self._client.response_immediate)
         except json.JSONDecodeError as e:
@@ -254,6 +275,17 @@ class CommandProcessor:
         except Exception as e:
             logger.error("Error processing immediate command: %s", e)
             await self._fail_immediate(msg, CommandResponseCode.EXECUTION_ERROR, str(e))
+
+    @staticmethod
+    def _stored_age(msg: Msg) -> float | None:
+        """Seconds since JetStream stored *msg* (server clock), or None if unknown."""
+        try:
+            stored = msg.metadata.timestamp
+        except Exception:
+            return None
+        if stored.tzinfo is None:
+            stored = stored.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - stored).total_seconds()
 
     async def _fail_immediate(self, msg: Msg, code: CommandResponseCode, message: str) -> None:
         await self._publish_command_response(

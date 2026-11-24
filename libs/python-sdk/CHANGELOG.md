@@ -20,6 +20,18 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
   unacknowledged and were redelivered 30 s later, so a command reported as failed
   could still run after `resume`.
 
+### Fixed
+
+- Immediate commands sent while an edge was offline no longer act when it comes
+  back. Immediate commands that JetStream stored more than `immediate_max_age`
+  seconds ago (new `EdgeNatsClient` argument, default 10, measured on the server
+  clock, `None` disables) are acknowledged and answered with `EXECUTION_ERROR`
+  "Stale immediate command discarded". Previously a stale `start`, `reset` or
+  `estop` replayed on startup; a replayed `start` left an active run hidden behind
+  `run_id: null` that blocked every new `start` until `reset`.
+- The edge binds the immediate consumer before the queue consumer, and startup and
+  reconnect state report the active run instead of `run_id: null`.
+
 ## [0.0.23] - 2026-11-19
 
 ### Added

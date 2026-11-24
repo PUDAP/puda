@@ -115,8 +115,10 @@ class Broker:
 class Edge:
     """``edge_driver.py`` running as a subprocess against the broker."""
 
-    def __init__(self, broker: Broker, machine_id: str, driver: str = "full") -> None:
+    def __init__(self, broker: Broker, machine_id: str, driver: str = "full",
+                 env: dict[str, str] | None = None) -> None:
         self.broker = broker
+        self.env = env or {}
         self.machine_id = machine_id
         self.driver = driver
         self.log = broker.dir / f"edge-{machine_id}.log"
@@ -127,6 +129,7 @@ class Edge:
             [sys.executable, str(EDGE_SCRIPT), self.broker.url, self.machine_id, self.driver],
             stdout=open(self.log, "ab"),
             stderr=subprocess.STDOUT,
+            env={**os.environ, **self.env},
         )
 
     def stop(self) -> None:
@@ -260,6 +263,7 @@ class EdgeTestCase(unittest.IsolatedAsyncioTestCase):
     """One broker per test class; one fresh machine and edge per test."""
 
     driver = "full"
+    edge_env: dict[str, str] = {}
     broker: Broker
 
     @classmethod
@@ -276,7 +280,7 @@ class EdgeTestCase(unittest.IsolatedAsyncioTestCase):
         self.machine_id = f"it-{uuid.uuid4().hex[:8]}"
         self.wire = Wire(self.broker, self.machine_id)
         await self.wire.connect()
-        self.edge = Edge(self.broker, self.machine_id, self.driver)
+        self.edge = Edge(self.broker, self.machine_id, self.driver, self.edge_env)
         self.edge.start()
         await self.wire.wait_online()
 

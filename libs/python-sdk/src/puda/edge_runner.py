@@ -239,7 +239,7 @@ class EdgeRunner:
         # publish commands to KV store (only need to do this once on startup)
         await self._publish_commands()
         # publish initial state so CLI state lookups work before the first command
-        await self._publish_state(MachineState.IDLE)
+        await self._publish_state(MachineState.IDLE, self._active_run_id())
         self._start_tlm_streams()
         try:
             await self._run_main_loop()
@@ -266,8 +266,10 @@ class EdgeRunner:
 
     async def _setup_subscriptions(self) -> None:
         await self.nats_client.subscribe_ping()
-        await self.nats_client.subscribe_queue(self._handle_execute)
+        # Immediate first: a backlog of stale immediates is discarded before the
+        # queue starts pulling, so queued work never races a replayed start.
         await self.nats_client.subscribe_immediate(self._handle_immediate)
+        await self.nats_client.subscribe_queue(self._handle_execute)
         await self.updater.subscribe()
     
     async def _driver_shutdown(self) -> None:
@@ -298,7 +300,7 @@ class EdgeRunner:
             if await self.nats_client.connect():
                 await self._setup_subscriptions()
                 logger.info("Reconnected and re-subscribed")
-                await self._publish_state(MachineState.IDLE)
+                await self._publish_state(MachineState.IDLE, self._active_run_id())
                 return True
             logger.error("Reconnection failed, retrying in 5 seconds...")
             await asyncio.sleep(5)
@@ -477,6 +479,10 @@ class EdgeRunner:
         )
 
     # -- helpers -------------------------------------------------------------
+
+    def _active_run_id(self) -> str | None:
+        commands = getattr(self.nats_client, "commands", None)
+        return commands.run_manager.get_active_run_id() if commands is not None else None
 
     async def _publish_state(self, state: MachineState, run_id: str | None = None) -> None:
         # only default values here. EdgeNatsClient.publish_state() adds the registered state_handler fields.
