@@ -124,7 +124,7 @@ On every successful connect, and after every reconnect, an edge MUST:
 6. Put state `idle` with the active `run_id` (normally `null` after a restart) to `MACHINE_STATE/<id>`, or `estopped` if the estop latch is set (§9.6).
 7. Start heartbeats (§12).
 
-> **Observed.** After a broker restart Python ends up with two NATS connections and answers ping twice (D-4). See [transcript 01](v1.0/transcripts/01-startup-and-discovery.md) and [transcript 05](v1.0/transcripts/05-lifecycle-and-recovery.md).
+An edge MUST hold exactly one connection per machine. After a disconnect it MUST either reconnect that connection or close it before opening another, so it never answers a ping twice. The active run survives a broker restart, because it lives in edge memory (§9.1). See [transcript 01](v1.0/transcripts/01-startup-and-discovery.md) and [transcript 05](v1.0/transcripts/05-lifecycle-and-recovery.md).
 
 ## 8. Commands
 
@@ -574,7 +574,7 @@ Each was reproduced against the live stack with SDK 0.0.23. Transcript names ref
 | D-1 | A queued command received while paused is not acked. It is redelivered after `ack_wait` (30 s) and evaluated again. | A command the client was told failed can execute later. | 04 `run3_paused_cmd`, `imm_start_no_run` (delivery #2) | 0.0.24: pause holds the queue (§9.4) |
 | D-2 | `cancel` does not interrupt the running queued command. State says `idle`/`null` while it runs. | The operator believes the work stopped. Queued work stays blocked. | 04 `cancel_flow` | 0.0.24: `cancel` removed; `complete` with `abort` (§9.8) |
 | D-3 | `pause` writes `run_id` from the header (`""` from the CLI). `resume` writes `null` while a run is still active. | State KV misreports the run. | 04 `run3_pause`, `run3_resume` | 0.0.24: active run in state (§9.3) |
-| D-4 | After a broker restart the edge holds two connections and answers ping twice. | Duplicate pongs, duplicate subscriptions. | `connz` showed 2 edge connections; `nats req --replies=0` got 2 pongs | open |
+| D-4 | After a broker restart the edge holds two connections and answers ping twice. | Duplicate pongs, duplicate subscriptions. | `connz` showed 2 edge connections; `nats req --replies=0` got 2 pongs | 0.0.24: one connection (§7) |
 | D-5 | Stale immediate commands replay on startup; the queue binds before immediate; a hidden active run blocks `start`. | Stale `start`/`estop`/`reset` act minutes or days later. | 05 `offline_backlog` | 0.0.24: stale immediates discarded, immediate binds first (§7, §9.7) |
 | D-6 | Malformed queue or immediate messages produce no response. | Client waits for its full timeout. | 03 `malformed` | 0.0.24: correlatable ones answered, state unchanged (§8.4) |
 | D-7 | Edge issues `STREAM.CREATE` for KV buckets and would `STREAM.UPDATE` command streams whose config differs. | May override provisioned settings. | 01 `startup` | open |
