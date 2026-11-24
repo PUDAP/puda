@@ -71,13 +71,17 @@ Do not share full Compose config/inspect output; it includes environment secrets
 
 | Subjects | Delivery |
 |---|---|
-| `puda.*.cmd.queue`, `puda.*.cmd.immediate` | Core NATS tap, queue `clickhouse_logger_cmd_requests` |
+| `puda.*.cmd.queue` | Core NATS tap, queue `clickhouse_logger_cmd_requests` |
 | `puda.*.tlm.health` | Core NATS, queue `clickhouse_logger_telemetry` |
 | `puda.*.tlm.stream.>` | Core NATS, queue `clickhouse_logger_telemetry_stream` |
 | `puda.*.cmd.response.queue` | `RESPONSE_QUEUE`, durable/group `clickhouse_logger_responses_queue` |
 | `puda.*.cmd.response.immediate` | `RESPONSE_IMMEDIATE`, durable/group `clickhouse_logger_responses_immediate` |
 
-No command WorkQueue consumer is attached or acknowledged. Queue groups and
+Immediate commands (`cmd.immediate`) are core request/reply answered by the
+edge, and are not tapped: any other subscriber on that subject stops the broker
+from answering "no responders" for an offline machine. They are logged from
+the edge's copy on `RESPONSE_IMMEDIATE`, which carries the full header and
+command. No command WorkQueue consumer is attached or acknowledged. Queue groups and
 response delivery subjects (`puda.logger.clickhouse.deliver.*`) are independent
 of InfluxDB/ReductStore, so other backends still receive their own copies.
 Replicas of this backend share its groups/durables to balance work. Missing

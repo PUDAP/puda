@@ -86,8 +86,11 @@ NATS messages use the raw PUDA SDK wire format. The subscriber extracts fields b
 
 ## NATS subscription model
 
-Command **requests** (`puda.*.cmd.queue` and `puda.*.cmd.immediate`) use core NATS
-subscriptions. They observe traffic without binding to or acknowledging the
+Queued command **requests** (`puda.*.cmd.queue`) use core NATS
+subscriptions. Immediate commands are not tapped: they are core request/reply,
+and any extra subscriber on `cmd.immediate` stops the broker answering "no
+responders" for an offline machine; their `RESPONSE_IMMEDIATE` copy carries
+the full command. They observe traffic without binding to or acknowledging the
 machines' WorkQueue consumers. Health and driver telemetry also use core NATS.
 
 Command **responses** use shared durable push queue consumers on `RESPONSE_QUEUE`

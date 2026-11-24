@@ -201,7 +201,6 @@ async def test_real_nats_clickhouse_delivery_failure_and_isolation(services, tmp
 
     for subject in [
         "puda.*.cmd.queue",
-        "puda.*.cmd.immediate",
         "puda.*.tlm.health",
         "puda.*.tlm.stream.>",
     ]:
@@ -254,7 +253,6 @@ async def test_real_nats_clickhouse_delivery_failure_and_isolation(services, tmp
         raw = json.dumps(command(), indent=2).encode()
         subjects = [
             "cmd.queue",
-            "cmd.immediate",
             "cmd.response.queue",
             "cmd.response.immediate",
             "tlm.health",
@@ -269,11 +267,11 @@ async def test_real_nats_clickhouse_delivery_failure_and_isolation(services, tmp
             await nc.publish("puda.robot." + suffix, data)
         await nc.flush()
 
-        async def six_rows():
-            return await query("SELECT (SELECT count() FROM puda.command_logs) + (SELECT count() FROM puda.telemetry)") == "6"
+        async def five_rows():
+            return await query("SELECT (SELECT count() FROM puda.command_logs) + (SELECT count() FROM puda.telemetry)") == "5"
 
-        await eventually(six_rows)
-        assert len(other) == 4
+        await eventually(five_rows)
+        assert len(other) == 3
         requests = await machine.fetch(1, timeout=3)
         assert requests[0].data == raw
         await requests[0].ack()

@@ -31,9 +31,12 @@ as a workaround.
 - Stream retention must be Limits or Interest; WorkQueue is refused. Existing
   streams and consumers are never reset or reconfigured. Compatible native
   durables can be reused; incompatible settings cause an error.
-- Commands (`cmd.queue`, `cmd.immediate`), health, and `tlm.stream.>` use Core
+- Queued commands (`cmd.queue`), health, and `tlm.stream.>` use Core
   subscriptions in the distinct `puda_native_core` group. They do not bind a
   machine's command WorkQueue or compete with the old logger's group.
+  Immediate commands (`cmd.immediate`) are not tapped: they are core
+  request/reply, and an extra subscriber hides offline machines from the
+  broker's "no responders". They are logged from `RESPONSE_IMMEDIATE`.
 - Each source has exactly one MV. `RawBLOB` retains binary frame bytes;
   `_subject` is the original AAD. SQL validates `E2 01`, frame length, SHA256
   key ID, AES-256-GCM authentication, UTF-8 and JSON object validity. It then

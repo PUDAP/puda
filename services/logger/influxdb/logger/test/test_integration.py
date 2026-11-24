@@ -270,7 +270,6 @@ async def test_container_pipeline(tmp_path, encrypted):
             }
             for topic in (
                 "cmd.queue",
-                "cmd.immediate",
                 "cmd.response.queue",
                 "cmd.response.immediate",
             ):
@@ -313,10 +312,10 @@ async def test_container_pipeline(tmp_path, encrypted):
 
         await publish("initial")
         await eventually(
-            lambda: len([line for body in received for line in body.splitlines()]) >= 7
+            lambda: len([line for body in received for line in body.splitlines()]) >= 6
         )
         lines = [line for body in received for line in body.splitlines()]
-        assert sum("cmd_name=initial" in line for line in lines) == 4
+        assert sum("cmd_name=initial" in line for line in lines) == 3
         assert any(line.startswith("telemetry,") and "cpu=6" in line for line in lines)
         assert all("connected=" not in line and "connected_mean=" not in line for line in lines)
         streams = [line for line in lines if line.startswith("telemetry_stream,")]

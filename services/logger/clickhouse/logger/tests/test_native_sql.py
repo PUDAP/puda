@@ -10,7 +10,7 @@ def test_installation_sql_characterization():
     # Timestamp validation has its own differential execution tests.
     sql = sql.replace(native_ingest.timestamp_expression('h'), 'TIMESTAMP_H')
     sql = sql.replace(native_ingest.timestamp_expression('doc'), 'TIMESTAMP_DOC')
-    assert hashlib.sha256(sql.encode()).hexdigest() == 'b4bb08b8571981031a7ae312be6adeb11a0700fc1e706d248328b53dad792e1b'
+    assert hashlib.sha256(sql.encode()).hexdigest() == 'f398199034d3f4d4e7bf2f839696438636eaf705caa9125f402d31abe4531321'
 
 
 def test_pure_sql_select_api_and_compatibility():

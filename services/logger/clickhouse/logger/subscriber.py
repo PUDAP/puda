@@ -137,7 +137,6 @@ class Subscriber:
         subscriptions = []
         for subject, group in (
             ("puda.*.cmd.queue", "clickhouse_logger_cmd_requests"),
-            ("puda.*.cmd.immediate", "clickhouse_logger_cmd_requests"),
             ("puda.*.tlm.health", "clickhouse_logger_telemetry"),
             ("puda.*.tlm.stream.>", "clickhouse_logger_telemetry_stream"),
         ):

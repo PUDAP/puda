@@ -222,7 +222,6 @@ async def test_subscriptions_never_use_machine_jetstream_consumers():
     calls = sub.nc.subscribe.call_args_list
     assert {c.args[0] for c in calls} == {
         "puda.*.cmd.queue",
-        "puda.*.cmd.immediate",
         "puda.*.tlm.health",
         "puda.*.tlm.stream.>",
     }

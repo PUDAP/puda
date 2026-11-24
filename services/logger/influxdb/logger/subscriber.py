@@ -473,7 +473,6 @@ class Subscriber:
             # Core subscriptions never attach to the machines' WorkQueue consumers.
             for subject, group in (
                 ("puda.*.cmd.queue", "puda_logger_cmd_requests"),
-                ("puda.*.cmd.immediate", "puda_logger_cmd_requests"),
                 ("puda.*.tlm.health", "puda_logger_telemetry"),
                 ("puda.*.tlm.stream.>", "puda_logger_telemetry_stream"),
             ):

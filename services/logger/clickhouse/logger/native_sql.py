@@ -48,7 +48,6 @@ def statements(server, key_path='/var/lib/clickhouse/user_files/puda-keys.tsv', 
         yield command_view(name, 'response')
     for name, subject, kind in (
         ('native_command_queue', 'puda.*.cmd.queue', 'command'),
-        ('native_command_immediate', 'puda.*.cmd.immediate', 'command'),
         ('native_health', 'puda.*.tlm.health', 'telemetry'),
         ('native_stream', 'puda.*.tlm.stream.>', 'telemetry_stream'),
     ):

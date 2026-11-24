@@ -71,7 +71,7 @@ async def test_native_encrypted_response(services, tmp_path):
         other = await nc.subscribe('puda.*.cmd.queue', queue='existing_python_logger')
         # Core subscriptions have no replay; allow background attachment before publishing.
         await asyncio.sleep(2)
-        cases = [('cmd.queue', raw), ('cmd.immediate', raw), ('cmd.response.immediate', raw),
+        cases = [('cmd.queue', raw), ('cmd.response.immediate', raw),
             ('tlm.health', b'{"timestamp":"2026-07-07T11:41:42.123456789+02:00","cpu":4.5,"nested":{"x":null}}'),
             ('tlm.stream.position', b'{"timestamp":"2026-07-07T11:41:42.123456789+02:00","data":{"x":[1,null]}}'),
             ('tlm.stream.legacy', b'{"timestamp":null,"data":{"x":2},"extra":true}')]
@@ -80,7 +80,7 @@ async def test_native_encrypted_response(services, tmp_path):
             await nc.publish(target, e2e.seal(target, plaintext))
         await nc.flush()
         async def all_rows():
-            return db.request('SELECT (SELECT count() FROM puda.command_logs)+(SELECT count() FROM puda.telemetry)').strip() == b'7'
+            return db.request('SELECT (SELECT count() FROM puda.command_logs)+(SELECT count() FROM puda.telemetry)').strip() == b'6'
         try:
             await eventually(all_rows)
         except AssertionError:

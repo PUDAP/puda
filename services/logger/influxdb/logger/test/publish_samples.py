@@ -32,7 +32,6 @@ async def main():
         }
         for suffix in (
             "cmd.queue",
-            "cmd.immediate",
             "cmd.response.queue",
             "cmd.response.immediate",
             "tlm.health",
@@ -47,7 +46,7 @@ async def main():
         await nc.flush()
     finally:
         await nc.close()
-    print("Published five sample messages for logger-test")
+    print("Published four sample messages for logger-test")
 
 
 if __name__ == "__main__":
