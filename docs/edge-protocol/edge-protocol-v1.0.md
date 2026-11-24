@@ -4,7 +4,7 @@
 |---|---|
 | Status | Draft for review |
 | Protocol version | `1.0`, carried as `header.version` in every command and response. E2E frames are format `0x01`. |
-| Reference implementations | Python SDK `0.0.23` (`libs/python-sdk`). CLI `0.1.x` (`apps/cli`, commit `ac7fb56`). Broker `nats-server 2.15.3` provisioned by `infra/nats/jetstream/setup_streams.sh`. |
+| Reference implementations | Python SDK `0.0.24` (`libs/python-sdk`, first as `0.0.24rc1`). CLI `0.1.7` (`apps/cli`, first as `0.1.7-rc2`). Both on branch `fix/edge-protocol-bugs`. Broker `nats-server 2.15.3` provisioned by `infra/nats/jetstream/setup_streams.sh`. |
 | Evidence | Wire captures in [`v1.0/transcripts/`](v1.0/transcripts/). Payload examples in [`v1.0/examples/`](v1.0/examples/). Schemas in [`v1.0/schemas/`](v1.0/schemas/). E2E vectors in [`v1.0/vectors/`](v1.0/vectors/). Run [`v1.0/check.py`](v1.0/check.py) to validate them. |
 
 This document specifies what a PUDA **edge** must do on the wire to be driven by the PUDA CLI, agents and loggers. An edge is the process that owns one machine. The spec is written so a second implementation, such as a C SDK on an ESP32, can interoperate without reading the Python source.
@@ -14,7 +14,7 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as in RFC 2119
 Behaviour is described in two ways:
 
 - **Normative text** is the contract. A conforming edge MUST follow it.
-- **Observed** notes record what the Python reference does today, including defects. These are listed in §16 and are not requirements. Where the reference deviates from the normative text, the normative text wins.
+- **Observed** notes record measurements of the Python reference. They are not requirements. Where an implementation deviates from the normative text, the normative text wins. §16 lists the deviations found in SDK 0.0.23 and the 0.0.24 fix for each.
 
 ---
 
