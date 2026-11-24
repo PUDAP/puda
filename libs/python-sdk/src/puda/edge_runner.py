@@ -15,9 +15,11 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Awaitable
 
 from .command import (
+    LIFECYCLE_HOOKS,
     SDK_UPDATE_ERROR,
     build_command_catalog,
     require_command_names,
+    resolve_hook_names,
 )
 from .edge_nats_client import EdgeNatsClient
 from .edge_updater import EdgeUpdater
@@ -36,10 +38,19 @@ from .tlm_stream import iter_tlm_stream_methods, tlm_stream_description
 
 logger = logging.getLogger(__name__)
 
-# Immediate verbs the edge applies itself; the driver method is optional.
+# Immediate verbs the edge applies itself; the driver hook is optional.
 OPTIONAL_LIFECYCLE_HOOKS = frozenset(
     {ImmediateCommand.PAUSE.value, ImmediateCommand.RESUME.value, ImmediateCommand.RESET.value}
 )
+
+_HOOK_QUEUE_ERRORS = {
+    **{
+        verb: f"{verb} is an immediate command; use puda machine {verb} <machine_id>"
+        for verb in ("pause", "resume", "reset", "estop")
+    },
+    "abort": "abort is a lifecycle hook; use puda machine complete --abort <machine_id>",
+    "shutdown": "shutdown is a lifecycle hook and is not remotely callable",
+}
 
 # Seconds complete --abort waits for the running command after driver abort.
 ABORT_WAIT = 5.0
@@ -191,6 +202,7 @@ class EdgeRunner:
         self.state_handler = state_handler
         self.nats_client.set_state_handler(state_handler)
         self.allowed_commands = require_command_names(machine_driver)
+        self.hooks = resolve_hook_names(machine_driver)
         if not self.nats_client.description:
             extracted = machine_description(machine_driver)
             if extracted:
@@ -199,6 +211,11 @@ class EdgeRunner:
             "Remote commands for %s: %s",
             type(machine_driver).__name__,
             ", ".join(sorted(self.allowed_commands)) or "(none)",
+        )
+        logger.info(
+            "Lifecycle hooks for %s: %s",
+            type(machine_driver).__name__,
+            ", ".join(sorted(self.hooks)) or "(none)",
         )
         self.tlm_streams = iter_tlm_stream_methods(machine_driver)
         for stream_name, func, spec in self.tlm_streams:
@@ -218,9 +235,9 @@ class EdgeRunner:
         # commands or telemetry in the default executor.
         self._awaiting_reconnect = False
         self._estop_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="puda-estop")
-        if ImmediateCommand.ESTOP.value not in self.allowed_commands:
+        if ImmediateCommand.ESTOP.value not in self.hooks:
             logger.warning(
-                "%s has no @command estop method; emergency stop will only halt the queue",
+                "%s has no estop method; emergency stop will only halt the queue",
                 type(machine_driver).__name__,
             )
         self.nats_client.set_runtime_status_handler(self.exec_state.get_runtime_status)
@@ -346,12 +363,13 @@ class EdgeRunner:
         params = message.command.params or {}
         kwargs = message.command.kwargs
 
-        if command_name.lower() == ImmediateCommand.ESTOP:
-            # Through the queue, estop would wait for the running command.
+        if command_name.lower() in LIFECYCLE_HOOKS:
+            # Hooks run as part of an immediate action, never as queued work
+            # (a queued estop would wait behind the running command).
             return CommandResponse(
                 status=CommandResponseStatus.ERROR,
                 code=CommandResponseCode.EXECUTION_ERROR,
-                message="estop is an immediate command; use puda machine estop <machine_id>",
+                message=_HOOK_QUEUE_ERRORS[command_name.lower()],
             )
 
         logger.info("Queue command received: run_id=%s, command_name=%s, params=%s, kwargs=%s", run_id, command_name, params, kwargs)
@@ -433,9 +451,9 @@ class EdgeRunner:
 
         try:
             logger.info("Executing immediate command: %s (run_id: %s)", command_name, run_id)
-            skipped = self._skip_missing_lifecycle_hook(command_name.lower())
-            if skipped is not None:
-                return skipped
+            verb = command_name.lower()
+            if verb in OPTIONAL_LIFECYCLE_HOOKS:
+                return await self._call_lifecycle_hook(verb, params, kwargs)
             handler, error_response = _validate_handler(
                 self.machine_driver, command_name, self.allowed_commands
             )
@@ -455,17 +473,20 @@ class EdgeRunner:
                 message=str(e),
             )
 
-    def _skip_missing_lifecycle_hook(self, verb: str) -> CommandResponse | None:
-        """Succeed for an optional lifecycle hook the driver does not define.
+    async def _call_lifecycle_hook(self, verb: str, params: dict, kwargs: dict | None) -> CommandResponse:
+        """Run the driver's pause/resume/reset hook, or succeed if it has none.
 
-        The edge has already applied pause, resume or reset itself; the driver
-        method only adds machine-specific behaviour, so its absence is not an
-        error.
+        The edge has already applied pause, resume or reset itself; the hook
+        only adds machine-specific behaviour, so its absence is not an error.
         """
-        if verb not in OPTIONAL_LIFECYCLE_HOOKS or verb in self.allowed_commands:
-            return None
-        logger.info("Driver has no %s command; edge-side %s applied", verb, verb)
-        return CommandResponse(status=CommandResponseStatus.SUCCESS)
+        if verb not in self.hooks:
+            logger.info("Driver has no %s hook; edge-side %s applied", verb, verb)
+            return CommandResponse(status=CommandResponseStatus.SUCCESS)
+        result = await _execute_handler(getattr(self.machine_driver, verb), params, kwargs)
+        logger.info("Driver %s hook completed", verb)
+        return CommandResponse(
+            status=CommandResponseStatus.SUCCESS, data=_normalize_handler_result(result)
+        )
 
     async def _handle_abort(self) -> CommandResponse:
         """Stop the running queued command for ``complete --abort``.
@@ -476,7 +497,7 @@ class EdgeRunner:
         is reported as ``finished: false``.
         """
         data: dict = {"driver_abort": False, "finished": True}
-        if "abort" in self.allowed_commands:
+        if "abort" in self.hooks:
             handler = getattr(self.machine_driver, "abort")
             try:
                 await asyncio.get_running_loop().run_in_executor(self._estop_executor, handler)
@@ -505,7 +526,7 @@ class EdgeRunner:
         params = (command.params if command else None) or {}
         kwargs = command.kwargs if command else None
         stop: asyncio.Future | None = None
-        if ImmediateCommand.ESTOP.value in self.allowed_commands:
+        if ImmediateCommand.ESTOP.value in self.hooks:
             handler = getattr(self.machine_driver, ImmediateCommand.ESTOP.value)
             merged = {**params, **(kwargs or {})}
             stop = asyncio.get_running_loop().run_in_executor(
@@ -559,7 +580,7 @@ class EdgeRunner:
         
     async def _publish_commands(self) -> None:
         text, catalog = build_command_catalog(self.machine_driver)
-        payload: dict[str, Any] = {"commands": text, "catalog": catalog}
+        payload: dict[str, Any] = {"commands": text, "catalog": catalog, "hooks": sorted(self.hooks)}
         await self.nats_client.publish_commands(payload)
 
     async def _publish_host_health(self) -> None:

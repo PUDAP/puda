@@ -157,12 +157,14 @@ class Driver:
 
 ## Lifecycle commands
 
-These lifecycle methods are optional. Define them when the machine has matching hardware behavior.
+These lifecycle hooks are optional. Define them when the machine has matching hardware behavior. Hooks are plain methods: **do not decorate them with `@command`**. The edge finds them by name and calls them as part of the matching CLI action, and refuses to start if one is decorated (Python SDK 0.0.24 or later). `home` is different: it is an ordinary `@command`.
 
 - `shutdown`: if defined, the edge calls it before the process stops so ports, sockets, and other resources are released.
 - `home`: if defined, triggered by `puda machine home <machine_id>`. Omit it if the machine has no home motion.
 - `reset`: if defined, `puda machine reset <machine_id>` calls it after clearing the active run ID. The CLI command still succeeds and clears the run if `reset` is omitted. A successful reset also clears an [emergency stop](#emergency-stop).
 - `estop`: if defined, `puda machine estop <machine_id>` calls it immediately, even while another command is running. See [Emergency stop](#emergency-stop).
+- `pause` / `resume`: if defined, called after `puda machine pause` / `resume` hold or release the queue.
+- `abort`: if defined, `puda machine complete --abort <machine_id>` calls it on its own thread to stop the running command (a soft stop, not a safety action).
 
 ```python title="driver.py"
 from puda import command
@@ -170,7 +172,6 @@ from puda import command
 class Driver:
     """Software-only PUDA test machine. Commands are simulated in memory; no hardware is required."""
 
-    @command
     def shutdown(self) -> bool:
         """
         Shutdown the machine. If defined, called before the edge stops running.
@@ -190,7 +191,6 @@ class Driver:
         """
         return True
 
-    @command
     def reset(self) -> bool:
         """
         Software reset the hardware. If defined, `puda machine reset <machine_id>`
@@ -204,13 +204,10 @@ class Driver:
 
 ## Emergency stop
 
-Define an `estop` command on every driver that controls motion, heat, pressure, or dosing. `puda machine estop <machine_ids>` calls it on each machine in parallel, without asking for confirmation. It requires Python SDK 0.0.23 or later.
+Define an `estop` hook on every driver that controls motion, heat, pressure, or dosing. `puda machine estop <machine_ids>` calls it on each machine in parallel, without asking for confirmation. It requires Python SDK 0.0.23 or later.
 
 ```python title="driver.py"
-from puda import command
-
 class Driver:
-    @command
     def estop(self) -> bool:
         """
         Emergency stop. Halts the controller immediately.
@@ -241,7 +238,7 @@ The CLI reports each machine separately:
 | Result | Meaning |
 |---|---|
 | `ok` | The driver's `estop` ran. |
-| `ESTOP_NOT_SUPPORTED` | The driver has no `estop` command. The queue stopped, but no hardware stop was sent. |
+| `ESTOP_NOT_SUPPORTED` | The driver has no `estop` hook. The queue stopped, but no hardware stop was sent. |
 | `Unknown immediate command: estop` | The edge runs a Python SDK older than 0.0.23. |
 | timeout | The edge did not answer. The estop stays queued and applies when the edge reconnects. |
 

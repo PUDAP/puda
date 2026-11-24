@@ -93,7 +93,6 @@ class EstopDriver:
         self.release.wait(5)
         return True
 
-    @command
     def estop(self) -> dict:
         self.estop_thread = threading.current_thread().name
         self.release.set()

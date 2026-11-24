@@ -185,3 +185,14 @@ func TestAwaitPongErrors(t *testing.T) {
 		t.Fatalf("503: err=%v", err)
 	}
 }
+
+func TestParseMachineCommandsReadsHooks(t *testing.T) {
+	commands, err := parseMachineCommands([]byte(`{"commands":"","catalog":[],"hooks":["abort","estop"]}`))
+	if err != nil || len(commands.Hooks) != 2 || commands.Hooks[1] != "estop" {
+		t.Fatalf("commands = %+v, err = %v", commands, err)
+	}
+	old, err := parseMachineCommands([]byte(`{"commands":"","catalog":[]}`))
+	if err != nil || old.Hooks != nil {
+		t.Fatalf("pre-0.0.24 edge: commands = %+v, err = %v", old, err)
+	}
+}

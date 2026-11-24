@@ -296,6 +296,8 @@ edge pong payload.
 
 Dispatches incoming NATS commands onto the machine driver. Only methods marked with `@command` are advertised and executed.
 
+Lifecycle hooks (`pause`, `resume`, `reset`, `estop`, `abort`, `shutdown`) are plain, undecorated methods found by name. The edge calls them as part of the matching immediate action and publishes the implemented ones in the catalog's `hooks` field. They cannot be queued, and decorating one with `@command` makes `EdgeRunner` raise `LifecycleHookError` at startup.
+
 Optional `@safety` metadata is published with the command catalog so agents can prompt the operator before execution. It does not change dispatch.
 
 ```python

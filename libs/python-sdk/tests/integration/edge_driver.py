@@ -45,28 +45,23 @@ class FullDriver:
         """Always raise."""
         raise RuntimeError(message)
 
-    @command
     def pause(self) -> dict:
         """Driver pause hook."""
         return {"paused": True}
 
-    @command
     def resume(self) -> dict:
         """Driver resume hook."""
         return {"paused": False}
 
-    @command
     def reset(self) -> dict:
         """Driver reset hook."""
         return {"reset": True}
 
-    @command
     def estop(self) -> dict:
         """Hardware stop."""
         self._stop.set()
         return {"stopped": True}
 
-    @command
     def abort(self) -> dict:
         """Soft stop of the running command."""
         print("EXEC abort", flush=True)

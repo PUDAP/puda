@@ -52,6 +52,10 @@ type TlmStream struct {
 type MachineCommands struct {
 	Commands string           `json:"commands"`
 	Catalog  []MachineCommand `json:"catalog"`
+	// Hooks lists the lifecycle hooks the driver implements (pause, resume,
+	// reset, estop, abort, shutdown). Nil when the edge does not report them
+	// (Python SDK older than 0.0.24).
+	Hooks []string `json:"hooks"`
 }
 
 type MachineCommand struct {
@@ -461,6 +465,7 @@ func parseMachineCommands(data []byte) (MachineCommands, error) {
 	var raw struct {
 		Commands *string           `json:"commands"`
 		Catalog  []json.RawMessage `json:"catalog"`
+		Hooks    []string          `json:"hooks"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return MachineCommands{}, fmt.Errorf("failed to parse commands JSON: %w", err)
@@ -472,7 +477,7 @@ func parseMachineCommands(data []byte) (MachineCommands, error) {
 		return MachineCommands{}, fmt.Errorf("failed to parse commands JSON: missing catalog field")
 	}
 
-	result := MachineCommands{Commands: *raw.Commands, Catalog: make([]MachineCommand, 0, len(raw.Catalog))}
+	result := MachineCommands{Commands: *raw.Commands, Catalog: make([]MachineCommand, 0, len(raw.Catalog)), Hooks: raw.Hooks}
 	for index, rawEntry := range raw.Catalog {
 		var fields map[string]json.RawMessage
 		if err := json.Unmarshal(rawEntry, &fields); err != nil {

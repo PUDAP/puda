@@ -48,7 +48,6 @@ class Driver:
             "last_error": self._last_error,
         }
 
-    @command
     def shutdown(self) -> bool:
         """
         Release simulated resources. Used internally on edge restart, not a remote command.
@@ -142,7 +141,6 @@ class Driver:
         logger.info("Heater setpoint %s C", self._heater_celsius)
         return {"heater_celsius": self._heater_celsius}
 
-    @command
     def reset(self) -> dict:
         """
         Software reset. Used by ``puda machine reset <machine-id>``.
@@ -158,12 +156,10 @@ class Driver:
         logger.info("Reset test machine")
         return {"reset": True, "position": self.get_position()}
 
-    @command
     def pause(self) -> dict:
         """Acknowledge queue pause. Queue gating is handled by the edge client."""
         return {"paused": True}
 
-    @command
     def resume(self) -> dict:
         """Acknowledge queue resume. Queue gating is handled by the edge client."""
         return {"paused": False}

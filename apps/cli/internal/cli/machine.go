@@ -430,6 +430,11 @@ var machineCommandsCmd = &cobra.Command{
 	Short: "Show available commands for a machine",
 	Long: `Show advertised commands for a machine.
 
+Lifecycle hooks (pause, resume, reset, estop, abort, shutdown) are not
+commands. The edge calls them as part of puda machine pause/resume/reset/estop
+and complete --abort; "hooks" lists the ones the driver implements, so an
+empty list or no "estop" means estop only halts the queue.
+
 Use --command to show one or more commands by name. Command names can be
 comma-separated, e.g. puda machine commands first --command home,move_to
 
@@ -457,12 +462,20 @@ Examples:
 		}
 		if machineHuman {
 			fmt.Fprintln(cmd.OutOrStdout(), commands)
+			if payload.Hooks != nil {
+				hooks := strings.Join(payload.Hooks, ", ")
+				if hooks == "" {
+					hooks = "(none)"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "\nLifecycle hooks: %s\n", hooks)
+			}
 			return nil
 		}
 		return writeJSON(cmd.OutOrStdout(), struct {
-			MachineID string `json:"machine_id"`
-			Commands  string `json:"commands"`
-		}{args[0], commands})
+			MachineID string   `json:"machine_id"`
+			Commands  string   `json:"commands"`
+			Hooks     []string `json:"hooks,omitempty"`
+		}{args[0], commands, payload.Hooks})
 	},
 }
 

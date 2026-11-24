@@ -9,6 +9,12 @@ callable over NATS. Drivers with no ``@command`` methods fail with
 method. It is published in the machine command catalog for agents; it does
 not change dispatch. ``@safety`` without ``@command`` is ignored.
 
+Lifecycle hooks (``LIFECYCLE_HOOKS``: ``pause``, ``resume``, ``reset``,
+``estop``, ``abort``, ``shutdown``) are plain methods found by name. The edge
+calls them itself as part of the matching protocol action; they are listed in
+the catalog's ``hooks`` field, never as commands, and cannot be queued. Putting
+``@command`` on one is a driver error (``LifecycleHookError``).
+
 Command failure is exception-based. A handler that does not succeed must
 raise; returning ``False`` is still a successful PUDA response whose payload
 is ``{"result": false}``.
@@ -22,6 +28,8 @@ from typing import Any, TypeVar
 
 _COMMAND_ATTR = "__puda_command__"
 _SAFETY_ATTR = "__puda_safety__"
+
+LIFECYCLE_HOOKS = ("pause", "resume", "reset", "estop", "abort", "shutdown")
 
 MIN_COMMAND_SDK_VERSION = "0.0.17"
 SDK_UPDATE_ERROR = f"Update SDK to {MIN_COMMAND_SDK_VERSION}"
@@ -138,9 +146,27 @@ def resolve_command_names(driver: Any) -> frozenset[str]:
     return frozenset(name for name, _ in iter_command_methods(driver))
 
 
+class LifecycleHookError(TypeError):
+    """A lifecycle hook is decorated with ``@command``."""
+
+
+def resolve_hook_names(driver: Any) -> frozenset[str]:
+    """Return the lifecycle hooks *driver* implements (callable, by name)."""
+    return frozenset(name for name in LIFECYCLE_HOOKS if callable(getattr(driver, name, None)))
+
+
 def require_command_names(driver: Any) -> frozenset[str]:
-    """Return ``@command`` names, or raise if the driver has none."""
+    """Return ``@command`` names; raise if there are none or a hook is decorated."""
     names = resolve_command_names(driver)
+    decorated_hooks = sorted(names & set(LIFECYCLE_HOOKS))
+    if decorated_hooks:
+        cls = type(driver).__name__
+        methods = ", ".join(f"{cls}.{name}" for name in decorated_hooks)
+        raise LifecycleHookError(
+            f"{methods}: lifecycle hooks must not be decorated with @command. "
+            "Remove @command; the edge calls pause, resume, reset, estop, abort and "
+            "shutdown by name (puda SDK 0.0.24+)."
+        )
     if not names:
         raise RuntimeError(SDK_UPDATE_ERROR)
     return names

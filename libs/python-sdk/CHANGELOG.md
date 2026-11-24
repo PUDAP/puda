@@ -11,6 +11,13 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
 
 ### Changed
 
+- **Breaking:** lifecycle hooks (`pause`, `resume`, `reset`, `estop`, `abort`,
+  `shutdown`) are plain methods found by name and must not carry `@command`.
+  `EdgeRunner` raises `LifecycleHookError` at startup naming any decorated hook.
+  Hooks are published in the catalog's new `hooks` list instead of as commands,
+  and queueing one is answered `EXECUTION_ERROR` pointing at the right CLI
+  command (previously only `estop` was refused; `pause` through the queue called
+  the driver without pausing). Exported: `LIFECYCLE_HOOKS`, `LifecycleHookError`.
 - Pause now holds the queue instead of rejecting queued commands. While paused the
   edge stops pulling from `COMMAND_QUEUE`; commands sent meanwhile wait in the
   stream, and `resume` runs them in order. A command delivered at the instant of
