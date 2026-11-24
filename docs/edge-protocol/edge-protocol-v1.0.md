@@ -82,11 +82,11 @@ Provisioning is the operator's job, not the edge's. `setup_streams.sh` creates t
 Rules:
 
 - An edge MUST work against these pre-provisioned objects without creating or modifying any of them.
-- An edge SHOULD NOT create or update streams. A Core edge (§15) MUST NOT update them, because an update can overwrite provisioned settings such as replicas or `max_msgs_per_subject`.
-- An edge MAY call `STREAM.INFO` to check that a stream exists. If one is missing it SHOULD log the problem and retry, not create it.
+- An edge MUST NOT update or delete a stream or bucket (`STREAM.UPDATE`, `STREAM.DELETE`). An update replaces the whole config, so it can overwrite provisioned settings such as replicas or `max_msgs_per_subject`. If an existing object does not match this table, the edge MUST leave it unchanged and SHOULD log the mismatch.
+- An edge MAY call `STREAM.INFO` to check that an object exists, and MAY create one that is **missing** (`STREAM.CREATE`), logging a warning that the broker is unprovisioned. This keeps development brokers usable without `setup_streams.sh`. A Core edge (§15) SHOULD instead log the problem and retry.
 - Writing a KV value needs no API call. Publishing to `$KV.<bucket>.<key>` through JetStream is enough (Appendix A).
 
-> **Observed.** On every connect the Python edge calls `STREAM.INFO` on all four streams. It would call `STREAM.UPDATE` if subjects or retention differed. It also attempts `STREAM.CREATE` for each KV bucket and falls back to `STREAM.INFO` after error `10058`. This is harmless against correctly provisioned streams but conflicts with the rule above (§16, D-7).
+The reference calls `STREAM.INFO` on the four command and response streams and opens the `MACHINE_STATE` and `MACHINE_COMMANDS` buckets on every connect; it creates only what is missing.
 
 ## 6. Subject map
 
@@ -577,7 +577,7 @@ Each was reproduced against the live stack with SDK 0.0.23. Transcript names ref
 | D-4 | After a broker restart the edge holds two connections and answers ping twice. | Duplicate pongs, duplicate subscriptions. | `connz` showed 2 edge connections; `nats req --replies=0` got 2 pongs | 0.0.24: one connection (§7) |
 | D-5 | Stale immediate commands replay on startup; the queue binds before immediate; a hidden active run blocks `start`. | Stale `start`/`estop`/`reset` act minutes or days later. | 05 `offline_backlog` | 0.0.24: stale immediates discarded, immediate binds first (§7, §9.7) |
 | D-6 | Malformed queue or immediate messages produce no response. | Client waits for its full timeout. | 03 `malformed` | 0.0.24: correlatable ones answered, state unchanged (§8.4) |
-| D-7 | Edge issues `STREAM.CREATE` for KV buckets and would `STREAM.UPDATE` command streams whose config differs. | May override provisioned settings. | 01 `startup` | open |
+| D-7 | Edge issues `STREAM.CREATE` for KV buckets and would `STREAM.UPDATE` command streams whose config differs. | May override provisioned settings. | 01 `startup` | 0.0.24: create only if missing, never update (§5) |
 | D-8 | `pause`, `resume` and `cancel` return `UNKNOWN_COMMAND` when the driver lacks the method, after applying the effect. | The CLI reports failure for an action that happened. | 04 `min_driver` | 0.0.24: missing hooks succeed (§9.3) |
 
 ## 17. Discrepancies with the public docs
