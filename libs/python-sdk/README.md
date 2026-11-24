@@ -38,7 +38,7 @@ Error codes for command responses:
 - `NO_EXECUTION`: No execution found
 - `RUN_ID_MISMATCH`: Run ID doesn't match current execution
 - `CANCEL_ERROR`: Error occurred while cancelling execution
-- `MACHINE_PAUSED`: Machine is currently paused
+- `MACHINE_PAUSED`: Reserved; paused machines hold queued commands instead of rejecting them
 
 ##### `MessageType`
 Type of NATS message:
@@ -50,8 +50,8 @@ Type of NATS message:
 
 ##### `ImmediateCommand`
 Command names for immediate/control commands:
-- `PAUSE`: Pause the current execution
-- `RESUME`: Resume a paused execution
+- `PAUSE`: Hold the queue; the running command finishes, later commands wait
+- `RESUME`: Run the held commands in order
 - `CANCEL`: Cancel the current execution
 
 #### Data Models
@@ -447,8 +447,8 @@ See [`tests/commands.py`](tests/commands.py) for complete examples.
 #### Immediate Commands
 
 Immediate commands are control commands that interrupt or modify execution. Use `send_immediate_command()` for:
-- `pause`: Pause the current execution
-- `resume`: Resume a paused execution
+- `pause`: Hold the queue; the running command finishes, later queued commands wait in the stream
+- `resume`: Run the held commands in order
 - `cancel`: Cancel the current execution
 
 **Examples:**

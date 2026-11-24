@@ -677,6 +677,8 @@ class EdgeNatsClient:
     async def _pull_queue_loop(self, handler: Callable[[NATSMessage], Awaitable[CommandResponse]]) -> None:
         try:
             while True:
+                # Pause holds the queue: stop pulling until resume (or estop).
+                await self.commands.wait_until_runnable()
                 try:
                     msgs = await self._cmd_queue_sub.fetch(batch=1, timeout=1.0)
                     if msgs:

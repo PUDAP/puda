@@ -56,10 +56,28 @@ class CommandProcessor:
         self._is_paused = False
         # Set by ESTOP, cleared only by a successful RESET.
         self._is_estopped = False
+        # Set while queued commands may start: not paused, or estopped (so held
+        # and pulled commands are discarded instead of waiting forever).
+        self._runnable = asyncio.Event()
+        self._runnable.set()
 
     @property
     def is_estopped(self) -> bool:
         return self._is_estopped
+
+    @property
+    def is_paused(self) -> bool:
+        return self._is_paused
+
+    def _update_runnable(self) -> None:
+        if self._is_paused and not self._is_estopped:
+            self._runnable.clear()
+        else:
+            self._runnable.set()
+
+    async def wait_until_runnable(self) -> None:
+        """Block the queue pull loop while paused; pause holds the queue."""
+        await self._runnable.wait()
 
     @asynccontextmanager
     async def _keep_message_alive(self, msg: Msg, interval: int = KEEP_ALIVE_INTERVAL):
@@ -136,26 +154,26 @@ class CommandProcessor:
             step_number = message.command.step_number if message.command else None
             command = message.command.name if message.command else None
 
-            if self._is_estopped:
-                # Discard, do not redeliver: work queued before an estop must not
-                # run after the reset.
-                await self._respond_queue(
-                    msg,
-                    _error(
-                        CommandResponseCode.MACHINE_ESTOPPED,
-                        "Machine emergency stopped; send reset before queuing commands",
-                    ),
-                    term=True,
-                )
-                return
-
-            async with self._pause_lock:
-                if self._is_paused:
+            while True:
+                if self._is_estopped:
+                    # Discard, do not redeliver: work queued before an estop must
+                    # not run after the reset.
                     await self._respond_queue(
                         msg,
-                        _error(CommandResponseCode.MACHINE_PAUSED, "Machine paused"),
+                        _error(
+                            CommandResponseCode.MACHINE_ESTOPPED,
+                            "Machine emergency stopped; send reset before queuing commands",
+                        ),
+                        term=True,
                     )
                     return
+                if not self._is_paused:
+                    break
+                # Delivered just as the queue was paused: hold it (kept alive so
+                # JetStream does not redeliver) and run it first on resume.
+                logger.info("Holding queued command %s (step %s) until resume", command, step_number)
+                async with self._keep_message_alive(msg):
+                    await self._runnable.wait()
 
             if run_id is None:
                 await self._respond_queue(
@@ -302,6 +320,7 @@ class CommandProcessor:
         async with self._pause_lock:
             if not self._is_paused:
                 self._is_paused = True
+                self._update_runnable()
                 logger.info("Queue paused")
                 await self._client.publish_state(
                     {"state": MachineState.PAUSED, "run_id": message.header.run_id}
@@ -314,6 +333,7 @@ class CommandProcessor:
         async with self._pause_lock:
             if self._is_paused:
                 self._is_paused = False
+                self._update_runnable()
                 logger.info("Queue resumed")
                 await self._client.publish_state({"state": MachineState.IDLE, "run_id": None})
         return await handler(message)
@@ -331,6 +351,7 @@ class CommandProcessor:
         if response.status == CommandResponseStatus.SUCCESS:
             if self._is_estopped:
                 self._is_estopped = False
+                self._update_runnable()
                 logger.warning("Emergency stop cleared by reset")
             await self._client.publish_state({"state": MachineState.IDLE, "run_id": None})
             logger.info("Machine reset")
@@ -360,6 +381,7 @@ class CommandProcessor:
         is cleared only by a successful RESET.
         """
         self._is_estopped = True
+        self._update_runnable()
         logger.critical("EMERGENCY STOP received (run_id: %s)", message.header.run_id)
         try:
             response = await handler(message)

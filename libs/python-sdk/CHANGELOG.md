@@ -9,6 +9,17 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
 
 ## [Unreleased]
 
+### Changed
+
+- Pause now holds the queue instead of rejecting queued commands. While paused the
+  edge stops pulling from `COMMAND_QUEUE`; commands sent meanwhile wait in the
+  stream, and `resume` runs them in order. A command delivered at the instant of
+  pausing is held in memory (kept alive with `+WPI`) and runs first on resume. A
+  running command still finishes. `estop` discards held and backlogged commands
+  (`MACHINE_ESTOPPED`). Previously such commands got `MACHINE_PAUSED`, were left
+  unacknowledged and were redelivered 30 s later, so a command reported as failed
+  could still run after `resume`.
+
 ## [0.0.23] - 2026-11-19
 
 ### Added
