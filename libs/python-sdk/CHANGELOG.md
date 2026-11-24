@@ -61,6 +61,13 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
   the edge answered every ping twice and held duplicate subscriptions. It now
   reconnects only when the connection is closed, and puts the catalog and state
   again once the automatic reconnect has restored JetStream.
+- The edge never modifies provisioned JetStream objects. It previously called
+  `update_stream` with a minimal config when a command stream's subjects or
+  retention differed, which replaces replicas, limits and discard policy, and
+  tried `create_key_value` for every bucket before opening it. It now opens
+  buckets first and creates a stream or bucket only when it is missing, with a
+  warning to provision the broker with `setup_streams.sh`; a mismatched stream
+  is logged and left unchanged.
 
 ## [0.0.23] - 2026-11-19
 

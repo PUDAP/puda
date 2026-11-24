@@ -232,29 +232,34 @@ class EdgeNatsClient:
             return published, now if published else last_at
 
     async def _ensure_stream(self, stream_name: str, subject_pattern: str, retention: str) -> None:
-        """Create or update a stream so its subject pattern and retention match."""
+        """Create the stream if it is missing; never modify an existing one.
+
+        Streams are provisioned by infra/nats/jetstream/setup_streams.sh (replicas,
+        limits, discard policy). Creating a missing one keeps local brokers usable
+        without provisioning; updating one could overwrite those settings, so a
+        mismatch is only logged.
+        """
         if not self.js:
             return
-        config = StreamConfig(
-            name=stream_name,
-            subjects=[subject_pattern],
-            retention=retention,
-        )
         try:
-            stream_info = await self.js.stream_info(stream_name)
-            existing = stream_info.config
-            if subject_pattern in existing.subjects and getattr(existing, "retention", None) == retention:
-                return
-            logger.info("Updating %s stream: subject=%s, retention=%s", stream_name, subject_pattern, retention)
-            await self.js.update_stream(config=config)
-            logger.info("Successfully updated %s stream", stream_name)
+            existing = (await self.js.stream_info(stream_name)).config
         except NotFoundError:
-            logger.info("Creating %s stream: subject=%s, retention=%s", stream_name, subject_pattern, retention)
-            await self.js.add_stream(config)
-            logger.info("Successfully created %s stream", stream_name)
-        except Exception as e:
-            logger.error("Error ensuring %s stream: %s", stream_name, e, exc_info=True)
-            raise
+            logger.warning(
+                "Stream %s is missing; creating a minimal one (subject=%s, retention=%s). "
+                "Provision the broker with infra/nats/jetstream/setup_streams.sh for production.",
+                stream_name, subject_pattern, retention,
+            )
+            await self.js.add_stream(
+                StreamConfig(name=stream_name, subjects=[subject_pattern], retention=retention)
+            )
+            return
+        retention_value = getattr(getattr(existing, "retention", None), "value", getattr(existing, "retention", None))
+        if subject_pattern not in (existing.subjects or []) or retention_value != retention:
+            logger.error(
+                "Stream %s does not match the protocol (subjects=%s, retention=%s; expected %s, %s). "
+                "Leaving it unchanged; fix the provisioning.",
+                stream_name, existing.subjects, retention_value, subject_pattern, retention,
+            )
 
     async def _ensure_all_streams(self) -> None:
         """Ensure streams exist with the subject patterns and retention in infra/nats."""
@@ -265,9 +270,14 @@ class EdgeNatsClient:
         if not self.js:
             raise RuntimeError("JetStream not available")
         try:
-            return await self.js.create_key_value(bucket=bucket)
-        except Exception:
             return await self.js.key_value(bucket)
+        except NotFoundError:
+            logger.warning(
+                "KV bucket %s is missing; creating it (history 1). Provision the broker "
+                "with infra/nats/jetstream/setup_streams.sh for production.",
+                bucket,
+            )
+            return await self.js.create_key_value(bucket=bucket, history=1)
 
     async def _safe_unsubscribe(self, sub) -> None:
         if sub is None:

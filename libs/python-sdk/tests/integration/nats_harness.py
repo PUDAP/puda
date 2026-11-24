@@ -264,13 +264,15 @@ class EdgeTestCase(unittest.IsolatedAsyncioTestCase):
 
     driver = "full"
     edge_env: dict[str, str] = {}
+    provisioned = True
     broker: Broker
 
     @classmethod
     def setUpClass(cls) -> None:
         cls.broker = Broker()
         cls.broker.start()
-        asyncio.run(cls.broker.provision())
+        if cls.provisioned:
+            asyncio.run(cls.broker.provision())
 
     @classmethod
     def tearDownClass(cls) -> None:
