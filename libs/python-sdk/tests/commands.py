@@ -201,26 +201,6 @@ async def example_resume(run_id: str):
     # Automatically disconnects here, even on exceptions or signals
 
 
-async def example_cancel(run_id: str):
-    """Example: Send cancel command using context manager."""
-    # Using async context manager - automatically connects and disconnects
-    # Signal handlers are automatically registered for graceful shutdown
-    async with CommandService(servers=get_nats_servers()) as service:
-        cancel_request = CommandRequest(
-            name=ImmediateCommand.CANCEL,
-            machine_id=MACHINE_ID,
-            step_number=1
-        )
-        reply = await service.send_immediate_command(
-            request=cancel_request, run_id=run_id, user_id=USER_ID, username=USERNAME
-        )
-        if reply:
-            logger.info("Cancel command result: status=%s, message=%s", reply.response.status, reply.response.message)
-        else:
-            logger.error("Cancel command failed or timed out")
-    # Automatically disconnects here, even on exceptions or signals
-
-
 async def example_get_deck(run_id: str):
     """Example: Get current deck layout using context manager."""
     # Using async context manager - automatically connects and disconnects

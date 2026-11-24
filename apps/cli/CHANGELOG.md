@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+
+- `puda machine complete --abort` stops the running command instead of being refused, then ends the run (requires Python SDK 0.0.24 edges). Results now include the edge's `code` and `data` for every immediate command, so a refused `complete` reports `code: EXECUTION_LOCKED` with `data.running` (name, step, elapsed) and `data.queued`, and an abort reports `data.aborted`, `driver_abort`, `finished` and `queued`.
+
+### Changed
+
+- Interrupting `puda protocol run` (Ctrl+C, SIGTERM) now sends `complete --abort` to every started machine, so commands still running on the edges are stopped instead of continuing unobserved. A normal finish or a failed step still sends plain `complete`.
+
+### Removed
+
+- The unused `cancel` immediate command constant. Use `puda machine complete --abort`.
+
 ### Fixed
 
 - `puda machine info` and the immediate lifecycle commands that ping first (`start`, `complete`, `reset`, ...) no longer report online machines as `invalid pong response`. A direct ping now reads every reply until a valid pong arrives or the timeout expires, so another subscriber on `puda.<id>.cmd.*` (such as a service answering `-NAK`) answering first is ignored. Remote edges (for example over Tailscale) were affected most because they always lose that race. If only non-pong replies arrive, the error reads `invalid pong response: no valid pong before timeout (ignored N non-pong replies)`.

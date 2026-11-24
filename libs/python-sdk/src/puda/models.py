@@ -47,7 +47,6 @@ class ImmediateCommand(str, Enum):
     COMPLETE = 'complete'
     PAUSE = 'pause'
     RESUME = 'resume'
-    CANCEL = 'cancel'
     RESET = 'reset'
     ESTOP = 'estop'
 

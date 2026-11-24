@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Awaitable, Callable
@@ -39,11 +40,12 @@ def _ok() -> CommandResponse:
     return CommandResponse(status=CommandResponseStatus.SUCCESS)
 
 
-def _error(code: CommandResponseCode, message: str) -> CommandResponse:
+def _error(code: CommandResponseCode, message: str, data: dict | None = None) -> CommandResponse:
     return CommandResponse(
         status=CommandResponseStatus.ERROR,
         code=code,
         message=message,
+        data=data,
     )
 
 
@@ -64,6 +66,9 @@ class CommandProcessor:
         # and pulled commands are discarded instead of waiting forever).
         self._runnable = asyncio.Event()
         self._runnable.set()
+        # The queued command currently executing (name, step_number, run_id,
+        # started, aborted), for COMPLETE refusals and COMPLETE --abort.
+        self._running: dict | None = None
 
     @property
     def is_estopped(self) -> bool:
@@ -201,8 +206,20 @@ class CommandProcessor:
                 await self._respond_queue(msg, err, ack=True)
                 return
 
-            async with self._keep_message_alive(msg):
-                response = await handler(message)
+            running = {"name": command, "step_number": step_number, "run_id": run_id,
+                       "started": time.monotonic(), "aborted": False}
+            self._running = running
+            try:
+                async with self._keep_message_alive(msg):
+                    response = await handler(message)
+            finally:
+                self._running = None
+            if running["aborted"]:
+                response = _error(
+                    CommandResponseCode.COMMAND_CANCELLED,
+                    "Aborted by complete --abort",
+                    response.data,
+                )
 
             if response.status == CommandResponseStatus.SUCCESS:
                 await msg.ack()
@@ -240,7 +257,7 @@ class CommandProcessor:
             )
 
     async def process_immediate(self, msg: Msg, handler: CommandHandler) -> None:
-        """Process immediate commands (start, pause, cancel, resume, etc.)."""
+        """Process immediate commands (start, complete, pause, resume, reset, estop)."""
         try:
             message = NATSMessage.model_validate_json(self._client.encryption.open_payload(msg.subject, msg.data))
             await msg.ack()
@@ -304,15 +321,13 @@ class CommandProcessor:
             case ImmediateCommand.START:
                 return await self._immediate_start(run_id)
             case ImmediateCommand.COMPLETE:
-                return await self._immediate_complete(run_id)
+                return await self._immediate_complete(run_id, message, handler)
             case ImmediateCommand.PAUSE:
                 return await self._immediate_pause(message, handler)
             case ImmediateCommand.RESUME:
                 return await self._immediate_resume(handler, message)
             case ImmediateCommand.RESET:
                 return await self._immediate_reset(handler, message)
-            case ImmediateCommand.CANCEL:
-                return await self._immediate_cancel(run_id, handler, message)
             case ImmediateCommand.ESTOP:
                 return await self._immediate_estop(handler, message)
             case _:
@@ -340,13 +355,72 @@ class CommandProcessor:
         await self._client.publish_state({"state": MachineState.IDLE, "run_id": run_id})
         return _ok()
 
-    async def _immediate_complete(self, run_id: str | None) -> CommandResponse:
+    @staticmethod
+    def _describe_running(running: dict) -> dict:
+        return {
+            "name": running["name"],
+            "step_number": running["step_number"],
+            "elapsed_s": round(time.monotonic() - running["started"], 1),
+        }
+
+    async def _queued_count(self) -> int | None:
+        """Queued commands waiting behind the running one (None if unknown)."""
+        counter = getattr(self._client, "pending_queue_count", None)
+        if counter is None:
+            return None
+        try:
+            count = await counter()
+        except Exception:
+            return None
+        return max(0, count - (1 if self._running is not None else 0))
+
+    async def _immediate_complete(
+        self, run_id: str | None, message: NATSMessage, handler: CommandHandler
+    ) -> CommandResponse:
+        """End the run. Refused while one of its commands runs unless params.abort.
+
+        With ``abort`` the running command is stopped through *handler* (driver
+        ``abort`` plus a bounded wait) and answered ``COMMAND_CANCELLED``. Repeating
+        COMPLETE for a run that already ended succeeds with ``already_completed``.
+        """
         if not run_id:
             return _error(CommandResponseCode.MISSING_RUN_ID, "COMPLETE command requires RUN_ID")
-        if not await self.run_manager.complete_run(run_id):
+        params = (message.command.params if message.command else None) or {}
+        abort = params.get("abort") is True
+        if self.run_manager.get_active_run_id() != run_id:
+            if self.run_manager.was_ended(run_id):
+                return CommandResponse(
+                    status=CommandResponseStatus.SUCCESS, data={"already_completed": True}
+                )
             return _error(CommandResponseCode.RUN_ID_MISMATCH, f"Run {run_id} not active")
+
+        running = self._running
+        if running is not None and running["run_id"] != run_id:
+            running = None
+        if running is not None and not abort:
+            return _error(
+                CommandResponseCode.EXECUTION_LOCKED,
+                f"Command {running['name']} (step {running['step_number']}) is running; "
+                "wait for it to finish, or complete with abort to stop it",
+                {"running": self._describe_running(running), "queued": await self._queued_count()},
+            )
+
+        data: dict | None = None
+        if abort:
+            data = {"aborted": None, "driver_abort": False, "finished": True,
+                    "queued": await self._queued_count()}
+            if running is not None:
+                running["aborted"] = True
+                data["aborted"] = self._describe_running(running)
+                stop = await handler(message)
+                data.update({k: v for k, v in (stop.data or {}).items() if k in
+                             ("driver_abort", "finished", "driver_error")})
+
+        # An aborted command's error response may already have ended the run.
+        if self.run_manager.get_active_run_id() == run_id:
+            await self.run_manager.complete_run(run_id)
         await self._client.publish_state({"state": MachineState.IDLE, "run_id": None})
-        return _ok()
+        return CommandResponse(status=CommandResponseStatus.SUCCESS, data=data)
 
     async def _immediate_pause(self, message: NATSMessage, handler: CommandHandler) -> CommandResponse:
         async with self._pause_lock:
@@ -391,19 +465,6 @@ class CommandProcessor:
             await self._client.publish_state({"state": MachineState.ERROR, "run_id": None})
             logger.error("Machine reset failed: %s", response.message)
         return response
-
-    async def _immediate_cancel(
-        self,
-        run_id: str | None,
-        handler: CommandHandler,
-        message: NATSMessage,
-    ) -> CommandResponse:
-        if not run_id:
-            return _error(CommandResponseCode.MISSING_RUN_ID, "CANCEL command requires RUN_ID")
-        logger.info("Cancelling all commands with run_id: %s", run_id)
-        await self.run_manager.complete_run(run_id)
-        await self._client.publish_state({"state": MachineState.IDLE, "run_id": None})
-        return await handler(message)
 
     async def _immediate_estop(self, handler: CommandHandler, message: NATSMessage) -> CommandResponse:
         """Latch the emergency stop, run the driver estop, and end the active run.

@@ -4,6 +4,7 @@ Provides thread-safe run state tracking and validation for machine commands.
 """
 import asyncio
 import logging
+from collections import deque
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,8 @@ class RunManager:
         self.machine_id = machine_id
         self._active_run_id: Optional[str] = None
         self._lock = asyncio.Lock()
+        # Recently ended runs, so a repeated COMPLETE is idempotent.
+        self._ended: deque[str] = deque(maxlen=64)
     
     async def start_run(self, run_id: str) -> bool:
         """
@@ -69,6 +72,7 @@ class RunManager:
                 return False
             
             self._active_run_id = None
+            self._ended.append(run_id)
             logger.info("Completed run %s on machine %s", run_id, self.machine_id)
             return True
     
@@ -83,6 +87,7 @@ class RunManager:
             cleared = self._active_run_id
             self._active_run_id = None
             if cleared is not None:
+                self._ended.append(cleared)
                 logger.info("Cleared run %s on machine %s", cleared, self.machine_id)
             return cleared
     
@@ -115,6 +120,10 @@ class RunManager:
             
             return True
     
+    def was_ended(self, run_id: str) -> bool:
+        """Return True if *run_id* was active recently and has ended."""
+        return run_id in self._ended
+
     def get_active_run_id(self) -> Optional[str]:
         """
         Get current active run_id.

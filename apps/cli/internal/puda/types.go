@@ -29,7 +29,6 @@ const (
 	ImmediateCommandComplete = "complete"
 	ImmediateCommandPause    = "pause"
 	ImmediateCommandResume   = "resume"
-	ImmediateCommandCancel   = "cancel"
 	ImmediateCommandReset    = "reset"
 	ImmediateCommandEstop    = "estop"
 )

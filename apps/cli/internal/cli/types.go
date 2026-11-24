@@ -21,4 +21,5 @@ type immediateMachineCommandConfig struct {
 	label     string
 	sender    immediateCommandSender
 	runIDFlag *string
+	long      string
 }

@@ -698,6 +698,11 @@ class EdgeNatsClient:
             logger.debug("Queue pull task cancelled")
             raise
 
+    async def pending_queue_count(self) -> int:
+        """Queued commands not yet answered (in the stream or delivered, unacked)."""
+        info = await self.js.consumer_info(STREAM_COMMAND_QUEUE, f"cmd_queue_{self.machine_id}")
+        return int(info.num_pending or 0) + int(info.num_ack_pending or 0)
+
     async def subscribe_queue(self, handler: Callable[[NATSMessage], Awaitable[CommandResponse]]) -> None:
         """Subscribe to queue commands with a durable pull consumer."""
         if not self.js:

@@ -19,6 +19,19 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
   (`MACHINE_ESTOPPED`). Previously such commands got `MACHINE_PAUSED`, were left
   unacknowledged and were redelivered 30 s later, so a command reported as failed
   could still run after `resume`.
+- `complete` is refused with `EXECUTION_LOCKED` while a queued command of the run
+  is executing; `data` carries `running` (`name`, `step_number`, `elapsed_s`) and
+  `queued`. With `params: {"abort": true}` the edge calls the driver's optional
+  `abort` method, waits up to 5 s, answers the running command `COMMAND_CANCELLED`
+  and ends the run; `data` reports `aborted`, `driver_abort`, `finished` and
+  `queued`. Completing a run that already ended succeeds with
+  `data: {"already_completed": true}`.
+
+### Removed
+
+- **Breaking:** the `cancel` immediate command (`ImmediateCommand.CANCEL`). It did
+  not stop the running command. Edges now answer `cancel` with `UNKNOWN_COMMAND`;
+  use `complete` with `params: {"abort": true}`.
 
 ### Fixed
 

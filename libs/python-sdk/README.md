@@ -52,7 +52,6 @@ Type of NATS message:
 Command names for immediate/control commands:
 - `PAUSE`: Hold the queue; the running command finishes, later commands wait
 - `RESUME`: Run the held commands in order
-- `CANCEL`: Cancel the current execution
 
 #### Data Models
 
@@ -398,7 +397,7 @@ runner = EdgeRunner(nats_client=nats_client, machine_driver=driver)
 Thread-safe state management for command execution. Provides:
 - Execution lock to prevent concurrent commands
 - Current task tracking for cancellation
-- Run ID matching for cancel operations
+- Running-command tracking for `complete` refusals and `complete --abort`
 - Thread-safe access to execution state
 
 ## Sending Commands
@@ -449,7 +448,7 @@ See [`tests/commands.py`](tests/commands.py) for complete examples.
 Immediate commands are control commands that interrupt or modify execution. Use `send_immediate_command()` for:
 - `pause`: Hold the queue; the running command finishes, later queued commands wait in the stream
 - `resume`: Run the held commands in order
-- `cancel`: Cancel the current execution
+- `complete`: End the run; refused with `EXECUTION_LOCKED` while a command runs unless `params: {"abort": true}`, which calls the driver `abort` and answers the running command `COMMAND_CANCELLED`
 
 **Examples:**
 

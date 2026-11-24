@@ -30,6 +30,10 @@ Use `puda machine --help` and `puda healthcheck --help` for commands and flags.
 
 When the operator asks to stop a machine urgently, or you observe a hazard during operation, run `puda machine estop <machine_ids>` immediately: no plan, no confirmation, no other command first. Then report each machine's result: `ok` means the driver estop ran; any error (`ESTOP_NOT_SUPPORTED`, unknown immediate command, timeout) means the hardware may still be running, so tell the operator to use the physical stop. The machine stays `estopped` and rejects commands until `puda machine reset`; reset only when the operator confirms it is safe.
 
+## Ending a run
+
+`puda machine complete <machine_ids> --run-id <run_id>` ends a run. While a queued command of that run is still executing it is refused with `EXECUTION_LOCKED`; the result's `data.running` names the command and its elapsed time, and `data.queued` counts the commands behind it. Either wait and complete again, or, when the operator wants the work stopped, rerun with `--abort`: the driver's `abort` stops the command, which is answered `COMMAND_CANCELLED`, and `data.finished: false` means the edge stopped waiting but the hardware call may still be running. `--abort` is a soft stop, not a safety action; use `estop` for hazards. Completing a run that already ended succeeds with `data.already_completed: true`, so repeating it is safe. Interrupting `puda protocol run` (Ctrl+C, SIGTERM) sends `complete --abort` to every machine in the run.
+
 ## Task-specific references
 
 Read only the reference needed for the task:

@@ -21,6 +21,7 @@ var errMachineOffline = errors.New("offline or does not exist")
 
 var machineStartRunID string
 var machineCompleteRunID string
+var machineCompleteAbort bool
 var machineRunID string
 var machineRunParams string
 var machineRunKwargs string
@@ -55,8 +56,13 @@ var machineStartCmd = newImmediateMachineCommand(immediateMachineCommandConfig{
 })
 
 var machineCompleteCmd = newImmediateMachineCommand(immediateMachineCommandConfig{
-	name:      "complete",
-	short:     "Complete a run on machine(s)",
+	name:  "complete",
+	short: "Complete a run on machine(s)",
+	long: `complete is refused with EXECUTION_LOCKED while a queued command of the run
+is running; data.running names it and data.queued counts the commands behind
+it. --abort stops it instead (driver abort, command answered
+COMMAND_CANCELLED) and ends the run. Completing a run that already ended
+succeeds with data.already_completed.`,
 	label:     "Complete",
 	sender:    sendCompleteCommand,
 	runIDFlag: &machineCompleteRunID,
@@ -105,6 +111,7 @@ Examples:
 func init() {
 	machineStartCmd.Flags().StringVar(&machineStartRunID, "run-id", "", "Run ID (default: random UUIDv4)")
 	machineCompleteCmd.Flags().StringVar(&machineCompleteRunID, "run-id", "", "Run ID (default: random UUIDv4)")
+	machineCompleteCmd.Flags().BoolVar(&machineCompleteAbort, "abort", false, "Stop the running command instead of refusing")
 	machineRunCmd.Flags().StringVar(&machineRunID, "run-id", "", "Optional run ID (default: random UUIDv4)")
 	machineRunCmd.Flags().StringVar(&machineRunParams, "params", "", "Command parameters as a JSON object")
 	machineRunCmd.Flags().StringVar(&machineRunKwargs, "kwargs", "", "Command keyword arguments as a JSON object")
@@ -154,7 +161,7 @@ func sendCompleteCommand(
 	timeoutSeconds int,
 	store *db.Store,
 ) (*puda.NATSMessage, error) {
-	return pudanats.SendCompleteCommand(js, dispatcher, machineID, runID, userID, username, timeoutSeconds, 0, store)
+	return pudanats.SendCompleteCommand(js, dispatcher, machineID, runID, userID, username, timeoutSeconds, 0, machineCompleteAbort, store)
 }
 
 func parseMachineIDs(args []string) []string {
@@ -259,6 +266,9 @@ func newImmediateMachineCommand(config immediateMachineCommandConfig) *cobra.Com
 	long := fmt.Sprintf(`Send %s immediate command to machine(s) and report results as JSON.
 Machine IDs can be comma-separated, e.g. puda machine %s biologic,first
 Use --human for a text summary.`, commandName, config.name)
+	if config.long != "" {
+		long += "\n\n" + config.long
+	}
 	if config.runIDFlag != nil {
 		long += "\n\nUse --run-id to set the run ID. If omitted, a random UUIDv4 is generated."
 	}
@@ -424,7 +434,7 @@ func sendImmediateCommandToMachines(
 		if err == nil {
 			err = immediateCommandResponseError(response)
 		}
-		results = append(results, machineCommandResultFromError(machineID, err))
+		results = append(results, machineCommandResultFromError(machineID, err).withResponse(response))
 		if err != nil {
 			failedCount++
 		}
@@ -471,9 +481,23 @@ func writeImmediateCommandResult(w io.Writer, commandLabel, machineID string, er
 }
 
 type machineCommandResult struct {
-	MachineID string `json:"machine_id"`
-	Status    string `json:"status"`
-	Error     string `json:"error,omitempty"`
+	MachineID string                 `json:"machine_id"`
+	Status    string                 `json:"status"`
+	Error     string                 `json:"error,omitempty"`
+	Code      string                 `json:"code,omitempty"`
+	Data      map[string]interface{} `json:"data,omitempty"`
+}
+
+// withResponse adds the edge's response code and data to a result.
+func (result machineCommandResult) withResponse(response *puda.NATSMessage) machineCommandResult {
+	if response == nil || response.Response == nil {
+		return result
+	}
+	if response.Response.Code != nil {
+		result.Code = *response.Response.Code
+	}
+	result.Data = response.Response.Data
+	return result
 }
 
 func machineCommandResultFromError(machineID string, err error) machineCommandResult {

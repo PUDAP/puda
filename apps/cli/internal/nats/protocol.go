@@ -49,10 +49,14 @@ func completeMachines(machineIDs []string, completeFn func(string) error) error 
 
 // completeAllMachines sends COMPLETE commands to all started machines and
 // returns every failure as one joined error.
-func completeAllMachines(js nats.JetStreamContext, dispatcher *ResponseDispatcher, startedMachines []string, runID, userID, username string, timeoutSeconds int, stepNumber int, store *db.Store) error {
-	log.Printf("Completing runs on all machines")
+func completeAllMachines(js nats.JetStreamContext, dispatcher *ResponseDispatcher, startedMachines []string, runID, userID, username string, timeoutSeconds int, stepNumber int, abort bool, store *db.Store) error {
+	if abort {
+		log.Printf("Aborting runs on all machines")
+	} else {
+		log.Printf("Completing runs on all machines")
+	}
 	return completeMachines(startedMachines, func(machineID string) error {
-		response, err := SendCompleteCommand(js, dispatcher, machineID, runID, userID, username, timeoutSeconds, stepNumber, store)
+		response, err := SendCompleteCommand(js, dispatcher, machineID, runID, userID, username, timeoutSeconds, stepNumber, abort, store)
 		if err != nil {
 			return err
 		}
@@ -272,7 +276,9 @@ func SendQueueCommands(js nats.JetStreamContext, dispatcher *ResponseDispatcher,
 	defer close(signalDone)
 
 	cleanup := newStartedMachineCleanup(func(machineIDs []string) error {
-		return completeAllMachines(js, dispatcher, machineIDs, runID, userID, username, defaultTimeout, completeStepNumber, store)
+		// Interrupted (SIGINT/SIGTERM): stop whatever is still running on the
+		// edges; the CLI stopped waiting for it, so nothing would report it.
+		return completeAllMachines(js, dispatcher, machineIDs, runID, userID, username, defaultTimeout, completeStepNumber, ctx.Err() != nil, store)
 	})
 	defer func() {
 		returnErr = joinProtocolAndCleanupErrors(returnErr, cleanup.complete())

@@ -36,6 +36,9 @@ from .tlm_stream import iter_tlm_stream_methods, tlm_stream_description
 
 logger = logging.getLogger(__name__)
 
+# Seconds complete --abort waits for the running command after driver abort.
+ABORT_WAIT = 5.0
+
 TLM_STREAM_ERROR_LOG_INTERVAL = 30.0  # seconds
 HOST_HEALTH_INTERVAL = 5.0  # seconds
 
@@ -405,6 +408,8 @@ class EdgeRunner:
 
         if command_name.lower() == ImmediateCommand.ESTOP:
             return await self._handle_estop(message)
+        if command_name.lower() == ImmediateCommand.COMPLETE:
+            return await self._handle_abort()
 
         try:
             logger.info("Executing immediate command: %s (run_id: %s)", command_name, run_id)
@@ -432,6 +437,33 @@ class EdgeRunner:
                 code=CommandResponseCode.EXECUTION_ERROR,
                 message=str(e),
             )
+
+    async def _handle_abort(self) -> CommandResponse:
+        """Stop the running queued command for ``complete --abort``.
+
+        Calls the driver ``abort`` (if it has one) and waits up to
+        ``ABORT_WAIT`` seconds for the command to return. If it does not, the
+        edge stops waiting for it; the driver thread may still be running, which
+        is reported as ``finished: false``.
+        """
+        data: dict = {"driver_abort": False, "finished": True}
+        if "abort" in self.allowed_commands:
+            handler = getattr(self.machine_driver, "abort")
+            try:
+                await asyncio.get_running_loop().run_in_executor(self._estop_executor, handler)
+                data["driver_abort"] = True
+            except Exception as e:
+                logger.error("Driver abort raised: %s", e, exc_info=True)
+                data["driver_error"] = str(e)
+        task = self.exec_state.get_current_task()
+        if task is not None and not task.done():
+            done, _ = await asyncio.wait({task}, timeout=ABORT_WAIT if data["driver_abort"] else 0)
+            if not done:
+                data["finished"] = False
+                await self.exec_state.cancel_current_execution()
+                logger.warning("Running command did not stop after abort; no longer waiting for it")
+        await self.nats_client.publish_log("WARNING", "Run aborted by complete --abort")
+        return CommandResponse(status=CommandResponseStatus.SUCCESS, data=data)
 
     async def _handle_estop(self, message: NATSMessage) -> CommandResponse:
         """Run the driver ``estop`` and cancel the running queued command.
