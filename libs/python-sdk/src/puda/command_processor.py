@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Awaitable, Callable
 
 from nats.aio.msg import Msg
+from pydantic import ValidationError
 
 from .models import (
     CommandResponse,
@@ -121,19 +122,69 @@ class CommandProcessor:
         if not js:
             return
         try:
-            original = NATSMessage.model_validate_json(self._client.encryption.open_payload(msg.subject, msg.data))
-            header = original.header.model_copy(
-                update={
-                    "message_type": MessageType.RESPONSE,
-                    "timestamp": _get_current_timestamp(),
-                }
-            )
-            payload = original.model_copy(update={"header": header, "response": response})
-            body = self._client.encryption.seal(subject, payload.model_dump_json().encode())
+            plain = self._client.encryption.open_payload(msg.subject, msg.data)
+        except Exception as e:
+            logger.error("Cannot open command payload; no response sent: %s", e)
+            return
+        try:
+            try:
+                original = NATSMessage.model_validate_json(plain)
+            except ValidationError:
+                text = self._correlatable_response(plain, response)
+                if text is None:
+                    logger.error("Malformed command cannot be correlated; no response sent")
+                    return
+            else:
+                header = original.header.model_copy(
+                    update={
+                        "message_type": MessageType.RESPONSE,
+                        "timestamp": _get_current_timestamp(),
+                    }
+                )
+                payload = original.model_copy(update={"header": header, "response": response})
+                text = payload.model_dump_json()
+            body = self._client.encryption.seal(subject, text.encode())
             await js.publish(subject=subject, payload=body)
-            logger.info("Published command response to JetStream: %s", payload.model_dump_json())
+            logger.info("Published command response to JetStream: %s", text)
         except Exception as e:
             logger.error("Error publishing command response: %s", e)
+
+    @staticmethod
+    def _correlatable_response(plain: bytes, response: CommandResponse) -> str | None:
+        """Echo an envelope that failed validation, if clients can still match it.
+
+        Clients correlate on (run_id, step_number, machine_id), so a response is
+        only useful when the payload is a JSON object whose header and command
+        carry those fields with usable types.
+        """
+        try:
+            original = json.loads(plain)
+        except ValueError:
+            return None
+        if not isinstance(original, dict):
+            return None
+        header, command = original.get("header"), original.get("command")
+        if not isinstance(header, dict) or not isinstance(command, dict):
+            return None
+        if not isinstance(header.get("machine_id"), str):
+            return None
+        if not (header.get("run_id") is None or isinstance(header.get("run_id"), str)):
+            return None
+        step = command.get("step_number")
+        if not isinstance(step, int) or isinstance(step, bool):
+            return None
+        header = {**header, "message_type": MessageType.RESPONSE.value,
+                  "timestamp": _get_current_timestamp()}
+        return json.dumps({**original, "header": header,
+                           "response": response.model_dump(mode="json")})
+
+    @staticmethod
+    def _invalid_envelope(error: ValidationError) -> CommandResponse:
+        problems = "; ".join(
+            f"{'.'.join(str(p) for p in item['loc']) or '<root>'}: {item['msg']}"
+            for item in error.errors()[:5]
+        )
+        return _error(CommandResponseCode.EXECUTION_ERROR, f"Invalid command envelope: {problems}")
 
     async def _respond_queue(
         self,
@@ -158,7 +209,16 @@ class CommandProcessor:
         step_number = None
         command = None
         try:
-            message = NATSMessage.model_validate_json(self._client.encryption.open_payload(msg.subject, msg.data))
+            try:
+                message = NATSMessage.model_validate_json(
+                    self._client.encryption.open_payload(msg.subject, msg.data)
+                )
+            except ValidationError as e:
+                # Malformed: never redeliver, leave the run alone, and answer
+                # if the client can still correlate the response.
+                logger.error("Malformed queued command (terminating): %s", e)
+                await self._respond_queue(msg, self._invalid_envelope(e), term=True)
+                return
             run_id = message.header.run_id
             step_number = message.command.step_number if message.command else None
             command = message.command.name if message.command else None
@@ -239,14 +299,6 @@ class CommandProcessor:
                 ack=True,
                 complete_run_id=run_id,
             )
-        except json.JSONDecodeError as e:
-            logger.error("JSON Decode Error. Terminating message.")
-            await self._respond_queue(
-                msg,
-                _error(CommandResponseCode.JSON_DECODE_ERROR, f"JSON decode error: {e}"),
-                term=True,
-                complete_run_id=run_id,
-            )
         except Exception as e:
             logger.error("Handler failed (terminating message): %s", e)
             await self._respond_queue(
@@ -259,10 +311,27 @@ class CommandProcessor:
     async def process_immediate(self, msg: Msg, handler: CommandHandler) -> None:
         """Process immediate commands (start, complete, pause, resume, reset, estop)."""
         try:
-            message = NATSMessage.model_validate_json(self._client.encryption.open_payload(msg.subject, msg.data))
+            try:
+                message = NATSMessage.model_validate_json(
+                    self._client.encryption.open_payload(msg.subject, msg.data)
+                )
+            except ValidationError as e:
+                # Malformed: ack so it is not redelivered; machine state is
+                # unchanged because nothing ran.
+                logger.error("Malformed immediate command: %s", e)
+                await msg.ack()
+                await self._publish_command_response(
+                    msg, self._invalid_envelope(e), self._client.response_immediate
+                )
+                return
             await msg.ack()
             if message.command is None:
                 logger.error("Received message with no command")
+                await self._publish_command_response(
+                    msg,
+                    _error(CommandResponseCode.EXECUTION_ERROR, "Invalid command envelope: command: missing"),
+                    self._client.response_immediate,
+                )
                 return
 
             command_name = message.command.name.lower()
@@ -286,9 +355,6 @@ class CommandProcessor:
                 return
             response = await self._dispatch_immediate(command_name, run_id, message, handler)
             await self._publish_command_response(msg, response, self._client.response_immediate)
-        except json.JSONDecodeError as e:
-            logger.error("JSON Decode Error in immediate command: %s", e)
-            await self._fail_immediate(msg, CommandResponseCode.JSON_DECODE_ERROR, f"JSON decode error: {e}")
         except Exception as e:
             logger.error("Error processing immediate command: %s", e)
             await self._fail_immediate(msg, CommandResponseCode.EXECUTION_ERROR, str(e))

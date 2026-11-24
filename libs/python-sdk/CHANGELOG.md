@@ -50,6 +50,12 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
 - `pause` and `resume` succeed when the driver has no `pause`/`resume` method,
   like `reset` already did. The edge had applied the pause or resume but answered
   `UNKNOWN_COMMAND`.
+- Malformed commands are answered when the client can still match the response:
+  a JSON object whose `header.machine_id`, `header.run_id` and
+  `command.step_number` are usable gets `EXECUTION_ERROR` "Invalid command
+  envelope: <field>: <problem>". Malformed queued commands are terminated without
+  ending the run; malformed immediate commands are acked and no longer set state
+  `error`. Payloads that cannot be matched are dropped with a log line, as before.
 
 ## [0.0.23] - 2026-11-19
 
