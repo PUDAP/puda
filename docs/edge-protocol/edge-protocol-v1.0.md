@@ -169,7 +169,7 @@ Commands and responses share one envelope ([schema](v1.0/schemas/nats-message.sc
 | Config | `{"durable_name":"cmd_queue_<id>","filter_subject":"puda.<id>.cmd.queue","ack_policy":"explicit","deliver_policy":"all"}`. Server defaults apply: `ack_wait` 30 s, `max_deliver` −1. |
 
 - If the durable exists with a different `filter_subject`, `ack_policy` or `deliver_policy`, the edge MUST delete and recreate it. Otherwise it MUST reuse it, so a backlog survives restarts.
-- The edge MUST process queued commands **one at a time**, in delivery order. It MUST NOT request the next message until the current one is acked or terminated. The reference uses `{"batch":1,"expires":999900000}` in a loop. An embedded edge MAY use a longer `expires`, for example 30 s.
+- The edge MUST process queued commands **one at a time**, in delivery order. It MUST NOT request the next message until the current one is acked or terminated, and MUST NOT request one while paused (§9.4). The reference uses `{"batch":1,"expires":999900000}` in a loop. An embedded edge MAY use a longer `expires`, for example 30 s.
 - While a queued command runs longer than `ack_wait`, the edge MUST send `+WPI` (in progress) at an interval shorter than `ack_wait`. The reference sends it every 25 s ([transcript 02, `run2_slow`](v1.0/transcripts/02-run-lifecycle.md)).
 - Acknowledgements go to the delivered message's reply subject `$JS.ACK.COMMAND_QUEUE.cmd_queue_<id>.…`. An empty body and `+ACK` are equivalent. The reference sends an empty body for ack and `+TERM` for terminate. `+NAK` is not used.
 
@@ -234,7 +234,7 @@ Rules:
 | `COMMAND_CANCELLED` | The running queued command was cancelled (estop). |
 | `RUN_ID_MISMATCH` | No active run, a different active run, `complete` for an inactive run, or `start` while another run is active. |
 | `MISSING_RUN_ID` | `start`, `complete` or `cancel` without a `run_id`. |
-| `MACHINE_PAUSED` | Queued command received while paused. |
+| `MACHINE_PAUSED` | Reserved. A paused edge holds queued commands instead (§9.4). |
 | `MACHINE_ESTOPPED` | Queued command, `start` or `resume` while the estop latch is set. |
 | `ESTOP_NOT_SUPPORTED` | `estop` on a machine without a hardware stop. The latch is still set. |
 | `JSON_DECODE_ERROR` | Undecodable payload. Defined, not observed. |
@@ -256,7 +256,7 @@ The edge MUST evaluate these checks in this order:
 |---|---|---|---|---|---|
 | 1 | Payload unreadable (bad frame, bad JSON) | `+TERM` | none (see D-6) | — | — |
 | 2 | Estop latch set | `+TERM` | `MACHINE_ESTOPPED` "Machine emergency stopped; send reset before queuing commands" | — | — |
-| 3 | Paused | **see note** | `MACHINE_PAUSED` "Machine paused" | — | — |
+| 3 | Paused | held, keep-alive `+WPI` | none until resume, then rows 4–11 | — | — |
 | 4 | `run_id` is `null` | `+ACK` | `EXECUTION_ERROR` "Command requires run_id" | — | — |
 | 5 | No active run | `+ACK` | `RUN_ID_MISMATCH` "Send START command to start a run before sending commands" | — | — |
 | 6 | `run_id` ≠ active run | `+ACK` | `RUN_ID_MISMATCH` "Run ID mismatch: expected active run, got <run_id>" | — | — |
@@ -266,9 +266,7 @@ The edge MUST evaluate these checks in this order:
 | 10 | Cancelled by estop | `+TERM` | `COMMAND_CANCELLED` | cleared | `estopped` |
 | 11 | Success | `+ACK` | `success`, `data` | kept | `busy` → `idle` |
 
-**Pause note.** A conforming edge MUST `+TERM` the message in row 3. The client has already been told the command failed, so it must never run later.
-
-> **Observed.** Python sends no ack in row 3. The message is redelivered after `ack_wait` (30 s), is evaluated again, and **would execute** if the run were still active and the machine resumed. In the capture, `echo "while paused"` was redelivered as delivery #2 thirty seconds later and got a second response (D-1, [transcript 04](v1.0/transcripts/04-pause-cancel-estop.md)).
+Row 3 only applies to a message delivered at the instant the edge paused; otherwise a paused edge does not pull (§9.4). Rows 2 and 3 are re-evaluated when the hold ends, so an estop while held terminates the message with `MACHINE_ESTOPPED`.
 
 ### 9.3 Immediate commands
 
@@ -293,8 +291,15 @@ Notes:
 
 ### 9.4 Pause
 
-- Pause gates only the *start* of queued commands. A queued command that is already running continues.
+Pause **holds the queue**; resume continues it in order.
+
+- A queued command that is already running continues and is answered normally.
+- While paused the edge MUST NOT pull from `COMMAND_QUEUE`. Commands published meanwhile stay in the stream, unanswered.
+- A message already delivered when the pause took effect MUST be held in memory with `+WPI` at an interval shorter than `ack_wait`, so it is not redelivered, and MUST run first on resume.
+- `resume` restarts pulling. Held and backlogged commands then go through §9.2 in delivery order; commands of a run that ended meanwhile get `RUN_ID_MISMATCH`.
+- `estop` while paused releases the hold: the held message and the backlog are terminated with `MACHINE_ESTOPPED` (§9.6). A later `reset` leaves the pause latch set.
 - Pause does not affect immediate commands.
+- Clients wait for queued responses without a timeout, so a paused command answered later is not an error for them.
 
 ### 9.5 Busy status
 
@@ -538,18 +543,18 @@ The CLI judges an edge "ready" from the kids it reports in its pong. This whole 
 
 ## 16. Known deviations in the Python reference (SDK 0.0.23)
 
-Each was reproduced against the live stack. Transcript names refer to `v1.0/transcripts/`.
+Each was reproduced against the live stack with SDK 0.0.23. Transcript names refer to `v1.0/transcripts/`, which were captured from 0.0.23. The last column names the release that conforms; integration tests for each fix live in `libs/python-sdk/tests/integration/`.
 
-| ID | Behaviour | Impact | Evidence |
-|---|---|---|---|
-| D-1 | A queued command received while paused is not acked. It is redelivered after `ack_wait` (30 s) and evaluated again. | A command the client was told failed can execute later. | 04 `run3_paused_cmd`, `imm_start_no_run` (delivery #2) |
-| D-2 | `cancel` does not interrupt the running queued command. State says `idle`/`null` while it runs. | The operator believes the work stopped. Queued work stays blocked. | 04 `cancel_flow` |
-| D-3 | `pause` writes `run_id` from the header (`""` from the CLI). `resume` writes `null` while a run is still active. | State KV misreports the run. | 04 `run3_pause`, `run3_resume` |
-| D-4 | After a broker restart the edge holds two connections and answers ping twice. | Duplicate pongs, duplicate subscriptions. | `connz` showed 2 edge connections; `nats req --replies=0` got 2 pongs |
-| D-5 | Stale immediate commands replay on startup; the queue binds before immediate; a hidden active run blocks `start`. | Stale `start`/`estop`/`reset` act minutes or days later. | 05 `offline_backlog` |
-| D-6 | Malformed queue or immediate messages produce no response. | Client waits for its full timeout. | 03 `malformed` |
-| D-7 | Edge issues `STREAM.CREATE` for KV buckets and would `STREAM.UPDATE` command streams whose config differs. | May override provisioned settings. | 01 `startup` |
-| D-8 | `pause`, `resume` and `cancel` return `UNKNOWN_COMMAND` when the driver lacks the method, after applying the effect. | The CLI reports failure for an action that happened. | 04 `min_driver` |
+| ID | Behaviour | Impact | Evidence | Fixed |
+|---|---|---|---|---|
+| D-1 | A queued command received while paused is not acked. It is redelivered after `ack_wait` (30 s) and evaluated again. | A command the client was told failed can execute later. | 04 `run3_paused_cmd`, `imm_start_no_run` (delivery #2) | 0.0.24: pause holds the queue (§9.4) |
+| D-2 | `cancel` does not interrupt the running queued command. State says `idle`/`null` while it runs. | The operator believes the work stopped. Queued work stays blocked. | 04 `cancel_flow` | open |
+| D-3 | `pause` writes `run_id` from the header (`""` from the CLI). `resume` writes `null` while a run is still active. | State KV misreports the run. | 04 `run3_pause`, `run3_resume` | open |
+| D-4 | After a broker restart the edge holds two connections and answers ping twice. | Duplicate pongs, duplicate subscriptions. | `connz` showed 2 edge connections; `nats req --replies=0` got 2 pongs | open |
+| D-5 | Stale immediate commands replay on startup; the queue binds before immediate; a hidden active run blocks `start`. | Stale `start`/`estop`/`reset` act minutes or days later. | 05 `offline_backlog` | open |
+| D-6 | Malformed queue or immediate messages produce no response. | Client waits for its full timeout. | 03 `malformed` | open |
+| D-7 | Edge issues `STREAM.CREATE` for KV buckets and would `STREAM.UPDATE` command streams whose config differs. | May override provisioned settings. | 01 `startup` | open |
+| D-8 | `pause`, `resume` and `cancel` return `UNKNOWN_COMMAND` when the driver lacks the method, after applying the effect. | The CLI reports failure for an action that happened. | 04 `min_driver` | open |
 
 ## 17. Discrepancies with the public docs
 
@@ -559,7 +564,7 @@ The Communication page (`apps/docs/docs/overview/communication.mdx`) does not ma
 - **`tlm.status`.** The page lists `puda.<id>.tlm.status`, which does not exist. State lives in KV `MACHINE_STATE`.
 - **Response stream retention.** The page says "Limits"; provisioning uses `interest` with a 24 h max age.
 - **Events transport.** The page says events use JetStream; they are core NATS.
-- **Queue delivery guarantee.** "Exactly-once" for commands is not accurate. Delivery is at-least-once with redelivery after `ack_wait`, and exactly-once execution is not guaranteed (see D-1).
+- **Queue delivery guarantee.** "Exactly-once" for commands is not accurate. Delivery is at-least-once with redelivery after `ack_wait`, so exactly-once execution relies on the edge acking or terminating every message it acts on (§8.2, D-1).
 
 ## 18. Open issues for 1.1
 
