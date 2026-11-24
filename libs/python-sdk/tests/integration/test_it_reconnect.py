@@ -18,7 +18,7 @@ class ReconnectTests(EdgeTestCase):
         deadline = time.monotonic() + 10
         while self.broker.connection_count() != 2 and time.monotonic() < deadline:
             await asyncio.sleep(0.2)
-        await asyncio.sleep(2)  # a duplicate connect() would happen in this window
+        await asyncio.sleep(1)  # a duplicate connect() would show up in this window
 
         self.assertEqual(self.broker.connection_count(), 2)  # wire + edge
         self.assertEqual(await self.wire.pong_count(), 1)

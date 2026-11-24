@@ -3,69 +3,17 @@ from __future__ import annotations
 
 import asyncio
 import unittest
-from typing import Any
+
+from processor_fakes import FakeClient, FakeMsg
+from processor_fakes import message as _message
+from processor_fakes import success as _success
 
 from puda.command_processor import CommandProcessor
 from puda.models import (
-    CommandRequest,
     CommandResponse,
     CommandResponseStatus,
-    MessageHeader,
-    MessageType,
     NATSMessage,
 )
-
-
-def _message(name: str, run_id: str | None = "run-1") -> NATSMessage:
-    return NATSMessage(
-        header=MessageHeader(
-            message_type=MessageType.COMMAND,
-            user_id="user-1",
-            username="user",
-            machine_id="test-1",
-            run_id=run_id,
-        ),
-        command=CommandRequest(name=name, step_number=1, machine_id="test-1"),
-    )
-
-
-class PlainEncryption:
-    def open_payload(self, _subject: str, data: bytes) -> bytes:
-        return data
-
-
-class FakeClient:
-    def __init__(self) -> None:
-        self.machine_id = "test-1"
-        self.states: list[dict[str, Any]] = []
-        self.encryption = PlainEncryption()
-        self.js = None
-        self.response_queue = "puda.test-1.cmd.response.queue"
-        self.response_immediate = "puda.test-1.cmd.response.immediate"
-
-    async def publish_state(self, payload: dict[str, Any]) -> None:
-        self.states.append(payload)
-
-
-class FakeMsg:
-    def __init__(self, message: NATSMessage) -> None:
-        self.subject = "puda.test-1.cmd.queue"
-        self.data = message.model_dump_json().encode()
-        self.acked = False
-        self.termed = False
-
-    async def ack(self) -> None:
-        self.acked = True
-
-    async def term(self) -> None:
-        self.termed = True
-
-    async def in_progress(self) -> None:
-        return None
-
-
-async def _success(_message: NATSMessage) -> CommandResponse:
-    return CommandResponse(status=CommandResponseStatus.SUCCESS)
 
 
 class PauseHoldsQueueTests(unittest.IsolatedAsyncioTestCase):
