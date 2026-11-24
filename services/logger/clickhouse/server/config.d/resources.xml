@@ -1,0 +1,6 @@
+<clickhouse>
+  <!-- Avoid hundreds of background threads on high-core-count development hosts. -->
+  <background_schedule_pool_size>16</background_schedule_pool_size>
+  <background_message_broker_schedule_pool_size>8</background_message_broker_schedule_pool_size>
+  <background_distributed_schedule_pool_size>8</background_distributed_schedule_pool_size>
+</clickhouse>

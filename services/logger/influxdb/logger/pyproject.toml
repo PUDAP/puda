@@ -1,0 +1,15 @@
+[project]
+name = "puda-influxdb-subscriber"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "puda==0.0.19rc1",
+    "nats-py>=2.12.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]

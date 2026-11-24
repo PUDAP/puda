@@ -1,0 +1,11 @@
+.env
+.env.*
+.venv
+__pycache__
+.pytest_cache
+secrets
+test
+keys
+certs
+*.key
+*.pem

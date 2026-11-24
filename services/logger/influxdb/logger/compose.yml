@@ -1,0 +1,42 @@
+services:
+  influxdb-logger:
+    build: .
+    image: pudap/influxdb-logger:telegraf
+    restart: unless-stopped
+    network_mode: host
+    scale: ${LOGGER_REPLICAS:-1}
+    labels:
+      - "autoheal=true"
+    env_file:
+      - .env
+    environment:
+      PUDA_NATS_CA: "${PUDA_NATS_CA:+/run/puda-ca/ca.pem}"
+      PUDA_E2E_KEY_FILE: "${PUDA_E2E_KEY_FILE:+/run/puda-key/e2e.key}"
+    volumes:
+      - ./telegraf.conf.template:/etc/telegraf/telegraf.conf.template:ro
+      # Unset variables mount /dev/null as an unused placeholder for plaintext mode.
+      - type: bind
+        source: ${PUDA_NATS_CA:-/dev/null}
+        target: /run/puda-ca/ca.pem
+        read_only: true
+        bind:
+          create_host_path: false
+      # The SDK updates this file in place, so rotations persist to the host.
+      - type: bind
+        source: ${PUDA_E2E_KEY_FILE:-/dev/null}
+        target: /run/puda-key/e2e.key
+        bind:
+          create_host_path: false
+    # The Python subscriber initializes response streams using the same TLS settings.
+
+  # Restart unhealthy replicas, preserving the upstream healthcheck/autoheal setup.
+  autoheal:
+    image: willfarrell/autoheal:latest
+    container_name: influxdb-logger-autoheal
+    restart: unless-stopped
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+      AUTOHEAL_INTERVAL: 30
+      AUTOHEAL_START_PERIOD: 90
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

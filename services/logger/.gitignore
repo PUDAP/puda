@@ -1,0 +1,6 @@
+.env
+admin-token.json
+livestream/recordings/
+__pycache__/
+*.pyc
+data/

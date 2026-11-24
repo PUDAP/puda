@@ -1,0 +1,44 @@
+[agent]
+  interval = "10s"
+  # Keep normal ingestion latency low; slow requests use the output timeout.
+  flush_interval = "5s"
+  metric_batch_size = 1000
+  metric_buffer_limit = 100000
+  skip_processors_after_aggregators = false
+
+[[inputs.execd]]
+  command = ["/opt/puda/bin/python", "/opt/puda/subscriber.py"]
+  signal = "none"
+  restart_delay = "10s"
+  buffer_size = "4MiB"
+  data_format = "influx"
+
+# Preserve upstream's one-minute health means.
+[[aggregators.basicstats]]
+  namepass = ["telemetry"]
+  period = "60s"
+  delay = "5s"
+  drop_original = true
+  stats = ["mean"]
+
+# basicstats adds _mean; retain the field names used by existing dashboards.
+[[processors.rename]]
+  namepass = ["telemetry"]
+  [[processors.rename.replace]]
+    field = "cpu_mean"
+    dest = "cpu"
+  [[processors.rename.replace]]
+    field = "mem_mean"
+    dest = "mem"
+  [[processors.rename.replace]]
+    field = "temp_mean"
+    dest = "temp"
+
+[[outputs.influxdb_v2]]
+  # Tolerate brief NAS/network stalls; failed writes remain buffered for retry.
+  timeout = "20s"
+  urls = ["${INFLUXDB_URL}"]
+  token = "${INFLUXDB_TOKEN}"
+  organization = "${INFLUXDB_ORGANIZATION}"
+  bucket = "${INFLUXDB_DATABASE}"
+  tagexclude = ["subject"]

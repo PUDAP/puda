@@ -1,0 +1,11 @@
+[project]
+name = "postgres-logger"
+version = "0.1.0"
+description = "Logger service that listens to NATS command/response streams and logs to PostgreSQL"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "puda==0.0.15",
+    "python-dotenv>=1.2.1",
+    "psycopg[binary]>=3.2",
+]

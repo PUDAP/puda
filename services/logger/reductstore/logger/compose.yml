@@ -1,0 +1,41 @@
+services:
+  nats-stream-init:
+    image: natsio/nats-box:latest
+    container_name: reductstore-logger-nats-init
+    network_mode: host
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        set -e
+        NATS_URL="$$(echo "$$NATS_SERVERS" | cut -d',' -f1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+        if [ -z "$$NATS_URL" ]; then NATS_URL=nats://localhost:4222; fi
+        echo "Ensuring JetStream response streams on $$NATS_URL"
+        nats stream add RESPONSE_QUEUE \
+          --server "$$NATS_URL" \
+          --subjects "puda.*.cmd.response.queue" \
+          --retention interest \
+          --storage file \
+          --defaults 2>/dev/null || true
+        nats stream add RESPONSE_IMMEDIATE \
+          --server "$$NATS_URL" \
+          --subjects "puda.*.cmd.response.immediate" \
+          --retention interest \
+          --storage file \
+          --defaults 2>/dev/null || true
+        echo "JetStream response streams ready"
+    env_file:
+      - .env
+    restart: "no"
+
+  reductstore-logger:
+    build: .
+    image: ghcr.io/pudap/reductstore-logger:latest
+    container_name: reductstore-logger
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env
+    depends_on:
+      nats-stream-init:
+        condition: service_completed_successfully

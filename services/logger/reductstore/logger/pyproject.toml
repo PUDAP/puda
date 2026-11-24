@@ -1,0 +1,14 @@
+[project]
+name = "reductstore-logger"
+version = "0.1.0"
+description = "Logger service that listens to NATS command/response/telemetry streams and logs to ReductStore"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "nats-py>=2.9",
+    "python-dotenv>=1.2.1",
+    "reduct-py>=1.17,<2",
+]
+
+[tool.setuptools]
+py-modules = ["main", "reduct_client"]
