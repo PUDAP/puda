@@ -40,7 +40,6 @@ type Config struct {
 	PositionInterval  time.Duration
 	HealthInterval    time.Duration
 	QueueStream       string
-	ImmediateStream   string
 	MetricsAddress    string
 	ReportPath        string
 	ConnectTimeout    time.Duration
@@ -68,7 +67,6 @@ func Parse(args []string) (Config, error) {
 	fs.DurationVar(&cfg.PositionInterval, "position-interval", 30*time.Second, "position publication interval")
 	fs.DurationVar(&cfg.HealthInterval, "health-interval", 60*time.Second, "health publication interval")
 	fs.StringVar(&cfg.QueueStream, "queue-stream", "COMMAND_QUEUE", "queue command stream")
-	fs.StringVar(&cfg.ImmediateStream, "immediate-stream", "COMMAND_IMMEDIATE", "immediate command stream")
 	fs.StringVar(&cfg.MetricsAddress, "metrics-address", "127.0.0.1:9090", "Prometheus HTTP listen address; empty disables")
 	fs.StringVar(&cfg.ReportPath, "report", "", "optional JSON summary output path")
 	fs.DurationVar(&cfg.ConnectTimeout, "connect-timeout", 5*time.Second, "NATS connection timeout")

@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/PUDAP/puda/apps/cli/internal/puda"
 )
@@ -150,16 +149,6 @@ func TestPublishStartReleasesInterlockAfterPublication(t *testing.T) {
 		t.Fatal("publication interlock remained held after publish returned")
 	}
 	interlock.Unlock()
-}
-
-func TestWaitForImmediateResponseStopsOnCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	_, err := waitForImmediateResponse(ctx, make(chan *puda.NATSMessage), time.Hour)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("error = %v, want context canceled", err)
-	}
 }
 
 func TestAttemptedStartIsEligibleForCleanupWhenResponseIsLost(t *testing.T) {

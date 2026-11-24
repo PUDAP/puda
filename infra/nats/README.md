@@ -54,7 +54,7 @@ See [`three-node-r3/README.md`](./three-node-r3/README.md).
 ## NATS version
 
 All layouts pin `nats:2.15.3`. NATS 2.15 limits each stream to 1000 consumers by
-default. PUDA creates one `COMMAND_QUEUE` and one `COMMAND_IMMEDIATE` consumer
+default. PUDA creates one `COMMAND_QUEUE` consumer
 per machine, so every `nats.conf` sets `jetstream.limits.default_max_consumers: -1`
 (unlimited, the pre-2.15 behaviour). Without it, the 1001st machine cannot
 connect.
@@ -91,9 +91,14 @@ NATS_URL=tls://127.0.0.1:4222 NATS_CA=/path/to/ca.pem REPLICAS=1 ./setup_streams
 | Stream | Subjects | Retention |
 |---|---|---|
 | `COMMAND_QUEUE` | `puda.*.cmd.queue` | workqueue |
-| `COMMAND_IMMEDIATE` | `puda.*.cmd.immediate` | workqueue |
 | `RESPONSE_QUEUE` | `puda.*.cmd.response.queue` | interest (24h max-age) |
 | `RESPONSE_IMMEDIATE` | `puda.*.cmd.response.immediate` | interest (24h max-age) |
+
+Immediate commands (`start`, `complete`, `pause`, `resume`, `reset`, `estop`)
+use Core NATS request/reply on `puda.*.cmd.immediate`: the edge answers on the
+request's inbox and keeps a copy on `RESPONSE_IMMEDIATE`. No stream may capture
+`puda.*.cmd.immediate`, and only the edge subscribes to it: any other
+subscriber stops the broker answering "no responders" for an offline machine.
 
 Telemetry and events remain on Core NATS. `MACHINE_STATE` and
 `MACHINE_COMMANDS` are shared KV buckets keyed by `machine_id`.

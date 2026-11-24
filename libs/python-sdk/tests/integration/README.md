@@ -4,8 +4,8 @@ Each test class starts a private `nats-server` on free loopback ports,
 provisions it from `infra/nats/jetstream/streams/*.json` (as
 `setup_streams.sh` does), runs `edge_driver.py` as a real edge subprocess and
 drives it with raw protocol envelopes. They cover the behaviour specified in
-`docs/edge-protocol/` (pause hold, stale immediates, complete/abort, malformed
-commands, reconnect, provisioning).
+`docs/edge-protocol/` (pause hold, immediate request/reply and offline edges,
+complete/abort, malformed commands, reconnect, provisioning).
 
 ```bash
 cd libs/python-sdk

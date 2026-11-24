@@ -113,7 +113,7 @@ Use a **Time series** or **State timeline** panel. Each `machine_id` becomes a s
 
 ### Recent commands
 
-Lists command requests the logger captured from `puda.*.cmd.queue` and `puda.*.cmd.immediate`:
+Lists command requests the logger captured from `puda.*.cmd.queue` (immediate commands are logged from their responses on `puda.*.cmd.response.immediate`):
 
 ```sql
 SELECT time, machine_id, cmd_name, status, username

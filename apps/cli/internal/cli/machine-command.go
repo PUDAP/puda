@@ -155,13 +155,12 @@ func confirmMachineCommand(cmd *cobra.Command, request puda.CommandRequest) erro
 }
 
 func sendCompleteCommand(
-	js nats.JetStreamContext,
-	dispatcher *pudanats.ResponseDispatcher,
+	nc *nats.Conn,
 	machineID, runID, userID, username string,
 	timeoutSeconds int,
 	store *db.Store,
 ) (*puda.NATSMessage, error) {
-	return pudanats.SendCompleteCommand(js, dispatcher, machineID, runID, userID, username, timeoutSeconds, 0, machineCompleteAbort, store)
+	return pudanats.SendCompleteCommand(nc, machineID, runID, userID, username, timeoutSeconds, 0, machineCompleteAbort, store)
 }
 
 func parseMachineIDs(args []string) []string {
@@ -416,21 +415,10 @@ func sendImmediateCommandToMachines(
 		}
 	}
 
-	js, err := nc.JetStream()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get JetStream context: %w", err)
-	}
-
-	dispatcher := pudanats.NewResponseDispatcher(js, userID)
-	if err := dispatcher.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start response dispatcher: %w", err)
-	}
-	defer dispatcher.Close()
-
 	results := make([]machineCommandResult, 0, len(machineIDs))
 	failedCount := 0
 	for _, machineID := range machineIDs {
-		response, err := send(js, dispatcher, machineID, runID, userID, username, immediateCommandTimeoutSeconds, store)
+		response, err := send(nc, machineID, runID, userID, username, immediateCommandTimeoutSeconds, store)
 		if err == nil {
 			err = immediateCommandResponseError(response)
 		}

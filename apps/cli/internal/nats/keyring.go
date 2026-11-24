@@ -37,7 +37,10 @@ type StatusRow struct {
 }
 
 // Connect dials NATS, applying TLS when the URL scheme is tls://, then adopts the keyring.
+// Publishes are not buffered while reconnecting (ReconnectBufSize(-1)), so a
+// command fails at once instead of being sent late; callers may override it.
 func Connect(servers string, extra ...natsio.Option) (*natsio.Conn, error) {
+	extra = append([]natsio.Option{natsio.ReconnectBufSize(-1)}, extra...)
 	opts, err := OptionsForServers(servers, extra...)
 	if err != nil {
 		return nil, err

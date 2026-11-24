@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import sys
 import threading
 import time
@@ -86,12 +85,7 @@ class MinimalDriver:
 
 async def main(url: str, machine_id: str, kind: str) -> None:
     driver = FullDriver() if kind == "full" else MinimalDriver()
-    max_age = os.environ.get("EDGE_IMMEDIATE_MAX_AGE")
-    client = EdgeNatsClient(
-        servers=[url],
-        machine_id=machine_id,
-        immediate_max_age=float(max_age) if max_age else 10.0,
-    )
+    client = EdgeNatsClient(servers=[url], machine_id=machine_id)
     runner = EdgeRunner(nats_client=client, machine_driver=driver, host_health=False)
     await runner.connect()
     await runner.run()

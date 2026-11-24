@@ -8,7 +8,7 @@ import (
 	natsio "github.com/nats-io/nats.go"
 )
 
-// PUDA JetStream resources. The four command/response streams and the two
+// PUDA JetStream resources. The three command/response streams and the two
 // machine KV buckets are required: edges create them with one replica when they
 // are missing, and infra/nats/jetstream/setup_streams.sh creates them with the
 // deployment's replica count. LIVESTREAMS and E2E_* are created on demand.
@@ -18,7 +18,6 @@ var pudaResourceSpecs = []struct {
 	required bool
 }{
 	{"COMMAND_QUEUE", "stream", true},
-	{"COMMAND_IMMEDIATE", "stream", true},
 	{"RESPONSE_QUEUE", "stream", true},
 	{"RESPONSE_IMMEDIATE", "stream", true},
 	{"MACHINE_STATE", "kv", true},

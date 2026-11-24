@@ -10,6 +10,7 @@
 ### Changed
 
 - Interrupting `puda protocol run` (Ctrl+C, SIGTERM) now sends `complete --abort` to every started machine, so commands still running on the edges are stopped instead of continuing unobserved. A normal finish or a failed step still sends plain `complete`.
+- Immediate commands (`start`, `complete`, `pause`, `resume`, `reset`, `estop`) use core NATS request/reply on `puda.<id>.cmd.immediate` instead of the `COMMAND_IMMEDIATE` stream (edges need the matching Python SDK). An offline machine fails at once with `no responders: machine offline`; a missing reply fails with `no reply within Ns; outcome unknown`, and immediate commands are safe to retry.
 
 ### Removed
 

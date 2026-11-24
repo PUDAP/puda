@@ -188,13 +188,24 @@ class Wire:
                 "command": command}
 
     async def publish_raw(self, kind: str, data: bytes) -> None:
-        await self.js.publish(f"puda.{self.machine_id}.cmd.{kind}", data)
+        """Queue commands go through JetStream; immediate ones are core NATS."""
+        if kind == "queue":
+            await self.js.publish(f"puda.{self.machine_id}.cmd.queue", data)
+        else:
+            await self.nc.publish(f"puda.{self.machine_id}.cmd.{kind}", data, reply=self.nc.new_inbox())
 
     async def queue(self, name: str, run_id: str | None, step: int, **kw) -> None:
         await self.publish_raw("queue", json.dumps(self.envelope(name, run_id, step, **kw)).encode())
 
     async def immediate(self, name: str, run_id: str | None = None, step: int = 0, **kw) -> None:
-        await self.publish_raw("immediate", json.dumps(self.envelope(name, run_id, step, **kw)).encode())
+        """Fire an immediate command without waiting for the reply."""
+        body = json.dumps(self.envelope(name, run_id, step, **kw)).encode()
+        await self.nc.publish(f"puda.{self.machine_id}.cmd.immediate", body, reply=self.nc.new_inbox())
+
+    async def request_raw(self, data: bytes, timeout: float = 10) -> dict[str, Any]:
+        """Send raw bytes as an immediate request and return the parsed reply."""
+        reply = await self.nc.request(f"puda.{self.machine_id}.cmd.immediate", data, timeout=timeout)
+        return json.loads(reply.data)
 
     def matching(self, kind: str, name: str, run_id: str | None, step: int) -> list[dict[str, Any]]:
         return [
@@ -217,8 +228,9 @@ class Wire:
 
     async def call(self, name: str, run_id: str | None = None, step: int = 0, timeout: float = 10,
                    **kw) -> dict[str, Any]:
-        await self.immediate(name, run_id, step, **kw)
-        return await self.response("immediate", name, run_id, step, timeout)
+        """Immediate command as core request/reply; returns the reply's response."""
+        body = json.dumps(self.envelope(name, run_id, step, **kw)).encode()
+        return (await self.request_raw(body, timeout))["response"]
 
     async def run(self, name: str, run_id: str, step: int, timeout: float = 15, **kw) -> dict[str, Any]:
         await self.queue(name, run_id, step, **kw)

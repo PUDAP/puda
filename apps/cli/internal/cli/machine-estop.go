@@ -30,8 +30,10 @@ the hardware stop may not have happened; check the machine physically:
   - ESTOP_NOT_SUPPORTED: the driver has no estop command; the queue is halted
     but no hardware stop was sent.
   - Unknown immediate command: the edge SDK predates estop (needs SDK 0.0.23+).
-  - timeout: no response; the edge may be offline. The estop stays queued and
-    runs when that edge reconnects.
+  - no responders: machine offline: nothing is listening for that machine,
+    so the estop was not delivered and no hardware action happened.
+  - no reply within ...; outcome unknown: the estop may have run; it is safe
+    to send estop again.
 Use --human for a text summary.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -69,23 +71,13 @@ func runEstopForMachines(w io.Writer, machineIDs []string, send immediateCommand
 		defer store.Disconnect()
 	}
 
-	js, err := nc.JetStream()
-	if err != nil {
-		return fmt.Errorf("failed to get JetStream context: %w", err)
-	}
-	dispatcher := pudanats.NewResponseDispatcher(js, userID)
-	if err := dispatcher.Start(); err != nil {
-		return fmt.Errorf("failed to start response dispatcher: %w", err)
-	}
-	defer dispatcher.Close()
-
 	results := make([]machineCommandResult, len(machineIDs))
 	var wg sync.WaitGroup
 	for i, machineID := range machineIDs {
 		wg.Add(1)
 		go func(i int, machineID string) {
 			defer wg.Done()
-			response, err := send(js, dispatcher, machineID, "", userID, username, immediateCommandTimeoutSeconds, store)
+			response, err := send(nc, machineID, "", userID, username, immediateCommandTimeoutSeconds, store)
 			if err == nil {
 				err = immediateCommandResponseError(response)
 			}

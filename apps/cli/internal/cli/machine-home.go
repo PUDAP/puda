@@ -74,7 +74,7 @@ func homeMachines(w io.Writer, machineIDs []string) error {
 		})
 	}
 
-	if err := pudanats.SendQueueCommands(js, dispatcher, requests, runID, userID, username, store, nil); err != nil {
+	if err := pudanats.SendQueueCommands(nc, js, dispatcher, requests, runID, userID, username, store, nil); err != nil {
 		return fmt.Errorf("home command failed: %w", err)
 	}
 

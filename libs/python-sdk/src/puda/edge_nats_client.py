@@ -22,7 +22,6 @@ import nats
 from nats.aio.msg import Msg
 from nats.js.api import ConsumerConfig, StreamConfig
 from nats.js.client import JetStreamContext
-from nats.js.errors import Error as NATSError
 from nats.errors import TimeoutError as NATSTimeoutError
 from nats.js.errors import NotFoundError
 from nats.js.kv import KeyValue
@@ -32,7 +31,6 @@ from .constants import (
     KV_BUCKET_COMMANDS,
     KV_BUCKET_STATE,
     NAMESPACE,
-    STREAM_COMMAND_IMMEDIATE,
     STREAM_COMMAND_QUEUE,
     STREAM_RESPONSE_IMMEDIATE,
     STREAM_RESPONSE_QUEUE,
@@ -46,7 +44,6 @@ logger = logging.getLogger(__name__)
 
 _REQUIRED_STREAMS = (
     (STREAM_COMMAND_QUEUE, f"{NAMESPACE}.*.cmd.queue", "workqueue"),
-    (STREAM_COMMAND_IMMEDIATE, f"{NAMESPACE}.*.cmd.immediate", "workqueue"),
     (STREAM_RESPONSE_QUEUE, f"{NAMESPACE}.*.cmd.response.queue", "interest"),
     (STREAM_RESPONSE_IMMEDIATE, f"{NAMESPACE}.*.cmd.response.immediate", "interest"),
 )
@@ -90,7 +87,8 @@ class EdgeNatsClient:
     NATS client used by the machine edge.
 
     - Telemetry / events: core NATS (fire-and-forget)
-    - Commands: JetStream WorkQueue (COMMAND_QUEUE pull, COMMAND_IMMEDIATE push)
+    - Commands: JetStream WorkQueue (COMMAND_QUEUE pull); immediate commands as
+      core NATS request/reply on puda.<id>.cmd.immediate
     - Command responses: JetStream Interest (RESPONSE_QUEUE, RESPONSE_IMMEDIATE)
     """
 
@@ -105,7 +103,6 @@ class EdgeNatsClient:
         *,
         ca_file: str | None = None,
         e2e_key_file: str | None = None,
-        immediate_max_age: float | None = 10.0,
     ):
         """
         Args:
@@ -117,15 +114,11 @@ class EdgeNatsClient:
                 URLs are never rewritten. Environment variables are not read.
             e2e_key_file: Payload key path, independent of TLS. None or ""
                 disables encryption for this client; no environment lookup.
-            immediate_max_age: Discard immediate commands that JetStream stored
-                more than this many seconds ago (sent while the edge was offline).
-                Measured on the server clock. None disables the check.
         """
         self.servers = servers
         self._connect_kwargs = e2e.connect_kwargs(servers, ca_file)
         self.encryption = e2e.Context(e2e_key_file)
         self.machine_id = machine_id
-        self.immediate_max_age = immediate_max_age
         self.description = _normalize_description(description)
         self.sdk_version = _sdk_version()
         self._started_at = time.monotonic()
@@ -315,9 +308,8 @@ class EdgeNatsClient:
         self.kv_commands = None
         self._cmd_queue_sub = None
         self._cmd_queue_task = None
-        self._cmd_immediate_sub = None
-        self._ping_sub = None
-        self._ping_broadcast_sub = None
+        # Core subscriptions (immediate, ping) survive reconnects inside nats-py;
+        # their handles are kept so they are not subscribed twice.
         self._last_heartbeat_at = None
         for stream in self._tlm_streams.values():
             stream.last_at = None
@@ -374,8 +366,6 @@ class EdgeNatsClient:
     async def _resubscribe_handlers(self) -> None:
         if self._queue_handler:
             await self.subscribe_queue(self._queue_handler)
-        if self._immediate_handler:
-            await self.subscribe_immediate(self._immediate_handler)
 
     def set_keyring_listener(self, listener: Callable[[], Awaitable[None]]) -> None:
         """Run after the shared keyring record changes the local keys."""
@@ -760,50 +750,18 @@ class EdgeNatsClient:
         )
 
     async def subscribe_immediate(self, handler: Callable[[NATSMessage], Awaitable[CommandResponse]]) -> None:
-        """Subscribe to immediate commands with a durable push consumer."""
-        if not self.js:
-            logger.error("JetStream not available for immediate subscription")
-            return
-
+        """Answer immediate commands as core NATS request/reply on cmd.immediate."""
+        if self.nc is None:
+            raise RuntimeError("NATS not connected")
         self._immediate_handler = handler
-        await self._ensure_all_streams()
-        durable_name = f"cmd_immed_{self.machine_id}"
 
         async def message_handler(msg: Msg) -> None:
             await self.commands.process_immediate(msg, self._immediate_handler)
 
         await self._safe_unsubscribe(self._cmd_immediate_sub)
-        self._cmd_immediate_sub = None
-        await self._delete_consumer(STREAM_COMMAND_IMMEDIATE, durable_name, retry_if_bound=True)
-
-        try:
-            self._cmd_immediate_sub = await self.js.subscribe(
-                subject=self.cmd_immediate,
-                stream=STREAM_COMMAND_IMMEDIATE,
-                durable=durable_name,
-                cb=message_handler,
-            )
-        except NATSError as e:
-            error_msg = str(e).lower()
-            if "bound" not in error_msg and "already bound" not in error_msg:
-                raise
-            logger.warning("Consumer %s still bound. Deleting and retrying...", durable_name)
-            await self._delete_consumer(STREAM_COMMAND_IMMEDIATE, durable_name)
-            await asyncio.sleep(0.5)
-            self._cmd_immediate_sub = await self.js.subscribe(
-                subject=self.cmd_immediate,
-                stream=STREAM_COMMAND_IMMEDIATE,
-                durable=durable_name,
-                cb=message_handler,
-            )
-        except NotFoundError:
-            logger.error("Stream %s not found even after creation attempt.", STREAM_COMMAND_IMMEDIATE)
-            raise
-
-        logger.info(
-            "Subscribed to immediate commands: %s (durable: %s, push consumer)",
-            self.cmd_immediate, durable_name,
-        )
+        self._cmd_immediate_sub = await self.nc.subscribe(subject=self.cmd_immediate, cb=message_handler)
+        await self.nc.flush()
+        logger.info("Subscribed to immediate commands: %s (core request/reply)", self.cmd_immediate)
 
     async def publish_log(self, log_level: str, msg: str, **kwargs) -> None:
         """Publish a log event (core NATS, fire-and-forget)."""

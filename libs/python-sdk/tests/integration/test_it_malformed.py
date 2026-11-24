@@ -30,12 +30,15 @@ class MalformedTests(EdgeTestCase):
         self.assertEqual(response["code"], "EXECUTION_ERROR")
         self.assertEqual((await self.wire.state())["state"], "idle")
 
-    async def test_uncorrelatable_payloads_are_dropped_and_not_redelivered(self) -> None:
+    async def test_uncorrelatable_payloads_are_handled(self) -> None:
         run = new_run()
         await self.wire.call("start", run)
         await self.wire.publish_raw("queue", b"{not json")
-        await self.wire.publish_raw("immediate", b"[1, 2]")
+        reply = await self.wire.request_raw(b"[1, 2]")
+        self.assertEqual(reply["response"]["code"], "EXECUTION_ERROR")
+        self.assertNotIn("header", reply)
         await asyncio.sleep(1)
+        # Neither shows up on the response streams: no client could match them.
         self.assertEqual([r for r in self.wire.responses if r["command"]["name"] != "start"], [])
         self.assertEqual((await self.wire.state())["state"], "idle")
         self.assertEqual((await self.wire.run("echo", run, 1))["status"], "success")

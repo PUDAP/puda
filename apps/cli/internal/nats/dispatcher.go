@@ -12,10 +12,9 @@ import (
 )
 
 const (
-	// Bind to streams defined in infra/nats/streams/*.json (lowercase puda.* subjects).
-	streamResponseImmediate = "RESPONSE_IMMEDIATE"
-	streamResponseQueue     = "RESPONSE_QUEUE"
-	responseConsumerTTL     = 5 * time.Minute
+	// Bind to streams defined in infra/nats/jetstream/streams/*.json (lowercase puda.* subjects).
+	streamResponseQueue = "RESPONSE_QUEUE"
+	responseConsumerTTL = 5 * time.Minute
 )
 
 type responseKey struct {
@@ -24,16 +23,16 @@ type responseKey struct {
 	machineID  string
 }
 
-// ResponseDispatcher manages a single long-lived JetStream subscription per
-// response stream (immediate + queue) and routes incoming responses to the
-// correct caller via a correlation map keyed on (runID, stepNumber, machineID).
+// ResponseDispatcher manages a single long-lived JetStream subscription on the
+// queue response stream and routes incoming responses to the correct caller
+// via a correlation map keyed on (runID, stepNumber, machineID). Immediate
+// commands do not use it: their replies arrive on a request inbox.
 type ResponseDispatcher struct {
-	js           nats.JetStreamContext
-	userID       string
-	mu           sync.Mutex
-	pending      map[responseKey]chan *puda.NATSMessage
-	immediateSub *nats.Subscription
-	queueSub     *nats.Subscription
+	js       nats.JetStreamContext
+	userID   string
+	mu       sync.Mutex
+	pending  map[responseKey]chan *puda.NATSMessage
+	queueSub *nats.Subscription
 }
 
 func NewResponseDispatcher(js nats.JetStreamContext, userID string) *ResponseDispatcher {
@@ -44,7 +43,7 @@ func NewResponseDispatcher(js nats.JetStreamContext, userID string) *ResponseDis
 	}
 }
 
-// Start creates two ephemeral push subscriptions (one per response stream).
+// Start creates an ephemeral push subscription on the queue response stream.
 // The server will delete them automatically after a period of inactivity.
 func (d *ResponseDispatcher) Start() error {
 	handler := func(msg *nats.Msg) {
@@ -86,17 +85,6 @@ func (d *ResponseDispatcher) Start() error {
 	}
 
 	var err error
-	d.immediateSub, err = d.js.Subscribe(
-		"puda.*.cmd.response.immediate",
-		handler,
-		nats.DeliverNew(),
-		nats.BindStream(streamResponseImmediate),
-		nats.InactiveThreshold(responseConsumerTTL),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to subscribe to immediate responses: %w", err)
-	}
-
 	d.queueSub, err = d.js.Subscribe(
 		"puda.*.cmd.response.queue",
 		handler,
@@ -105,7 +93,6 @@ func (d *ResponseDispatcher) Start() error {
 		nats.InactiveThreshold(responseConsumerTTL),
 	)
 	if err != nil {
-		d.immediateSub.Unsubscribe()
 		return fmt.Errorf("failed to subscribe to queue responses: %w", err)
 	}
 
@@ -113,9 +100,6 @@ func (d *ResponseDispatcher) Start() error {
 }
 
 func (d *ResponseDispatcher) Close() {
-	if d.immediateSub != nil {
-		d.immediateSub.Unsubscribe()
-	}
 	if d.queueSub != nil {
 		d.queueSub.Unsubscribe()
 	}

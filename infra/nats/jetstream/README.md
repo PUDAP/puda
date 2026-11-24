@@ -3,7 +3,7 @@
 This directory is independent of NATS server topology. It defines the PUDA
 protocol resources that must exist once per NATS account:
 
-- Four command/response streams in `streams/`
+- Three command/response streams in `streams/`
 - `MACHINE_STATE` KV bucket
 - `MACHINE_COMMANDS` KV bucket
 - `LIVESTREAMS` KV bucket
@@ -27,7 +27,7 @@ NATS_URL=nats://<any-cluster-node>:4222 REPLICAS=3 ./setup_streams.sh
 ```
 
 `REPLICAS` is required and accepts only `1` or `3`. The same value is applied
-to all four streams and the KV buckets, preventing mixed durability.
+to all three streams and the KV buckets, preventing mixed durability.
 
 Before applying a stream, the script uses `jq` to create a temporary effective
 config with `num_replicas` injected. The canonical JSON remains independent of

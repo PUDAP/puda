@@ -11,6 +11,16 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
 
 ### Changed
 
+- **Breaking:** immediate commands (`start`, `complete`, `pause`, `resume`,
+  `reset`, `estop`) are core NATS request/reply on `puda.<id>.cmd.immediate`
+  instead of the `COMMAND_IMMEDIATE` JetStream stream. The edge answers on the
+  request's reply inbox and records a copy on `RESPONSE_IMMEDIATE`. Nothing is
+  stored, so a command sent while the edge is offline gets an instant "no
+  responders" and can never replay later; a reply that times out means the
+  outcome is unknown, and every immediate command is safe to retry (`start` of
+  the active run answers `data: {"already_started": true}`). Edges no longer
+  create `COMMAND_IMMEDIATE`. `CommandService.send_immediate_command` uses the
+  same request/reply.
 - **Breaking:** lifecycle hooks (`pause`, `resume`, `reset`, `estop`, `abort`,
   `shutdown`) are plain methods found by name and must not carry `@command`.
   `EdgeRunner` raises `LifecycleHookError` at startup naming any decorated hook.
@@ -43,14 +53,10 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
 ### Fixed
 
 - Immediate commands sent while an edge was offline no longer act when it comes
-  back. Immediate commands that JetStream stored more than `immediate_max_age`
-  seconds ago (new `EdgeNatsClient` argument, default 10, measured on the server
-  clock, `None` disables) are acknowledged and answered with `EXECUTION_ERROR`
-  "Stale immediate command discarded". Previously a stale `start`, `reset` or
-  `estop` replayed on startup; a replayed `start` left an active run hidden behind
+  back (see request/reply above). Previously a stale `start`, `reset` or `estop`
+  replayed on startup; a replayed `start` left an active run hidden behind
   `run_id: null` that blocked every new `start` until `reset`.
-- The edge binds the immediate consumer before the queue consumer, and startup and
-  reconnect state report the active run instead of `run_id: null`.
+- Startup and reconnect state report the active run instead of `run_id: null`.
 - `pause` and `resume` write the active run to `MACHINE_STATE` instead of the
   header's `run_id` (`""` from the CLI) and `null`. `resume` reports `busy` when a
   command is still running.
@@ -61,8 +67,9 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
   a JSON object whose `header.machine_id`, `header.run_id` and
   `command.step_number` are usable gets `EXECUTION_ERROR` "Invalid command
   envelope: <field>: <problem>". Malformed queued commands are terminated without
-  ending the run; malformed immediate commands are acked and no longer set state
-  `error`. Payloads that cannot be matched are dropped with a log line, as before.
+  ending the run; malformed immediate commands no longer set state `error`, and
+  every immediate request gets a reply on its inbox even when it cannot be
+  matched. Unmatched payloads are not recorded on the response streams.
 - After a broker restart the edge keeps a single NATS connection. The main loop
   opened a second connection while nats-py was still reconnecting the first, so
   the edge answered every ping twice and held duplicate subscriptions. It now

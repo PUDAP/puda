@@ -211,7 +211,7 @@ and use its `seal` and `open_payload` methods. There is no process-global
 keyring or automatic environment lookup.
 
 Basic default NATS client for generic machines. Handles commands, telemetry, and events following the `puda.{machine_id}.{category}.{sub_category}` pattern. Provides:
-- Subscribing to command streams (queue and immediate) via JetStream with exactly-once delivery
+- Pulling queued commands from JetStream (one at a time, acknowledged before the response) and answering immediate commands as core NATS request/reply
 - Processing incoming commands and sending command responses
 - Publishing telemetry (core NATS, no JetStream)
 - Publishing events (core NATS, fire-and-forget)
@@ -447,7 +447,7 @@ See [`tests/commands.py`](tests/commands.py) for complete examples.
 
 #### Immediate Commands
 
-Immediate commands are control commands that interrupt or modify execution. Use `send_immediate_command()` for:
+Immediate commands are control commands that interrupt or modify execution. They are core NATS request/reply on `puda.<id>.cmd.immediate`: an offline machine fails at once (no responders) and nothing is stored for later, so `None` after a timeout means the outcome is unknown and the command can be retried. Use `send_immediate_command()` for:
 - `pause`: Hold the queue; the running command finishes, later queued commands wait in the stream
 - `resume`: Run the held commands in order
 - `complete`: End the run; refused with `EXECUTION_LOCKED` while a command runs unless `params: {"abort": true}`, which calls the driver `abort` and answers the running command `COMMAND_CANCELLED`

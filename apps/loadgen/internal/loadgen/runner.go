@@ -25,10 +25,12 @@ type virtualEdge struct {
 }
 
 type consumerRef struct {
-	edge             virtualEdge
-	queueDurable     string
-	immediateDurable string
+	edge         virtualEdge
+	queueDurable string
 }
+
+// immediateRequestTimeout bounds each synthetic immediate request.
+const immediateRequestTimeout = 5 * time.Second
 
 type Runner struct {
 	cfg         config.Config
@@ -93,7 +95,10 @@ func (r *Runner) Run(ctx context.Context) error {
 		r.startPublisher(runCtx, r.cfg.HealthInterval, r.publishHealth)
 	}
 	if r.cfg.CommandInterval > 0 {
-		r.startCommandPublisher(runCtx)
+		if err := r.startCommandPublisher(runCtx); err != nil {
+			r.Close()
+			return err
+		}
 	}
 	<-runCtx.Done()
 	r.Close()
@@ -115,23 +120,8 @@ func (r *Runner) connect(ctx context.Context) error {
 			return ctx.Err()
 		default:
 		}
-		name := fmt.Sprintf("puda-loadgen-%d", i+1)
-		opts, err := e2e.OptionsForServers(
-			url,
-			nats.Name(name),
-			nats.Timeout(r.cfg.ConnectTimeout),
-			nats.MaxReconnects(-1),
-			nats.ReconnectWait(time.Second),
-			nats.NoEcho(),
-			nats.ReconnectHandler(func(_ *nats.Conn) { r.metrics.Reconnect() }),
-		)
+		nc, err := r.dial(url, fmt.Sprintf("puda-loadgen-%d", i+1))
 		if err != nil {
-			r.metrics.Error("connect")
-			return err
-		}
-		nc, err := nats.Connect(url, opts...)
-		if err != nil {
-			r.metrics.Error("connect")
 			return fmt.Errorf("connect %d/%d: %w", i+1, count, err)
 		}
 		pool = append(pool, nc)
@@ -160,6 +150,28 @@ func (r *Runner) connect(ctx context.Context) error {
 	}
 	log.Printf("connected %d virtual edges using %d NATS connections", len(r.edges), len(pool))
 	return nil
+}
+
+func (r *Runner) dial(url, name string) (*nats.Conn, error) {
+	opts, err := e2e.OptionsForServers(
+		url,
+		nats.Name(name),
+		nats.Timeout(r.cfg.ConnectTimeout),
+		nats.MaxReconnects(-1),
+		nats.ReconnectWait(time.Second),
+		nats.NoEcho(),
+		nats.ReconnectHandler(func(_ *nats.Conn) { r.metrics.Reconnect() }),
+	)
+	if err != nil {
+		r.metrics.Error("connect")
+		return nil, err
+	}
+	nc, err := nats.Connect(url, opts...)
+	if err != nil {
+		r.metrics.Error("connect")
+		return nil, err
+	}
+	return nc, nil
 }
 
 func (r *Runner) setupConsumers(ctx context.Context) error {
@@ -208,7 +220,7 @@ func (r *Runner) setupConsumers(ctx context.Context) error {
 		return err
 	default:
 	}
-	log.Printf("created %d command consumers", len(r.edges)*2)
+	log.Printf("created %d queue consumers and immediate subscriptions", len(r.edges))
 	return nil
 }
 
@@ -224,29 +236,21 @@ func (r *Runner) setupEdgeConsumers(ctx context.Context, index int) error {
 		return fmt.Errorf("queue consumer for %s: %w", e.id, err)
 	}
 
-	immediateDurable := "load_immediate_" + e.id
-	_, err = e.js.Subscribe(
-		edge.ImmediateSubject(e.id),
-		func(msg *nats.Msg) {
-			r.metrics.MessageReceived("immediate_command")
-			r.handleCommand(e, msg, "immediate_response", edge.ImmediateResponseSubject(e.id))
-		},
-		nats.Durable(immediateDurable),
-		nats.BindStream(r.cfg.ImmediateStream),
-		nats.ManualAck(),
-		nats.DeliverAll(),
-	)
+	// Immediate commands are core request/reply, as on a real edge.
+	_, err = e.nc.Subscribe(edge.ImmediateSubject(e.id), func(msg *nats.Msg) {
+		r.metrics.MessageReceived("immediate_command")
+		r.handleImmediate(e, msg)
+	})
 	if err != nil {
-		r.metrics.Error("immediate_consumer")
+		r.metrics.Error("immediate_subscribe")
 		_ = queueSub.Unsubscribe()
 		_ = e.js.DeleteConsumer(r.cfg.QueueStream, queueDurable)
-		return fmt.Errorf("immediate consumer for %s: %w", e.id, err)
+		return fmt.Errorf("immediate subscription for %s: %w", e.id, err)
 	}
 
 	r.consumerMu.Lock()
-	r.consumers = append(r.consumers, consumerRef{edge: e, queueDurable: queueDurable, immediateDurable: immediateDurable})
+	r.consumers = append(r.consumers, consumerRef{edge: e, queueDurable: queueDurable})
 	r.consumerMu.Unlock()
-	r.metrics.ConsumerCreated()
 	r.metrics.ConsumerCreated()
 	r.wg.Add(1)
 	go r.pullLoop(ctx, e, queueSub)
@@ -275,9 +279,6 @@ func (r *Runner) cleanupConsumers() {
 				if err := ref.edge.js.DeleteConsumer(r.cfg.QueueStream, ref.queueDurable); err != nil {
 					r.metrics.Error("queue_consumer_cleanup")
 				}
-				if err := ref.edge.js.DeleteConsumer(r.cfg.ImmediateStream, ref.immediateDurable); err != nil {
-					r.metrics.Error("immediate_consumer_cleanup")
-				}
 			}
 		}()
 	}
@@ -286,7 +287,7 @@ func (r *Runner) cleanupConsumers() {
 	}
 	close(jobs)
 	wg.Wait()
-	log.Printf("deleted %d command consumers", len(refs)*2)
+	log.Printf("deleted %d queue consumers", len(refs))
 }
 
 func (r *Runner) pullLoop(ctx context.Context, e virtualEdge, sub *nats.Subscription) {
@@ -350,6 +351,36 @@ func (r *Runner) handleCommand(e virtualEdge, msg *nats.Msg, metricType, respons
 	_ = msg.Ack()
 }
 
+// handleImmediate answers an immediate command on its reply inbox (sealed for
+// the inbox subject) and keeps a copy on RESPONSE_IMMEDIATE, like an edge.
+func (r *Runner) handleImmediate(e virtualEdge, msg *nats.Msg) {
+	plain, err := e2e.Open(msg.Subject, msg.Data)
+	if err != nil || msg.Reply == "" {
+		r.metrics.Error("command_decode")
+		return
+	}
+	payload, err := edge.SuccessResponse(plain)
+	if err != nil {
+		r.metrics.Error("command_decode")
+		return
+	}
+	sealed, err := e2e.Seal(msg.Reply, payload)
+	if err == nil {
+		err = msg.Respond(sealed)
+	}
+	if err != nil {
+		r.metrics.Error("response_publish")
+		return
+	}
+	responseSubject := edge.ImmediateResponseSubject(e.id)
+	if copySealed, err := e2e.Seal(responseSubject, payload); err != nil {
+		r.metrics.Error("response_publish")
+	} else if _, err := e.js.Publish(responseSubject, copySealed); err != nil {
+		r.metrics.Error("response_publish")
+	}
+	r.metrics.MessageSent("immediate_response")
+}
+
 func shouldRecordFetchError(ctx context.Context, err error) bool {
 	if errors.Is(err, nats.ErrTimeout) {
 		return false
@@ -362,7 +393,15 @@ func shouldRecordFetchError(ctx context.Context, err error) bool {
 	}
 }
 
-func (r *Runner) startCommandPublisher(ctx context.Context) {
+// startCommandPublisher sends commands from its own connection: edge
+// connections use NoEcho, so an immediate request published on the edge's
+// connection would never reach its own subscription.
+func (r *Runner) startCommandPublisher(ctx context.Context) error {
+	nc, err := r.dial(strings.Join(r.cfg.NATSServers, ","), "puda-loadgen-commands")
+	if err != nil {
+		return fmt.Errorf("command publisher connect: %w", err)
+	}
+	r.conns = append(r.conns, nc)
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
@@ -373,13 +412,14 @@ func (r *Runner) startCommandPublisher(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				r.publishCommandBatch(ctx)
+				r.publishCommandBatch(ctx, nc)
 			}
 		}
 	}()
+	return nil
 }
 
-func (r *Runner) publishCommandBatch(ctx context.Context) {
+func (r *Runner) publishCommandBatch(ctx context.Context, nc *nats.Conn) {
 	step := int(r.commandStep.Add(1))
 	runID := fmt.Sprintf("loadgen-%d-%d", time.Now().UnixNano(), step)
 	jobs := make(chan virtualEdge)
@@ -415,7 +455,7 @@ func (r *Runner) publishCommandBatch(ctx context.Context) {
 					r.metrics.Error("command_encode")
 					continue
 				}
-				if _, err := e.js.Publish(subject, sealed); err != nil {
+				if _, err := nc.Request(subject, sealed, immediateRequestTimeout); err != nil {
 					r.metrics.Error("immediate_command_publish")
 				} else {
 					r.metrics.MessageSent("immediate_command")

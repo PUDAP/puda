@@ -41,12 +41,11 @@ class PlainEncryption:
 class FakeClient:
     """Stands in for EdgeNatsClient: records state, no JetStream."""
 
-    def __init__(self, *, immediate_max_age: float | None = 10.0, queued: int | None = None) -> None:
+    def __init__(self, *, queued: int | None = None) -> None:
         self.machine_id = MACHINE_ID
         self.states: list[dict[str, Any]] = []
         self.encryption = PlainEncryption()
         self.js = None
-        self.immediate_max_age = immediate_max_age
         self.response_queue = f"puda.{MACHINE_ID}.cmd.response.queue"
         self.response_immediate = f"puda.{MACHINE_ID}.cmd.response.immediate"
         if queued is not None:

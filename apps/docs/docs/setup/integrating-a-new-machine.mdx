@@ -240,7 +240,8 @@ The CLI reports each machine separately:
 | `ok` | The driver's `estop` ran. |
 | `ESTOP_NOT_SUPPORTED` | The driver has no `estop` hook. The queue stopped, but no hardware stop was sent. |
 | `Unknown immediate command: estop` | The edge runs a Python SDK older than 0.0.23. |
-| timeout | The edge did not answer. The estop stays queued and applies when the edge reconnects. |
+| `offline or does not exist` | Nothing answers the machine's immediate subject, so the estop was not delivered. Nothing is stored; it will not apply later. |
+| `no reply within …; outcome unknown` | The edge got the request but did not answer in time. The estop may have run; it is safe to send again. |
 
 Any result other than `ok` means the hardware may still be running. A software estop does not replace the machine's physical emergency stop.
 

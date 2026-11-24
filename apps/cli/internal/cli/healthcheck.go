@@ -29,10 +29,10 @@ path holding its evidence (source) and a next_step. Advisory issues never
 change status. One cause affecting several resources is one issue.
 
 PUDA resources: the local cluster must have the PUDA streams (COMMAND_QUEUE,
-COMMAND_IMMEDIATE, RESPONSE_QUEUE, RESPONSE_IMMEDIATE) and KV buckets
-(MACHINE_STATE, MACHINE_COMMANDS). Missing, leaderless or below-quorum ones make
-the report unhealthy; one replica in a cluster, or a lagging replica, is
-degraded. LIVESTREAMS and E2E_* are created on demand and only advisory.
+RESPONSE_QUEUE, RESPONSE_IMMEDIATE) and KV buckets (MACHINE_STATE,
+MACHINE_COMMANDS). Missing, leaderless or below-quorum ones make the report
+unhealthy; one replica in a cluster, or a lagging replica, is degraded.
+LIVESTREAMS and E2E_* are created on demand and only advisory.
 
 Each configured URL is an endpoint. One broker reachable through several
 addresses (for example LAN and Tailscale) is several endpoints but one broker.

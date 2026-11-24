@@ -20,8 +20,9 @@ class UnprovisionedBrokerTests(EdgeTestCase):
         await self.wire.call("start", run)
         self.assertEqual((await self.wire.run("echo", run, 1))["status"], "success")
         names = {info.config.name for info in await self.wire.js.streams_info()}
-        self.assertTrue({"COMMAND_QUEUE", "COMMAND_IMMEDIATE", "RESPONSE_QUEUE", "RESPONSE_IMMEDIATE",
+        self.assertTrue({"COMMAND_QUEUE", "RESPONSE_QUEUE", "RESPONSE_IMMEDIATE",
                          "KV_MACHINE_STATE", "KV_MACHINE_COMMANDS"} <= names)
+        self.assertNotIn("COMMAND_IMMEDIATE", names)
         self.assertIn("is missing; creating", self.edge_log())
 
 

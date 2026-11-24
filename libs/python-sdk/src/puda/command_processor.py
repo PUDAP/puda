@@ -6,7 +6,6 @@ import json
 import logging
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Awaitable, Callable
 
 from nats.aio.msg import Msg
@@ -30,9 +29,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 KEEP_ALIVE_INTERVAL = 25  # seconds
-# Immediate commands stored longer ago than this are discarded: they were sent
-# while the edge was offline and must not act now (a stale start, reset or estop).
-IMMEDIATE_MAX_AGE = 10.0  # seconds
 
 CommandHandler = Callable[[NATSMessage], Awaitable[CommandResponse]]
 
@@ -111,6 +107,31 @@ class CommandProcessor:
             except asyncio.CancelledError:
                 pass
 
+    def _response_text(self, msg: Msg, response: CommandResponse, *, any_envelope: bool = False) -> str | None:
+        """The RESPONSE-typed copy of the command in *msg*, as JSON text.
+
+        Returns None when the payload cannot be opened, or (unless
+        *any_envelope*) when a malformed envelope cannot be correlated.
+        """
+        try:
+            plain = self._client.encryption.open_payload(msg.subject, msg.data)
+        except Exception as e:
+            logger.error("Cannot open command payload; no response sent: %s", e)
+            return None
+        try:
+            original = NATSMessage.model_validate_json(plain)
+        except ValidationError:
+            text = self._correlatable_response(plain, response)
+            if text is None and any_envelope:
+                text = json.dumps({"response": response.model_dump(mode="json")})
+            if text is None:
+                logger.error("Malformed command cannot be correlated; no response sent")
+            return text
+        header = original.header.model_copy(
+            update={"message_type": MessageType.RESPONSE, "timestamp": _get_current_timestamp()}
+        )
+        return original.model_copy(update={"header": header, "response": response}).model_dump_json()
+
     async def _publish_command_response(
         self,
         msg: Msg,
@@ -121,33 +142,41 @@ class CommandProcessor:
         js = self._client.js
         if not js:
             return
-        try:
-            plain = self._client.encryption.open_payload(msg.subject, msg.data)
-        except Exception as e:
-            logger.error("Cannot open command payload; no response sent: %s", e)
+        text = self._response_text(msg, response)
+        if text is None:
             return
         try:
-            try:
-                original = NATSMessage.model_validate_json(plain)
-            except ValidationError:
-                text = self._correlatable_response(plain, response)
-                if text is None:
-                    logger.error("Malformed command cannot be correlated; no response sent")
-                    return
-            else:
-                header = original.header.model_copy(
-                    update={
-                        "message_type": MessageType.RESPONSE,
-                        "timestamp": _get_current_timestamp(),
-                    }
-                )
-                payload = original.model_copy(update={"header": header, "response": response})
-                text = payload.model_dump_json()
-            body = self._client.encryption.seal(subject, text.encode())
-            await js.publish(subject=subject, payload=body)
+            await js.publish(subject=subject, payload=self._client.encryption.seal(subject, text.encode()))
             logger.info("Published command response to JetStream: %s", text)
         except Exception as e:
             logger.error("Error publishing command response: %s", e)
+
+    async def _reply_immediate(self, msg: Msg, response: CommandResponse) -> None:
+        """Answer an immediate request on its reply inbox, then record a copy.
+
+        The reply is what the client waits for. The copy on the
+        RESPONSE_IMMEDIATE stream is history for loggers; it is published
+        after the reply so it never delays it.
+        """
+        text = self._response_text(msg, response, any_envelope=True)
+        if text is None:
+            return
+        # Only a full envelope is recorded; loggers and history need the
+        # correlation fields.
+        record = '"header"' in text
+        if msg.reply:
+            try:
+                await msg.respond(self._client.encryption.seal(msg.reply, text.encode()))
+            except Exception as e:
+                logger.error("Error replying to immediate command: %s", e)
+        js = self._client.js
+        subject = self._client.response_immediate
+        if js is not None and record:
+            try:
+                await js.publish(subject=subject, payload=self._client.encryption.seal(subject, text.encode()))
+            except Exception as e:
+                logger.warning("Could not record immediate response on %s: %s", subject, e)
+        logger.info("Answered immediate command: %s", text)
 
     @staticmethod
     def _correlatable_response(plain: bytes, response: CommandResponse) -> str | None:
@@ -309,72 +338,36 @@ class CommandProcessor:
             )
 
     async def process_immediate(self, msg: Msg, handler: CommandHandler) -> None:
-        """Process immediate commands (start, complete, pause, resume, reset, estop)."""
+        """Answer an immediate request (start, complete, pause, resume, reset, estop).
+
+        Immediate commands are core NATS request/reply: nothing is stored, so a
+        command sent while the edge is offline never arrives (the client sees
+        no responders) and nothing stale can replay. Every request with a reply
+        inbox gets exactly one reply, including malformed ones.
+        """
         try:
             try:
                 message = NATSMessage.model_validate_json(
                     self._client.encryption.open_payload(msg.subject, msg.data)
                 )
             except ValidationError as e:
-                # Malformed: ack so it is not redelivered; machine state is
-                # unchanged because nothing ran.
+                # Malformed: nothing runs, machine state is unchanged.
                 logger.error("Malformed immediate command: %s", e)
-                await msg.ack()
-                await self._publish_command_response(
-                    msg, self._invalid_envelope(e), self._client.response_immediate
-                )
+                await self._reply_immediate(msg, self._invalid_envelope(e))
                 return
-            await msg.ack()
             if message.command is None:
                 logger.error("Received message with no command")
-                await self._publish_command_response(
-                    msg,
-                    _error(CommandResponseCode.EXECUTION_ERROR, "Invalid command envelope: command: missing"),
-                    self._client.response_immediate,
+                await self._reply_immediate(
+                    msg, _error(CommandResponseCode.EXECUTION_ERROR, "Invalid command envelope: command: missing")
                 )
                 return
-
             command_name = message.command.name.lower()
-            run_id = message.header.run_id
-            age = self._stored_age(msg)
-            max_age = getattr(self._client, "immediate_max_age", IMMEDIATE_MAX_AGE)
-            if max_age is not None and age is not None and age > max_age:
-                logger.warning(
-                    "Discarding stale immediate command %s (stored %.1fs ago, max %.1fs)",
-                    command_name, age, max_age,
-                )
-                await self._publish_command_response(
-                    msg,
-                    _error(
-                        CommandResponseCode.EXECUTION_ERROR,
-                        f"Stale immediate command discarded: stored {age:.1f}s ago "
-                        f"(max {max_age:g}s); the edge was offline when it was sent",
-                    ),
-                    self._client.response_immediate,
-                )
-                return
-            response = await self._dispatch_immediate(command_name, run_id, message, handler)
-            await self._publish_command_response(msg, response, self._client.response_immediate)
+            response = await self._dispatch_immediate(command_name, message.header.run_id, message, handler)
+            await self._reply_immediate(msg, response)
         except Exception as e:
             logger.error("Error processing immediate command: %s", e)
-            await self._fail_immediate(msg, CommandResponseCode.EXECUTION_ERROR, str(e))
-
-    @staticmethod
-    def _stored_age(msg: Msg) -> float | None:
-        """Seconds since JetStream stored *msg* (server clock), or None if unknown."""
-        try:
-            stored = msg.metadata.timestamp
-        except Exception:
-            return None
-        if stored.tzinfo is None:
-            stored = stored.replace(tzinfo=timezone.utc)
-        return (datetime.now(timezone.utc) - stored).total_seconds()
-
-    async def _fail_immediate(self, msg: Msg, code: CommandResponseCode, message: str) -> None:
-        await self._publish_command_response(
-            msg, _error(code, message), self._client.response_immediate
-        )
-        await self._client.publish_state({"state": MachineState.ERROR, "run_id": None})
+            await self._reply_immediate(msg, _error(CommandResponseCode.EXECUTION_ERROR, str(e)))
+            await self._client.publish_state({"state": MachineState.ERROR, "run_id": None})
 
     async def _dispatch_immediate(
         self,
@@ -413,6 +406,9 @@ class CommandProcessor:
             return self._estopped_error("start")
         if not run_id:
             return _error(CommandResponseCode.MISSING_RUN_ID, "START command requires RUN_ID")
+        if self.run_manager.get_active_run_id() == run_id:
+            # Retrying a start whose reply was lost is safe.
+            return CommandResponse(status=CommandResponseStatus.SUCCESS, data={"already_started": True})
         if not await self.run_manager.start_run(run_id):
             return _error(
                 CommandResponseCode.RUN_ID_MISMATCH,

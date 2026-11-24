@@ -89,7 +89,7 @@ func TestPUDAResourceMissingIsUnhealthyWithSetupStep(t *testing.T) {
 	if !strings.Contains(issues[0].NextStep, "NATS_URL=nats://n1:4222 REPLICAS=1 ./setup_streams.sh") {
 		t.Fatalf("next step lacks a runnable command: %s", issues[0].NextStep)
 	}
-	if issues[0].Source != "puda.resources[0],puda.resources[4]" {
+	if issues[0].Source != "puda.resources[0],puda.resources[3]" {
 		t.Fatalf("source=%s", issues[0].Source)
 	}
 }
@@ -101,7 +101,7 @@ func TestPUDAResourceSingleReplicaInClusterIsDegraded(t *testing.T) {
 		t.Fatalf("status=%s puda=%+v", report.Status, report.PUDA)
 	}
 	issues := BuildIssues(report)
-	if len(issues) != 1 || issues[0].Code != "puda_resources_under_replicated" || strings.Count(issues[0].Target, ",") != 5 || !strings.Contains(issues[0].NextStep, "REPLICAS=3 ./setup_streams.sh") {
+	if len(issues) != 1 || issues[0].Code != "puda_resources_under_replicated" || strings.Count(issues[0].Target, ",") != 4 || !strings.Contains(issues[0].NextStep, "REPLICAS=3 ./setup_streams.sh") {
 		t.Fatalf("issues=%s first=%+v", issueCodes(issues), issues[0])
 	}
 	// A standalone server with one replica is the normal single-node layout.
@@ -130,14 +130,14 @@ func TestPUDAResourceNoLeaderAndLaggingReplica(t *testing.T) {
 	streams["KV_MACHINE_STATE"] = &natsio.StreamInfo{Config: natsio.StreamConfig{Replicas: 3}, Cluster: &natsio.ClusterInfo{Leader: "nats1", Replicas: []*natsio.PeerInfo{{Name: "nats2", Current: true}, {Name: "nats3", Offline: true}}}}
 	report = applyPUDAHealth(okReport("puda"), checkPUDAResources(streams))
 	issues := BuildIssues(report)
-	if got := issueCodes(issues); got != "unhealthy:puda_resource_no_leader:COMMAND_QUEUE,degraded:puda_resource_replica_lagging:RESPONSE_QUEUE,MACHINE_STATE" || issues[1].Source != "puda.resources[2],puda.resources[4]" {
+	if got := issueCodes(issues); got != "unhealthy:puda_resource_no_leader:COMMAND_QUEUE,degraded:puda_resource_replica_lagging:RESPONSE_QUEUE,MACHINE_STATE" || issues[1].Source != "puda.resources[1],puda.resources[3]" {
 		t.Fatalf("issues=%s %+v", got, issues)
 	}
 }
 
 func TestPUDAResourceUnreadableIsUnhealthyWithoutDuplicatingError(t *testing.T) {
 	streams := allStreams(1, nil)
-	streams["COMMAND_IMMEDIATE"] = nil
+	streams["RESPONSE_QUEUE"] = nil
 	report := applyPUDAHealth(okReport(""), checkPUDAResources(streams))
 	issues := BuildIssues(report)
 	if report.Status != HealthUnhealthy || len(issues) != 1 || issues[0].Code != "puda_resource_unreadable" {
@@ -261,7 +261,7 @@ func TestPUDAResourceMinorityReplicasIsNoQuorum(t *testing.T) {
 	streams := allStreams(3, &natsio.ClusterInfo{Leader: "nats1", Replicas: []*natsio.PeerInfo{{Name: "nats2", Offline: true}, {Name: "nats3", Offline: true}}})
 	report := applyPUDAHealth(okReport("puda"), checkPUDAResources(streams))
 	issues := BuildIssues(report)
-	if report.Status != HealthUnhealthy || len(issues) != 1 || issues[0].Code != "puda_resource_no_quorum" || strings.Count(issues[0].Target, ",") != 5 || !strings.Contains(issues[0].Detail, "nats2, nats3") {
+	if report.Status != HealthUnhealthy || len(issues) != 1 || issues[0].Code != "puda_resource_no_quorum" || strings.Count(issues[0].Target, ",") != 4 || !strings.Contains(issues[0].Detail, "nats2, nats3") {
 		t.Fatalf("status=%s issues=%+v", report.Status, issues)
 	}
 }

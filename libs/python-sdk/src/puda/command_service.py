@@ -16,11 +16,11 @@ from typing import Dict, Any, Optional
 import nats
 from nats.js.client import JetStreamContext
 from nats.aio.msg import Msg
+from nats.errors import TimeoutError as NATSTimeoutError
 from . import e2e
 from .constants import (
     NAMESPACE,
     STREAM_RESPONSE_QUEUE,
-    STREAM_RESPONSE_IMMEDIATE,
     QUEUE_COMMAND_TIMEOUT,
     IMMEDIATE_COMMAND_TIMEOUT,
 )
@@ -57,19 +57,12 @@ class ResponseHandler:
         
         # push consumers with ephemeral subscriptions
         queue_subject = f"{NAMESPACE}.{self.machine_id}.cmd.response.queue"
-        immediate_subject = f"{NAMESPACE}.{self.machine_id}.cmd.response.immediate" 
         
         try:
             # Create ephemeral consumers for response streams
             self._queue_consumer = await self.js.subscribe(
                 queue_subject,
                 stream=STREAM_RESPONSE_QUEUE,
-                cb=lambda msg: asyncio.create_task(self._handle_message(msg))
-            )
-            
-            self._immediate_consumer = await self.js.subscribe(
-                immediate_subject,
-                stream=STREAM_RESPONSE_IMMEDIATE,
                 cb=lambda msg: asyncio.create_task(self._handle_message(msg))
             )
             
@@ -701,66 +694,66 @@ class CommandService:
         timeout: int = IMMEDIATE_COMMAND_TIMEOUT
     ) -> Optional[NATSMessage]:
         """
-        Send an immediate command (pause, resume, cancel) to the machine.
-        
+        Send an immediate command (start, complete, pause, resume, reset, estop).
+
+        Immediate commands are core NATS request/reply: the edge answers on the
+        reply inbox. Nothing is stored, so an offline edge means no responders.
+
         Args:
             request: CommandRequest model containing command details (must include machine_id)
             run_id: Run ID for the command
             user_id: User ID who initiated the command
             username: Username who initiated the command
-            timeout: Maximum time to wait for response in seconds
-        
+            timeout: Maximum time to wait for the reply in seconds
+
         Returns:
-            NATSMessage if successful, None if failed or timeout
+            NATSMessage if answered; None if the machine is offline, the reply
+            timed out (outcome unknown; immediate commands are safe to retry) or
+            could not be sent.
         """
-        if not self._connected or not self.js:
+        if not self._connected or not self.nc:
             raise RuntimeError("Not connected to NATS. Call connect() first.")
-        
-        # Determine subject using machine_id from request
+
         subject = f"{NAMESPACE}.{request.machine_id}.cmd.immediate"
-        
         logger.info(
             "Sending immediate command: machine_id=%s, command=%s, run_id=%s, step_number=%s",
             request.machine_id, request.name, run_id, request.step_number
         )
-        
-        # Get or create response handler for this machine
-        response_handler = await self._get_response_handler(request.machine_id)
-        
-        # Register pending response
-        response_received = response_handler.register_pending(run_id, request.step_number)
-        
-        # Build payload
         payload = self._build_command_payload(request, request.machine_id, run_id, user_id, username)
-
+        loop = asyncio.get_running_loop()
+        inbox = self.nc.new_inbox()
+        sub = await self.nc.subscribe(inbox)
         try:
-            # Publish to JetStream
-            await self.js.publish(
-                subject,
-                self.encryption.seal(subject, payload.model_dump_json().encode()),
+            # Headers make the server answer "no responders" when no edge listens.
+            await self.nc.publish(
+                subject, self.encryption.seal(subject, payload.model_dump_json().encode()),
+                reply=inbox, headers={"Puda-Request": "1"},
             )
-            
-            logger.info("Command published, waiting for response...")
-            
-            # Wait for response with timeout
-            try:
-                await asyncio.wait_for(response_received.wait(), timeout=timeout)
-            except asyncio.TimeoutError:
-                logger.error("Timeout waiting for response after %s seconds", timeout)
-                response_handler.remove_pending(run_id, request.step_number)
-                return None
-            
-            # Give a small delay to ensure any pending messages are processed
-            await asyncio.sleep(0.1)
-            
-            # Get the response
-            return response_handler.get_response(run_id, request.step_number)
-            
+            deadline = loop.time() + timeout
+            while True:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise NATSTimeoutError
+                reply = await sub.next_msg(timeout=remaining)
+                if reply.headers and reply.headers.get("Status") == "503":
+                    logger.error("No responders on %s: machine %s is offline", subject, request.machine_id)
+                    return None
+                try:
+                    return NATSMessage.model_validate_json(self.encryption.open_payload(reply.subject, reply.data))
+                except Exception:
+                    logger.warning("Ignoring unreadable reply to immediate command on %s", subject)
+        except (asyncio.TimeoutError, NATSTimeoutError):
+            logger.error(
+                "No reply within %s seconds; outcome unknown (immediate commands are safe to retry)",
+                timeout,
+            )
+            return None
         except Exception as e:
             logger.error("Error sending immediate command: %s", e)
-            response_handler.remove_pending(run_id, request.step_number)
             return None
-    
+        finally:
+            await sub.unsubscribe()
+
     # ==================== Private Helper Methods ====================
     
     def _register_signal_handlers(self):

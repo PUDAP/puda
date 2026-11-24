@@ -85,7 +85,7 @@ func provisionPUDAResources(t *testing.T, nc *natsio.Conn) {
 	if err != nil {
 		return
 	}
-	for _, name := range []string{"COMMAND_QUEUE", "COMMAND_IMMEDIATE", "RESPONSE_QUEUE", "RESPONSE_IMMEDIATE"} {
+	for _, name := range []string{"COMMAND_QUEUE", "RESPONSE_QUEUE", "RESPONSE_IMMEDIATE"} {
 		subject := "puda.*.cmd." + strings.ToLower(strings.TrimPrefix(strings.TrimPrefix(name, "COMMAND_"), "RESPONSE_"))
 		if strings.HasPrefix(name, "RESPONSE_") {
 			subject = "puda.*.cmd.response." + strings.ToLower(strings.TrimPrefix(name, "RESPONSE_"))
