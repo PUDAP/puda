@@ -275,8 +275,8 @@ Immediate verbs are matched case-insensitively. Any other name is dispatched to 
 |---|---|---|---|---|
 | `start` | `run_id` set; no estop latch; no active run | Run becomes active | `success` / `MISSING_RUN_ID` / `MACHINE_ESTOPPED` / `RUN_ID_MISMATCH` "cannot start, <active> is currently running" | `idle` + `run_id` |
 | `complete` | `run_id` = active run, and no command of the run running unless `params.abort` | Run cleared; see §9.8 | `success` / `EXECUTION_LOCKED` / `MISSING_RUN_ID` / `RUN_ID_MISMATCH` "Run <id> not active" | `idle`, `run_id: null` |
-| `pause` | — | Pause latch set; driver `pause` called if it is in the catalog | Driver result, or `success` if absent | `paused` |
-| `resume` | No estop latch | Pause latch cleared; driver `resume` called if present | Driver result, or `success` if absent / `MACHINE_ESTOPPED` | `idle` |
+| `pause` | — | Pause latch set; driver `pause` called if it is in the catalog | Driver result, or `success` if absent | `paused` + active run |
+| `resume` | No estop latch | Pause latch cleared; driver `resume` called if present | Driver result, or `success` if absent / `MACHINE_ESTOPPED` | `idle` + active run, or `busy` if a command is running |
 | `reset` | — | Run cleared; driver `reset` called if present. On success the estop latch is cleared. | Driver result, or `success` if absent | `idle` on success, `error` on failure |
 | `estop` | — | §9.6 | — | `estopped` |
 
@@ -285,7 +285,7 @@ Notes:
 - "Driver result, or `success` if absent" is the normative rule. A machine without a `pause` method still pauses.
 - **Observed (D-8).** Python returns `UNKNOWN_COMMAND` for `pause`, `resume` and `cancel` when the driver lacks the method, even though it has already applied the pause, resume or cancel. Only `reset` is special-cased ([transcript 04, `min_driver`](v1.0/transcripts/04-pause-cancel-estop.md)).
 - There is no `cancel` verb. It is answered `UNKNOWN_COMMAND` "Unknown immediate command: cancel" like any other unknown verb ([example](v1.0/examples/response-immediate-cancel-unknown.json)). A driver method named `cancel` is dispatched only through the queue.
-- **Observed (D-3).** `pause` writes `header.run_id` into state (`""` when sent by the CLI), and `resume` writes `run_id: null` even when a run is still active.
+- `pause` and `resume` do not change the run. The `run_id` they put in state is the **active** run (or `null`), never `header.run_id`.
 
 ### 9.4 Pause
 
@@ -374,8 +374,8 @@ The value is published to KV `MACHINE_STATE`, key `<id>` ([schema](v1.0/schemas/
   - queued command finish: `idle` + run, or `error` + run;
   - `start`: `idle` + run;
   - `complete`: `idle` + `null`;
-  - `pause`: `paused`;
-  - `resume`: `idle`;
+  - `pause`: `paused` + active run;
+  - `resume`: `idle` + active run, or `busy` + run while a command is running;
   - `reset`: `idle` or `error`;
   - `estop`: `estopped`;
   - malformed immediate: `error`;
@@ -570,7 +570,7 @@ Each was reproduced against the live stack with SDK 0.0.23. Transcript names ref
 |---|---|---|---|---|
 | D-1 | A queued command received while paused is not acked. It is redelivered after `ack_wait` (30 s) and evaluated again. | A command the client was told failed can execute later. | 04 `run3_paused_cmd`, `imm_start_no_run` (delivery #2) | 0.0.24: pause holds the queue (§9.4) |
 | D-2 | `cancel` does not interrupt the running queued command. State says `idle`/`null` while it runs. | The operator believes the work stopped. Queued work stays blocked. | 04 `cancel_flow` | 0.0.24: `cancel` removed; `complete` with `abort` (§9.8) |
-| D-3 | `pause` writes `run_id` from the header (`""` from the CLI). `resume` writes `null` while a run is still active. | State KV misreports the run. | 04 `run3_pause`, `run3_resume` | open |
+| D-3 | `pause` writes `run_id` from the header (`""` from the CLI). `resume` writes `null` while a run is still active. | State KV misreports the run. | 04 `run3_pause`, `run3_resume` | 0.0.24: active run in state (§9.3) |
 | D-4 | After a broker restart the edge holds two connections and answers ping twice. | Duplicate pongs, duplicate subscriptions. | `connz` showed 2 edge connections; `nats req --replies=0` got 2 pongs | open |
 | D-5 | Stale immediate commands replay on startup; the queue binds before immediate; a hidden active run blocks `start`. | Stale `start`/`estop`/`reset` act minutes or days later. | 05 `offline_backlog` | 0.0.24: stale immediates discarded, immediate binds first (§7, §9.7) |
 | D-6 | Malformed queue or immediate messages produce no response. | Client waits for its full timeout. | 03 `malformed` | open |
