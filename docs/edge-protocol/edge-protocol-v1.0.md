@@ -213,7 +213,12 @@ Rules:
 - Python adds `"kwargs": {}` to the echoed `command` when it was absent. Edges MAY do the same.
 - For queue commands, the reference acks or terminates first and then publishes the response.
 
-> **Observed.** A queue or immediate message that is not valid JSON or fails envelope validation gets no response. The queue message is terminated; the immediate message is acked and state becomes `error`. The client waits until its timeout (D-6). Edges SHOULD publish an `EXECUTION_ERROR` or `JSON_DECODE_ERROR` response when `header.run_id`, `machine_id` and `step_number` can still be recovered.
+**Malformed commands.** A payload that opens (§13.4) but is not a valid envelope:
+
+- MUST NOT act, and MUST NOT be redelivered: a queued message is terminated, an immediate message is acked.
+- MUST NOT change the run or the machine state.
+- MUST be answered `EXECUTION_ERROR` "Invalid command envelope: <field>: <problem>" when it is **correlatable**: a JSON object with a `header` object whose `machine_id` is a string and `run_id` a string or `null`, and a `command` object whose `step_number` is an integer. The response echoes the received object as in the rules above ([example](v1.0/examples/response-queue-malformed.json)).
+- Otherwise it is dropped and logged; no client can match a response to it. `JSON_DECODE_ERROR` is therefore not emitted.
 
 ### 8.5 Driver command dispatch
 
@@ -236,7 +241,7 @@ Rules:
 | `MACHINE_PAUSED` | Reserved. A paused edge holds queued commands instead (§9.4). |
 | `MACHINE_ESTOPPED` | Queued command, `start` or `resume` while the estop latch is set. |
 | `ESTOP_NOT_SUPPORTED` | `estop` on a machine without a hardware stop. The latch is still set. |
-| `JSON_DECODE_ERROR` | Undecodable payload. Defined, not observed. |
+| `JSON_DECODE_ERROR` | Reserved. Undecodable payloads cannot be correlated, so they get no response (§8.4). |
 | `PAUSE_ERROR`, `RESUME_ERROR`, `CANCEL_ERROR`, `NO_EXECUTION` | Reserved. Not emitted by the reference. |
 
 ## 9. Run model and command semantics
@@ -253,7 +258,7 @@ The edge MUST evaluate these checks in this order:
 
 | # | Condition | Ack | Response | Run | State |
 |---|---|---|---|---|---|
-| 1 | Payload unreadable (bad frame, bad JSON) | `+TERM` | none (see D-6) | — | — |
+| 1 | Payload unreadable or not a valid envelope | `+TERM` | `EXECUTION_ERROR` if correlatable (§8.4), else none | — | — |
 | 2 | Estop latch set | `+TERM` | `MACHINE_ESTOPPED` "Machine emergency stopped; send reset before queuing commands" | — | — |
 | 3 | Paused | held, keep-alive `+WPI` | none until resume, then rows 4–11 | — | — |
 | 4 | `run_id` is `null` | `+ACK` | `EXECUTION_ERROR` "Command requires run_id" | — | — |
@@ -377,7 +382,6 @@ The value is published to KV `MACHINE_STATE`, key `<id>` ([schema](v1.0/schemas/
   - `resume`: `idle` + active run, or `busy` + run while a command is running;
   - `reset`: `idle` or `error`;
   - `estop`: `estopped`;
-  - malformed immediate: `error`;
   - graceful shutdown: `offline`.
 - The value is overwritten (history 1). Clients read it with `DIRECT.GET`.
 - After an E2E key switch the edge MUST re-put its last state, sealed with the new key.
@@ -572,7 +576,7 @@ Each was reproduced against the live stack with SDK 0.0.23. Transcript names ref
 | D-3 | `pause` writes `run_id` from the header (`""` from the CLI). `resume` writes `null` while a run is still active. | State KV misreports the run. | 04 `run3_pause`, `run3_resume` | 0.0.24: active run in state (§9.3) |
 | D-4 | After a broker restart the edge holds two connections and answers ping twice. | Duplicate pongs, duplicate subscriptions. | `connz` showed 2 edge connections; `nats req --replies=0` got 2 pongs | open |
 | D-5 | Stale immediate commands replay on startup; the queue binds before immediate; a hidden active run blocks `start`. | Stale `start`/`estop`/`reset` act minutes or days later. | 05 `offline_backlog` | 0.0.24: stale immediates discarded, immediate binds first (§7, §9.7) |
-| D-6 | Malformed queue or immediate messages produce no response. | Client waits for its full timeout. | 03 `malformed` | open |
+| D-6 | Malformed queue or immediate messages produce no response. | Client waits for its full timeout. | 03 `malformed` | 0.0.24: correlatable ones answered, state unchanged (§8.4) |
 | D-7 | Edge issues `STREAM.CREATE` for KV buckets and would `STREAM.UPDATE` command streams whose config differs. | May override provisioned settings. | 01 `startup` | open |
 | D-8 | `pause`, `resume` and `cancel` return `UNKNOWN_COMMAND` when the driver lacks the method, after applying the effect. | The CLI reports failure for an action that happened. | 04 `min_driver` | 0.0.24: missing hooks succeed (§9.3) |
 
@@ -590,9 +594,8 @@ The Communication page (`apps/docs/docs/overview/communication.mdx`) does not ma
 
 1. Advertise `protocol_version` and `sdk_name` in the pong. Today the CLI compatibility check keys on `sdk_version` against Python SDK ranges, so a C edge always shows "compatibility unknown".
 2. Fix D-1, D-2, D-3 and D-8 in the Python SDK and then remove the "Observed" notes.
-3. Decide whether malformed commands that can still be correlated get a response (D-6).
-4. Define broker authentication (NKEY/JWT) for edges outside a trusted network.
-5. Consider an MQTT binding. The broker already exposes MQTT, and ESP-IDF has a native MQTT client. Work-queue consumption and ack semantics would need to be specified first.
+3. Define broker authentication (NKEY/JWT) for edges outside a trusted network.
+4. Consider an MQTT binding. The broker already exposes MQTT, and ESP-IDF has a native MQTT client. Work-queue consumption and ack semantics would need to be specified first.
 
 ---
 

@@ -1,0 +1,25 @@
+{
+  "header": {
+    "version": "1.0",
+    "message_type": "response",
+    "user_id": "00000000-0000-4000-8000-000000000001",
+    "username": "puda",
+    "machine_id": "proto-test",
+    "run_id": "44444444-2222-4333-8444-555555555555",
+    "timestamp": "2026-11-24T04:02:52Z"
+  },
+  "command": {
+    "name": "echo",
+    "params": {},
+    "step_number": 7,
+    "version": "1.0",
+    "machine_id": "proto-test"
+  },
+  "response": {
+    "status": "error",
+    "completed_at": "2026-11-24T04:02:52Z",
+    "code": "EXECUTION_ERROR",
+    "message": "Invalid command envelope: header.message_type: Input should be 'command', 'response', 'log', 'alert' or 'media'",
+    "data": null
+  }
+}
