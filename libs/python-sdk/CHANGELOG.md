@@ -47,6 +47,9 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
 - `pause` and `resume` write the active run to `MACHINE_STATE` instead of the
   header's `run_id` (`""` from the CLI) and `null`. `resume` reports `busy` when a
   command is still running.
+- `pause` and `resume` succeed when the driver has no `pause`/`resume` method,
+  like `reset` already did. The edge had applied the pause or resume but answered
+  `UNKNOWN_COMMAND`.
 
 ## [0.0.23] - 2026-11-19
 

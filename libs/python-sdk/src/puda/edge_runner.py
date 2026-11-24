@@ -36,6 +36,11 @@ from .tlm_stream import iter_tlm_stream_methods, tlm_stream_description
 
 logger = logging.getLogger(__name__)
 
+# Immediate verbs the edge applies itself; the driver method is optional.
+OPTIONAL_LIFECYCLE_HOOKS = frozenset(
+    {ImmediateCommand.PAUSE.value, ImmediateCommand.RESUME.value, ImmediateCommand.RESET.value}
+)
+
 # Seconds complete --abort waits for the running command after driver abort.
 ABORT_WAIT = 5.0
 
@@ -413,12 +418,9 @@ class EdgeRunner:
 
         try:
             logger.info("Executing immediate command: %s (run_id: %s)", command_name, run_id)
-            if (
-                command_name.lower() == ImmediateCommand.RESET
-                and command_name.lower() not in self.allowed_commands
-            ):
-                logger.info("Driver has no reset command; skipping")
-                return CommandResponse(status=CommandResponseStatus.SUCCESS)
+            skipped = self._skip_missing_lifecycle_hook(command_name.lower())
+            if skipped is not None:
+                return skipped
             handler, error_response = _validate_handler(
                 self.machine_driver, command_name, self.allowed_commands
             )
@@ -437,6 +439,18 @@ class EdgeRunner:
                 code=CommandResponseCode.EXECUTION_ERROR,
                 message=str(e),
             )
+
+    def _skip_missing_lifecycle_hook(self, verb: str) -> CommandResponse | None:
+        """Succeed for an optional lifecycle hook the driver does not define.
+
+        The edge has already applied pause, resume or reset itself; the driver
+        method only adds machine-specific behaviour, so its absence is not an
+        error.
+        """
+        if verb not in OPTIONAL_LIFECYCLE_HOOKS or verb in self.allowed_commands:
+            return None
+        logger.info("Driver has no %s command; edge-side %s applied", verb, verb)
+        return CommandResponse(status=CommandResponseStatus.SUCCESS)
 
     async def _handle_abort(self) -> CommandResponse:
         """Stop the running queued command for ``complete --abort``.
