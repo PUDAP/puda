@@ -56,6 +56,11 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
   envelope: <field>: <problem>". Malformed queued commands are terminated without
   ending the run; malformed immediate commands are acked and no longer set state
   `error`. Payloads that cannot be matched are dropped with a log line, as before.
+- After a broker restart the edge keeps a single NATS connection. The main loop
+  opened a second connection while nats-py was still reconnecting the first, so
+  the edge answered every ping twice and held duplicate subscriptions. It now
+  reconnects only when the connection is closed, and puts the catalog and state
+  again once the automatic reconnect has restored JetStream.
 
 ## [0.0.23] - 2026-11-19
 

@@ -216,6 +216,7 @@ class EdgeRunner:
         self.exec_state = ExecutionState()
         # Dedicated threads so an emergency stop never waits behind queued
         # commands or telemetry in the default executor.
+        self._awaiting_reconnect = False
         self._estop_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="puda-estop")
         if ImmediateCommand.ESTOP.value not in self.allowed_commands:
             logger.warning(
@@ -303,17 +304,31 @@ class EdgeRunner:
             # Update in progress; don't fight the teardown by reconnecting.
             await asyncio.sleep(0.5)
             return False
-        if self.nats_client.nc is None or self.nats_client.js is None:
-            logger.warning("Connection lost, attempting to reconnect...")
-            if await self.nats_client.connect():
-                await self._setup_subscriptions()
-                logger.info("Reconnected and re-subscribed")
+        nc = self.nats_client.nc
+        if nc is not None and not nc.is_closed:
+            if self.nats_client.js is None:
+                # The client is reconnecting by itself; a second connect() here
+                # would leave two live connections (double pongs, double subs).
+                self._awaiting_reconnect = True
+                await asyncio.sleep(0.5)
+                return False
+            if self._awaiting_reconnect:
+                # The reconnected callback restored JetStream and consumers; put
+                # the catalog and state again as on startup.
+                self._awaiting_reconnect = False
+                await self._publish_commands()
                 await self._publish_state(MachineState.IDLE, self._active_run_id())
-                return True
-            logger.error("Reconnection failed, retrying in 5 seconds...")
-            await asyncio.sleep(5)
-            return False
-        return True
+            return True
+        logger.warning("Connection closed, attempting to reconnect...")
+        if await self.nats_client.connect():
+            await self._setup_subscriptions()
+            logger.info("Reconnected and re-subscribed")
+            await self._publish_commands()
+            await self._publish_state(MachineState.IDLE, self._active_run_id())
+            return True
+        logger.error("Reconnection failed, retrying in 5 seconds...")
+        await asyncio.sleep(5)
+        return False
 
     # -- command handlers ----------------------------------------------------
 
