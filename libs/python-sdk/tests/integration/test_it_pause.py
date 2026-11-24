@@ -54,3 +54,13 @@ class PauseTests(EdgeTestCase):
         await self.wire.call("estop", run)
         self.assertEqual((await self.wire.response("queue", "echo", run, 1))["code"], "MACHINE_ESTOPPED")
         self.assertNotIn("EXEC echo never", self.edge_log())
+
+    async def test_state_reports_active_run_while_paused(self) -> None:
+        run = new_run()
+        await self.wire.call("start", run)
+        await self.wire.call("pause", "")
+        state = await self.wire.state()
+        self.assertEqual((state["state"], state["run_id"]), ("paused", run))
+        await self.wire.call("resume", "")
+        state = await self.wire.state()
+        self.assertEqual((state["state"], state["run_id"]), ("idle", run))

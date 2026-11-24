@@ -429,7 +429,7 @@ class CommandProcessor:
                 self._update_runnable()
                 logger.info("Queue paused")
                 await self._client.publish_state(
-                    {"state": MachineState.PAUSED, "run_id": message.header.run_id}
+                    {"state": MachineState.PAUSED, "run_id": self.run_manager.get_active_run_id()}
                 )
         return await handler(message)
 
@@ -441,7 +441,10 @@ class CommandProcessor:
                 self._is_paused = False
                 self._update_runnable()
                 logger.info("Queue resumed")
-                await self._client.publish_state({"state": MachineState.IDLE, "run_id": None})
+                state = MachineState.BUSY if self._running is not None else MachineState.IDLE
+                await self._client.publish_state(
+                    {"state": state, "run_id": self.run_manager.get_active_run_id()}
+                )
         return await handler(message)
 
     async def _immediate_reset(self, handler: CommandHandler, message: NATSMessage) -> CommandResponse:

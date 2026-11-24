@@ -136,6 +136,17 @@ class PauseHoldsQueueTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(waiter.done())
         waiter.cancel()
 
+    async def test_pause_and_resume_report_the_active_run(self) -> None:
+        processor = await self._paused_processor()
+        self.assertEqual(processor._client.states[-1], {"state": "paused", "run_id": "run-1"})
+        await processor._immediate_resume(_success, _message("resume", run_id=""))
+        self.assertEqual(processor._client.states[-1], {"state": "idle", "run_id": "run-1"})
+
+    async def test_pause_without_run_reports_null_not_header_value(self) -> None:
+        processor = CommandProcessor(FakeClient())
+        await processor._immediate_pause(_message("pause", run_id=""), _success)
+        self.assertEqual(processor._client.states[-1], {"state": "paused", "run_id": None})
+
 
 if __name__ == "__main__":
     unittest.main()

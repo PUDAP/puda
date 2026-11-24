@@ -44,6 +44,9 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
   `run_id: null` that blocked every new `start` until `reset`.
 - The edge binds the immediate consumer before the queue consumer, and startup and
   reconnect state report the active run instead of `run_id: null`.
+- `pause` and `resume` write the active run to `MACHINE_STATE` instead of the
+  header's `run_id` (`""` from the CLI) and `null`. `resume` reports `busy` when a
+  command is still running.
 
 ## [0.0.23] - 2026-11-19
 
