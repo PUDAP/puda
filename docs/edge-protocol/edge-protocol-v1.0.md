@@ -283,7 +283,6 @@ Immediate verbs are matched case-insensitively. Any other name is dispatched to 
 Notes:
 
 - "Driver result, or `success` if absent" is the normative rule. A machine without a `pause` method still pauses.
-- **Observed (D-8).** Python returns `UNKNOWN_COMMAND` for `pause`, `resume` and `cancel` when the driver lacks the method, even though it has already applied the pause, resume or cancel. Only `reset` is special-cased ([transcript 04, `min_driver`](v1.0/transcripts/04-pause-cancel-estop.md)).
 - There is no `cancel` verb. It is answered `UNKNOWN_COMMAND` "Unknown immediate command: cancel" like any other unknown verb ([example](v1.0/examples/response-immediate-cancel-unknown.json)). A driver method named `cancel` is dispatched only through the queue.
 - `pause` and `resume` do not change the run. The `run_id` they put in state is the **active** run (or `null`), never `header.run_id`.
 
@@ -575,7 +574,7 @@ Each was reproduced against the live stack with SDK 0.0.23. Transcript names ref
 | D-5 | Stale immediate commands replay on startup; the queue binds before immediate; a hidden active run blocks `start`. | Stale `start`/`estop`/`reset` act minutes or days later. | 05 `offline_backlog` | 0.0.24: stale immediates discarded, immediate binds first (§7, §9.7) |
 | D-6 | Malformed queue or immediate messages produce no response. | Client waits for its full timeout. | 03 `malformed` | open |
 | D-7 | Edge issues `STREAM.CREATE` for KV buckets and would `STREAM.UPDATE` command streams whose config differs. | May override provisioned settings. | 01 `startup` | open |
-| D-8 | `pause`, `resume` and `cancel` return `UNKNOWN_COMMAND` when the driver lacks the method, after applying the effect. | The CLI reports failure for an action that happened. | 04 `min_driver` | open |
+| D-8 | `pause`, `resume` and `cancel` return `UNKNOWN_COMMAND` when the driver lacks the method, after applying the effect. | The CLI reports failure for an action that happened. | 04 `min_driver` | 0.0.24: missing hooks succeed (§9.3) |
 
 ## 17. Discrepancies with the public docs
 
