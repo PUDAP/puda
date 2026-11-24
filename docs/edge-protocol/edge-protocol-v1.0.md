@@ -155,6 +155,7 @@ Commands and responses share one envelope ([schema](v1.0/schemas/nats-message.sc
 
 - `command.kwargs` is optional; the CLI omits it. Before dispatch the edge MUST merge `kwargs` over `params`, with `kwargs` winning on conflict ([transcript 03, `kwargs_merge`](v1.0/transcripts/03-errors.md)).
 - `header.run_id` may be a UUID string, `null`, or the empty string. The CLI sends `""` for `pause`, `resume` and `reset` (observed in every capture of those commands).
+- `command.params` of an immediate verb carries its options. The only one defined is `complete`'s `abort` (§9.3).
 - The edge MUST treat `header`, `command` and `response` as opaque beyond the fields defined here, and MUST echo them back unchanged (§8.4).
 
 ### 8.2 Queue consumer
@@ -181,7 +182,7 @@ Commands and responses share one envelope ([schema](v1.0/schemas/nats-message.sc
 | Config | `{"durable_name":"cmd_immed_<id>","filter_subject":"puda.<id>.cmd.immediate","ack_policy":"explicit","deliver_policy":"all"}` |
 
 - On each connect the edge MUST delete and recreate `cmd_immed_<id>`, so a durable left behind by an earlier implementation with a different kind cannot block binding.
-- Immediate commands MUST be processed **concurrently** with a running queued command. Pause, cancel and estop exist to act while a queued command is running.
+- Immediate commands MUST be processed **concurrently** with a running queued command. `pause`, `complete` with `abort`, and `estop` exist to act while a queued command is running.
 - The edge MUST ack an immediate command on receipt, before executing it. A malformed immediate MUST still be acked or terminated so it is not redelivered.
 
 ### 8.4 Responses
@@ -228,10 +229,10 @@ Rules:
 |---|---|
 | `UNKNOWN_COMMAND` | Name not in the catalog, or an unknown immediate verb. |
 | `EXECUTION_ERROR` | Handler raised; envelope problem (missing `run_id` on queue, missing command); estop via queue. |
-| `EXECUTION_LOCKED` | Another queued command holds the execution lock. |
-| `COMMAND_CANCELLED` | The running queued command was cancelled (estop). |
+| `EXECUTION_LOCKED` | Another queued command holds the execution lock, or `complete` without `abort` while a command of the run is running (§9.3). |
+| `COMMAND_CANCELLED` | The running queued command was stopped by `estop` or `complete` with `abort`. |
 | `RUN_ID_MISMATCH` | No active run, a different active run, `complete` for an inactive run, or `start` while another run is active. |
-| `MISSING_RUN_ID` | `start`, `complete` or `cancel` without a `run_id`. |
+| `MISSING_RUN_ID` | `start` or `complete` without a `run_id`. |
 | `MACHINE_PAUSED` | Reserved. A paused edge holds queued commands instead (§9.4). |
 | `MACHINE_ESTOPPED` | Queued command, `start` or `resume` while the estop latch is set. |
 | `ESTOP_NOT_SUPPORTED` | `estop` on a machine without a hardware stop. The latch is still set. |
@@ -243,7 +244,7 @@ Rules:
 ### 9.1 Runs
 
 - An edge holds at most one active `run_id`. It lives in memory only; after an edge restart there is no active run.
-- Queued commands MUST carry the active `run_id`. `start` sets it, and `complete`, `cancel`, `reset` and `estop` clear it.
+- Queued commands MUST carry the active `run_id`. `start` sets it, and `complete`, `reset` and `estop` clear it.
 - **Any error response to a queued command ends the active run.** The edge clears the run and terminates the message. Clients must send a new `start` to continue ([transcript 03, `run2_unknown` → `run2_fail`](v1.0/transcripts/03-errors.md)).
 
 ### 9.2 Queued command decision table
@@ -261,7 +262,7 @@ The edge MUST evaluate these checks in this order:
 | 7 | Command is `estop` | `+TERM` | `EXECUTION_ERROR` | cleared | — |
 | 8 | Name not dispatchable | `+TERM` | `UNKNOWN_COMMAND` | cleared | `busy` → `error` |
 | 9 | Handler raises | `+TERM` | `EXECUTION_ERROR` | cleared | `busy` → `error` |
-| 10 | Cancelled by estop | `+TERM` | `COMMAND_CANCELLED` | cleared | `estopped` |
+| 10 | Stopped by `estop` or `complete` with `abort` | `+TERM` | `COMMAND_CANCELLED` (`data` is the handler's result, if it returned) | cleared | `estopped`, or `idle` + `null` after abort |
 | 11 | Success | `+ACK` | `success`, `data` | kept | `busy` → `idle` |
 
 Row 3 only applies to a message delivered at the instant the edge paused; otherwise a paused edge does not pull (§9.4). Rows 2 and 3 are re-evaluated when the hold ends, so an estop while held terminates the message with `MACHINE_ESTOPPED`.
@@ -273,10 +274,9 @@ Immediate verbs are matched case-insensitively. Any other name is dispatched to 
 | Verb | Precondition | Effect | Response | State |
 |---|---|---|---|---|
 | `start` | `run_id` set; no estop latch; no active run | Run becomes active | `success` / `MISSING_RUN_ID` / `MACHINE_ESTOPPED` / `RUN_ID_MISMATCH` "cannot start, <active> is currently running" | `idle` + `run_id` |
-| `complete` | `run_id` = active run | Run cleared | `success` / `MISSING_RUN_ID` / `RUN_ID_MISMATCH` "Run <id> not active" | `idle`, `run_id: null` |
+| `complete` | `run_id` = active run, and no command of the run running unless `params.abort` | Run cleared; see §9.8 | `success` / `EXECUTION_LOCKED` / `MISSING_RUN_ID` / `RUN_ID_MISMATCH` "Run <id> not active" | `idle`, `run_id: null` |
 | `pause` | — | Pause latch set; driver `pause` called if it is in the catalog | Driver result, or `success` if absent | `paused` |
 | `resume` | No estop latch | Pause latch cleared; driver `resume` called if present | Driver result, or `success` if absent / `MACHINE_ESTOPPED` | `idle` |
-| `cancel` | `run_id` set | Run cleared; the running queued command **MUST** be cancelled; driver `cancel` called if present | Driver result, or `success` if absent / `MISSING_RUN_ID` | `idle`, `run_id: null` |
 | `reset` | — | Run cleared; driver `reset` called if present. On success the estop latch is cleared. | Driver result, or `success` if absent | `idle` on success, `error` on failure |
 | `estop` | — | §9.6 | — | `estopped` |
 
@@ -284,7 +284,7 @@ Notes:
 
 - "Driver result, or `success` if absent" is the normative rule. A machine without a `pause` method still pauses.
 - **Observed (D-8).** Python returns `UNKNOWN_COMMAND` for `pause`, `resume` and `cancel` when the driver lacks the method, even though it has already applied the pause, resume or cancel. Only `reset` is special-cased ([transcript 04, `min_driver`](v1.0/transcripts/04-pause-cancel-estop.md)).
-- **Observed (D-2).** Python's `cancel` clears the run and calls the driver, but does **not** interrupt the running queued command. State reports `idle` / `null` while the command keeps running. Commands queued behind it still wait.
+- There is no `cancel` verb. It is answered `UNKNOWN_COMMAND` "Unknown immediate command: cancel" like any other unknown verb ([example](v1.0/examples/response-immediate-cancel-unknown.json)). A driver method named `cancel` is dispatched only through the queue.
 - **Observed (D-3).** `pause` writes `header.run_id` into state (`""` when sent by the CLI), and `resume` writes `run_id: null` even when a run is still active.
 
 ### 9.4 Pause
@@ -320,7 +320,7 @@ While latched:
 
 - Queued commands → `+TERM`, `MACHINE_ESTOPPED`.
 - `start` and `resume` → `MACHINE_ESTOPPED`.
-- `pause`, `complete` and `cancel` are processed normally.
+- `pause` and `complete` are processed normally.
 - Every state publish reports `estopped`, except `offline` at shutdown.
 
 Only a successful `reset` clears the latch ([transcript 04, `estop_flow`](v1.0/transcripts/04-pause-cancel-estop.md)).
@@ -340,6 +340,24 @@ Immediate commands act on the machine *now*, so a backlog of them must not repla
 
 `deliver_policy: new` was rejected as an alternative: undelivered messages would stay in the stream and count against `max_msgs_per_subject` (100).
 
+### 9.8 Completing and aborting a run
+
+`complete` is designed for clients, such as agents, that may act on a stale view of the machine: by default it never stops work, it explains a refusal, and repeating it is safe.
+
+1. **Already ended.** If `run_id` is not active but was active recently on this edge (completed, cleared by an error, `reset` or `estop`), respond `success` with `data: {"already_completed": true}` and change nothing ([example](v1.0/examples/response-immediate-complete-repeat.json)). The edge MUST remember at least the last ended run and SHOULD remember more; the reference keeps the last 64 since it started. Otherwise respond `RUN_ID_MISMATCH`.
+2. **Refusal.** If a queued command of the run is running and `params.abort` is not `true`, respond `EXECUTION_LOCKED` with `data.running` = `{"name", "step_number", "elapsed_s"}` and `data.queued` = the number of queued commands not yet answered behind it (`null` if unknown). The run stays active ([example](v1.0/examples/response-immediate-complete-locked.json)).
+3. **Abort.** With `params.abort: true` the edge MUST:
+   1. Count `queued` before stopping anything.
+   2. Call the driver's `abort` if the catalog has it, on a thread or task that does not wait behind the running command (like §9.6 step 2).
+   3. Wait up to 5 s for the running command to return. If it does not, stop waiting for it.
+   4. Answer the running command `COMMAND_CANCELLED` (§9.2 row 10, [example](v1.0/examples/response-queue-aborted.json)) and terminate its message.
+   5. Clear the run, put `idle` + `null`, publish `evt.log` at level `WARNING`, and respond `success` with `data` = `{"aborted": {name, step_number, elapsed_s} | null, "driver_abort": bool, "finished": bool, "queued": int | null}` ([example](v1.0/examples/response-immediate-complete-abort.json)). `finished: false` means the hardware call may still be running. A driver `abort` that raises adds `driver_error`.
+4. **Plain completion.** Otherwise clear the run, put `idle` + `null` and respond `success`. `data` is `null`, or the abort object of step 3 when `abort` was set and nothing was running.
+
+Commands queued behind the run are not removed. They are evaluated when pulled and get `RUN_ID_MISMATCH`.
+
+`abort` is a soft stop for ending a run early. It is not a safety function and does not latch; hazards use `estop` (§9.6). A client interrupted while it waits for queued responses (the CLI on SIGINT or SIGTERM) SHOULD send `complete` with `abort` to every machine it started, because nothing else will observe the commands still running.
+
 ## 10. Machine state (`MACHINE_STATE`)
 
 The value is published to KV `MACHINE_STATE`, key `<id>` ([schema](v1.0/schemas/machine-state.schema.json), [example](v1.0/examples/machine-state.json)):
@@ -355,7 +373,7 @@ The value is published to KV `MACHINE_STATE`, key `<id>` ([schema](v1.0/schemas/
   - queued command start: `busy` + run;
   - queued command finish: `idle` + run, or `error` + run;
   - `start`: `idle` + run;
-  - `complete` and `cancel`: `idle` + `null`;
+  - `complete`: `idle` + `null`;
   - `pause`: `paused`;
   - `resume`: `idle`;
   - `reset`: `idle` or `error`;
@@ -396,7 +414,7 @@ The catalog is put once per connect to KV `MACHINE_COMMANDS`, key `<id>` ([schem
 - Each `catalog` entry MUST contain `name`, `signature`, `doc` and `safety`. `doc` and `safety` MAY be `null` but MUST be present; the CLI rejects entries missing them.
 - A non-null `safety` MUST contain all five fields. `summary` is a non-empty string, `hazards` is an array, and `confirm` is a boolean.
 - `confirm: true` makes the CLI ask the operator before sending the command. It is advisory metadata and does not change edge dispatch.
-- The catalog SHOULD list the lifecycle commands the driver actually implements: `home`, `reset`, `pause`, `resume`, `cancel`, `estop`, `shutdown`.
+- The catalog SHOULD list the lifecycle commands the driver actually implements: `home`, `reset`, `pause`, `resume`, `abort`, `estop`, `shutdown`.
 
 ### 11.2 Signature grammar
 
@@ -551,7 +569,7 @@ Each was reproduced against the live stack with SDK 0.0.23. Transcript names ref
 | ID | Behaviour | Impact | Evidence | Fixed |
 |---|---|---|---|---|
 | D-1 | A queued command received while paused is not acked. It is redelivered after `ack_wait` (30 s) and evaluated again. | A command the client was told failed can execute later. | 04 `run3_paused_cmd`, `imm_start_no_run` (delivery #2) | 0.0.24: pause holds the queue (§9.4) |
-| D-2 | `cancel` does not interrupt the running queued command. State says `idle`/`null` while it runs. | The operator believes the work stopped. Queued work stays blocked. | 04 `cancel_flow` | open |
+| D-2 | `cancel` does not interrupt the running queued command. State says `idle`/`null` while it runs. | The operator believes the work stopped. Queued work stays blocked. | 04 `cancel_flow` | 0.0.24: `cancel` removed; `complete` with `abort` (§9.8) |
 | D-3 | `pause` writes `run_id` from the header (`""` from the CLI). `resume` writes `null` while a run is still active. | State KV misreports the run. | 04 `run3_pause`, `run3_resume` | open |
 | D-4 | After a broker restart the edge holds two connections and answers ping twice. | Duplicate pongs, duplicate subscriptions. | `connz` showed 2 edge connections; `nats req --replies=0` got 2 pongs | open |
 | D-5 | Stale immediate commands replay on startup; the queue binds before immediate; a hidden active run blocks `start`. | Stale `start`/`estop`/`reset` act minutes or days later. | 05 `offline_backlog` | 0.0.24: stale immediates discarded, immediate binds first (§7, §9.7) |

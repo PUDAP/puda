@@ -1,0 +1,33 @@
+{
+  "header": {
+    "version": "1.0",
+    "message_type": "response",
+    "user_id": "00000000-0000-4000-8000-000000000001",
+    "username": "puda",
+    "machine_id": "proto-test",
+    "run_id": "44444444-2222-4333-8444-555555555555",
+    "timestamp": "2026-11-24T03:58:37Z"
+  },
+  "command": {
+    "name": "complete",
+    "params": {},
+    "kwargs": {},
+    "step_number": 3,
+    "version": "1.0",
+    "machine_id": "proto-test"
+  },
+  "response": {
+    "status": "error",
+    "completed_at": "2026-11-24T03:58:37Z",
+    "code": "EXECUTION_LOCKED",
+    "message": "Command hold (step 1) is running; wait for it to finish, or complete with abort to stop it",
+    "data": {
+      "running": {
+        "name": "hold",
+        "step_number": 1,
+        "elapsed_s": 1.5
+      },
+      "queued": 1
+    }
+  }
+}
