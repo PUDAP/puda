@@ -16,9 +16,8 @@ const (
 	updateHTTPTO    = 60 * time.Second
 )
 
-// Run updates the currently running puda CLI binary. Preflight is advisory and
-// runs only for a different resolved release, before confirmation or replacement.
-func Run(cmd *cobra.Command, targetVersion string, yes bool, currentVersion string, preflight func(targetTag string)) error {
+// Run updates the currently running puda CLI binary.
+func Run(cmd *cobra.Command, targetVersion string, yes bool, currentVersion string) error {
 	out := cmd.OutOrStdout()
 
 	fmt.Fprintln(out, "Checking for updates...")
@@ -42,11 +41,6 @@ func Run(cmd *cobra.Command, targetVersion string, yes bool, currentVersion stri
 	}
 
 	printChangelog(out, currentTag, targetTag, release, cmp)
-
-	if preflight != nil {
-		// Preserve the exact tag returned by release lookup for source resolution.
-		preflight(release.TagName)
-	}
 
 	// Confirm / warn.
 	if cmp > 0 {

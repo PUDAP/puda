@@ -62,7 +62,6 @@ type validatedProtocolCommand struct {
 	Params      map[string]interface{} `json:"params"`
 	Kwargs      map[string]interface{} `json:"kwargs,omitempty"`
 	StepNumber  int                    `json:"step_number"`
-	Version     string                 `json:"version,omitempty"`
 	MachineID   string                 `json:"machine_id"`
 	Description string                 `json:"description"`
 	Safety      *puda.CommandSafety    `json:"safety,omitempty"`
@@ -158,7 +157,7 @@ func validateAndEnrichProtocol(protocol *puda.ProtocolFile, fetchCatalog func(st
 			}
 			enrichedCommands = append(enrichedCommands, validatedProtocolCommand{
 				Name: command.Name, Params: params, Kwargs: command.Kwargs,
-				StepNumber: command.StepNumber, Version: command.Version, MachineID: command.MachineID,
+				StepNumber: command.StepNumber, MachineID: command.MachineID,
 				Description: "Wait locally in the CLI without sending a machine command.", Valid: true, Errors: []string{},
 			})
 			continue
@@ -201,7 +200,7 @@ func validateAndEnrichProtocol(protocol *puda.ProtocolFile, fetchCatalog func(st
 		}
 		enrichedCommands = append(enrichedCommands, validatedProtocolCommand{
 			Name: command.Name, Params: params, Kwargs: command.Kwargs,
-			StepNumber: command.StepNumber, Version: command.Version, MachineID: command.MachineID,
+			StepNumber: command.StepNumber, MachineID: command.MachineID,
 			Description: parsed.Description, Safety: parsed.Safety, Valid: true, Errors: []string{},
 		})
 	}

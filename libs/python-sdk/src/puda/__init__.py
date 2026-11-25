@@ -1,6 +1,7 @@
 # Import models first to ensure they're initialized before other modules that depend on them
 from . import models
 
+from .constants import PROTOCOL_VERSION
 from .command import LIFECYCLE_HOOKS, LifecycleHookError, command, safety
 from .tlm_stream import tlm_stream
 from .machine_state import machine_state
@@ -16,6 +17,7 @@ __all__ = [
     "safety",
     "LIFECYCLE_HOOKS",
     "LifecycleHookError",
+    "PROTOCOL_VERSION",
     "tlm_stream",
     "machine_state",
     "EdgeNatsClient",

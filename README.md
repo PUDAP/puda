@@ -155,7 +155,7 @@ Python packages share one uv workspace ([`pyproject.toml`](pyproject.toml)) whos
 puda = { workspace = true }
 ```
 
-The Go apps keep their own modules and are not part of `uv.lock`. A small root Go module embeds the [`compatibility.json`](compatibility.json) policy the CLI uses to check edge SDK versions; see [CLI / Python SDK compatibility](apps/cli/docs/compatibility.md).
+The Go apps keep their own modules and are not part of `uv.lock`. The CLI checks each edge's reported `protocol_version`; see [Edge protocol compatibility](apps/cli/docs/compatibility.md).
 
 ## Development
 

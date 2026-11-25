@@ -211,7 +211,6 @@ func runSingleMachineCommand(cmd *cobra.Command, machineID, commandName string, 
 		Params:     params,
 		Kwargs:     kwargs,
 		StepNumber: 1,
-		Version:    "1.0",
 		MachineID:  machineID,
 	}
 	if catalog, err := pudanats.GetMachineCommands(nc, machineID); err == nil {

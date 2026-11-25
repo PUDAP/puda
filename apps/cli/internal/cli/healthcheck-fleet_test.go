@@ -23,7 +23,6 @@ import (
 	"testing"
 	"time"
 
-	compatibility "github.com/PUDAP/puda"
 	pudanats "github.com/PUDAP/puda/apps/cli/internal/nats"
 	natsio "github.com/nats-io/nats.go"
 	"github.com/spf13/cobra"
@@ -481,7 +480,7 @@ func TestHealthcheckStatusRemainsNATSOnly(t *testing.T) {
 			}
 			healthcheckTestConfig(t, servers, gateways)
 			if _, err := nc.Subscribe("puda.cmd.ping", func(msg *natsio.Msg) {
-				_ = msg.Respond([]byte(`{"machine_id":"responding","status":"pong","sdk_version":"99.0.0"}`))
+				_ = msg.Respond([]byte(`{"machine_id":"responding","status":"pong","sdk_version":"0.0.23"}`))
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -537,12 +536,12 @@ func TestHealthcheckFleetAllResponders(t *testing.T) {
 	url, nc, _ := healthcheckTestBroker(t, true)
 	healthcheckTestConfig(t, url, "")
 	results := []pudanats.PingResult{
-		{MachineID: "stable", Status: "pong", SDKVersion: "0.0.22"},
-		{MachineID: "unlisted", Status: "pong", SDKVersion: "99.0.0"},
-		{MachineID: "missing", Status: "pong"},
-		{MachineID: "development", Status: "pong", SDKVersion: "0.0.22.dev1"},
-		{MachineID: "malformed", Status: "pong", SDKVersion: "not-a-version"},
+		{MachineID: "current", Status: "pong", SDKVersion: "0.1.0", ProtocolVersion: "1.0"},
+		{MachineID: "newer-minor", Status: "pong", SDKVersion: "0.3.0", ProtocolVersion: "1.7"},
+		{MachineID: "legacy", Status: "pong", SDKVersion: "0.0.23"},
+		{MachineID: "next-major", Status: "pong", ProtocolVersion: "2.0"},
 	}
+	want := map[string]string{"current": "supported", "newer-minor": "supported", "legacy": "unsupported", "next-major": "unsupported"}
 	// Multiple independent subscriptions prove discovery does not stop at the first pong;
 	// each replies twice to prove responders are deduplicated.
 	for _, result := range results {
@@ -574,21 +573,25 @@ func TestHealthcheckFleetAllResponders(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := report.Compatibility
-	if report.Status != pudanats.HealthOK || len(result.Machines) != len(results) || result.CLIVersion != Version || result.Status != "unsupported" {
+	if report.Status != pudanats.HealthOK || len(result.Machines) != len(results) || result.SupportedProtocol != "1.x" || result.Status != "unsupported" {
 		t.Fatalf("missing structured fleet evaluation: %s", out)
 	}
-	byID := make(map[string]compatibility.Status)
 	for _, edge := range result.Machines {
-		byID[edge.MachineID] = edge.Status
-		if len(edge.SupportedRanges) == 0 {
-			t.Errorf("missing declared ranges: %+v", edge)
+		if edge.Status != want[edge.MachineID] {
+			t.Errorf("%s: got=%s want=%s", edge.MachineID, edge.Status, want[edge.MachineID])
 		}
 	}
-	for _, edge := range results {
-		want := compatibility.Bundled().Evaluate(Version, edge.SDKVersion).Status
-		if byID[edge.MachineID] != want {
-			t.Errorf("%s: got=%s want=%s", edge.MachineID, byID[edge.MachineID], want)
+	issues := 0
+	for _, issue := range report.Issues {
+		if issue.Code == "sdk_unsupported" {
+			issues++
+			if issue.Target == "legacy" && (issue.Detail != "edge protocol none is not supported by this CLI (supports 1.x)" || issue.NextStep != "Update the PUDA SDK on legacy") {
+				t.Errorf("legacy issue: %+v", issue)
+			}
 		}
+	}
+	if issues != 2 {
+		t.Errorf("want 2 sdk_unsupported issues: %s", out)
 	}
 	if strings.Contains(out, "stale-offline") {
 		t.Fatal("consulted stale stored state")

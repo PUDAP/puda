@@ -20,6 +20,7 @@ from nats.errors import TimeoutError as NATSTimeoutError
 from . import e2e
 from .constants import (
     NAMESPACE,
+    PROTOCOL_VERSION,
     STREAM_RESPONSE_QUEUE,
     QUEUE_COMMAND_TIMEOUT,
     IMMEDIATE_COMMAND_TIMEOUT,
@@ -822,7 +823,7 @@ class CommandService:
         
         header = MessageHeader(
             message_type=MessageType.COMMAND,
-            version="1.0",
+            protocol_version=PROTOCOL_VERSION,
             timestamp=datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
             user_id=user_id,
             username=username,

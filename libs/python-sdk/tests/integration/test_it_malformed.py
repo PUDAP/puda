@@ -30,6 +30,22 @@ class MalformedTests(EdgeTestCase):
         self.assertEqual(response["code"], "EXECUTION_ERROR")
         self.assertEqual((await self.wire.state())["state"], "idle")
 
+    async def test_other_protocol_major_is_refused_and_never_runs(self) -> None:
+        run = new_run()
+        await self.wire.call("start", run)
+        envelope = self.wire.envelope("echo", run, 1, params={"message": "future"})
+        envelope["header"]["protocol_version"] = "2.0"
+        await self.wire.publish_raw("queue", json.dumps(envelope).encode())
+        response = await self.wire.response("queue", "echo", run, 1)
+        self.assertEqual(response["code"], "EXECUTION_ERROR")
+        self.assertIn("unsupported protocol version '2.0'", response["message"])
+        start = self.wire.envelope("start", new_run(), 0)
+        start["header"]["protocol_version"] = "2.0"
+        reply = await self.wire.request_raw(json.dumps(start).encode())
+        self.assertEqual(reply["response"]["code"], "EXECUTION_ERROR")
+        self.assertEqual((await self.wire.state())["run_id"], run)
+        self.assertNotIn("EXEC echo future", self.edge_log())
+
     async def test_uncorrelatable_payloads_are_handled(self) -> None:
         run = new_run()
         await self.wire.call("start", run)

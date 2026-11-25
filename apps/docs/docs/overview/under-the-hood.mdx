@@ -165,7 +165,7 @@ For the `home` command, the response is a simple success:
 ```json
 {
   "header": {
-    "version": "1.0",
+    "protocol_version": "1.0",
     "message_type": "response",
     "user_id": "6b494398-3276-429c-ad66-84a49d0a5835",
     "username": "zhao",
@@ -177,7 +177,6 @@ For the `home` command, the response is a simple success:
     "name": "home",
     "params": {},
     "step_number": 1,
-    "version": "1.0",
     "machine_id": "first"
   },
   "response": {
@@ -192,7 +191,7 @@ For the Biologic `CV` command, the response can include measured data:
 ```json
 {
   "header": {
-    "version": "1.0",
+    "protocol_version": "1.0",
     "message_type": "response",
     "user_id": "6b494398-3276-429c-ad66-84a49d0a5835",
     "username": "zhao",
@@ -209,7 +208,6 @@ For the Biologic `CV` command, the response can include measured data:
       "rate": 0.05
     },
     "step_number": 2,
-    "version": "1.0",
     "machine_id": "biologic"
   },
   "response": {

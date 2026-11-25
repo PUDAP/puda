@@ -118,23 +118,25 @@ Use --human for a text summary.`,
 }
 
 type infoResultJSON struct {
-	MachineID     string                   `json:"machine_id"`
-	Status        string                   `json:"status"`
-	Timestamp     string                   `json:"timestamp,omitempty"`
-	SDKVersion    string                   `json:"sdk_version,omitempty"`
-	UptimeSeconds float64                  `json:"uptime_seconds,omitempty"`
-	RunStatus     string                   `json:"run_status,omitempty"`
-	Description   string                   `json:"description,omitempty"`
-	LocalIP       string                   `json:"local_ip,omitempty"`
-	TailscaleIP   string                   `json:"tailscale_ip,omitempty"`
-	MagicDNS      string                   `json:"magicdns,omitempty"`
-	LatencyMS     float64                  `json:"latency_ms,omitempty"`
-	Error         string                   `json:"error,omitempty"`
-	EncryptKID    string                   `json:"e2e_encrypt_kid,omitempty"`
-	DecryptKIDs   []string                 `json:"e2e_decrypt_kids,omitempty"`
-	Persist       *bool                    `json:"e2e_persist,omitempty"`
-	TlmStreams    []pudanats.TlmStream     `json:"tlm_streams"`
-	Livestreams   []pudanats.LivestreamRef `json:"livestreams"`
+	MachineID  string `json:"machine_id"`
+	Status     string `json:"status"`
+	Timestamp  string `json:"timestamp,omitempty"`
+	SDKVersion string `json:"sdk_version,omitempty"`
+	// ProtocolVersion is the edge's Edge Protocol version; empty if unreported.
+	ProtocolVersion string                   `json:"protocol_version,omitempty"`
+	UptimeSeconds   float64                  `json:"uptime_seconds,omitempty"`
+	RunStatus       string                   `json:"run_status,omitempty"`
+	Description     string                   `json:"description,omitempty"`
+	LocalIP         string                   `json:"local_ip,omitempty"`
+	TailscaleIP     string                   `json:"tailscale_ip,omitempty"`
+	MagicDNS        string                   `json:"magicdns,omitempty"`
+	LatencyMS       float64                  `json:"latency_ms,omitempty"`
+	Error           string                   `json:"error,omitempty"`
+	EncryptKID      string                   `json:"e2e_encrypt_kid,omitempty"`
+	DecryptKIDs     []string                 `json:"e2e_decrypt_kids,omitempty"`
+	Persist         *bool                    `json:"e2e_persist,omitempty"`
+	TlmStreams      []pudanats.TlmStream     `json:"tlm_streams"`
+	Livestreams     []pudanats.LivestreamRef `json:"livestreams"`
 }
 
 func infoResultWithLivestreams(result pudanats.PingResult, refs []pudanats.LivestreamRef) infoResultJSON {
@@ -146,23 +148,24 @@ func infoResultWithLivestreams(result pudanats.PingResult, refs []pudanats.Lives
 		tlmStreams = []pudanats.TlmStream{}
 	}
 	return infoResultJSON{
-		MachineID:     result.MachineID,
-		Status:        result.Status,
-		Timestamp:     result.Timestamp,
-		SDKVersion:    result.SDKVersion,
-		UptimeSeconds: result.UptimeSeconds,
-		RunStatus:     result.RunStatus,
-		Description:   result.Description,
-		LocalIP:       result.LocalIP,
-		TailscaleIP:   result.TailscaleIP,
-		MagicDNS:      result.MagicDNS,
-		LatencyMS:     result.LatencyMS,
-		Error:         result.Error,
-		EncryptKID:    result.EncryptKID,
-		DecryptKIDs:   result.DecryptKIDs,
-		Persist:       result.Persist,
-		TlmStreams:    tlmStreams,
-		Livestreams:   refs,
+		MachineID:       result.MachineID,
+		Status:          result.Status,
+		Timestamp:       result.Timestamp,
+		SDKVersion:      result.SDKVersion,
+		ProtocolVersion: result.ProtocolVersion,
+		UptimeSeconds:   result.UptimeSeconds,
+		RunStatus:       result.RunStatus,
+		Description:     result.Description,
+		LocalIP:         result.LocalIP,
+		TailscaleIP:     result.TailscaleIP,
+		MagicDNS:        result.MagicDNS,
+		LatencyMS:       result.LatencyMS,
+		Error:           result.Error,
+		EncryptKID:      result.EncryptKID,
+		DecryptKIDs:     result.DecryptKIDs,
+		Persist:         result.Persist,
+		TlmStreams:      tlmStreams,
+		Livestreams:     refs,
 	}
 }
 
@@ -202,11 +205,12 @@ func writeInfoResults(w io.Writer, results []pudanats.PingResult, byMachine map[
 		} else {
 			fmt.Fprintf(
 				w,
-				"%s: pong %.3fms status=%s sdk=%s uptime=%.3fs\n",
+				"%s: pong %.3fms status=%s sdk=%s protocol=%s uptime=%.3fs\n",
 				result.MachineID,
 				result.LatencyMS,
 				result.RunStatus,
 				result.SDKVersion,
+				pudanats.ProtocolLabel(result.ProtocolVersion),
 				result.UptimeSeconds,
 			)
 			if result.Description != "" {

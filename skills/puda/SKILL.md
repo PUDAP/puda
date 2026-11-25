@@ -21,7 +21,7 @@ Before operating machines, follow the execution policy in **puda-protocol** (pro
 
 Use `puda machine --help` and `puda healthcheck --help` for commands and flags.
 
-- Start with `puda healthcheck` when connectivity is in doubt. `compatibility` is advisory; to diagnose a failing report, use **puda-deployment** skill.
+- Start with `puda healthcheck` when connectivity is in doubt. `compatibility` is advisory: an `unsupported` machine reports a `protocol_version` this CLI does not support (missing means its PUDA SDK predates Edge Protocol 1.0); follow the issue's `next_step`. To diagnose a failing report, use **puda-deployment** skill.
 - Run only the inspections the task needs, typically `machine info <id>` and `machine commands <id>` before authoring or running a protocol.
 - Listed machines and stored state can be stale: check timestamps and responsiveness before assuming a machine is ready.
 - Always give `machine watch` a bounded `--timeout`, and quote wildcard subjects.

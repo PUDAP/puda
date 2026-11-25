@@ -63,7 +63,6 @@ Represents a command to be sent to a machine.
 - `machine_id` (str): Machine ID to send the command to (required)
 - `params` (Dict[str, Any]): Command parameters (default: empty dict)
 - `step_number` (int): Execution step number for tracking progress
-- `version` (str): Command version (default: "1.0")
 
 **Example:**
 ```python
@@ -72,7 +71,6 @@ command = CommandRequest(
     machine_id="first",
     params={"deck_slot": "A3", "well_name": "G8"},
     step_number=2,
-    version="1.0"
 )
 ```
 
@@ -108,7 +106,7 @@ Header metadata for NATS messages.
 
 **Fields:**
 - `message_type` (MessageType): Type of message (COMMAND, RESPONSE, LOG, etc.)
-- `version` (str): Message version (default: "1.0")
+- `protocol_version` (str): PUDA Edge Protocol version, `MAJOR.MINOR` (required; edges refuse another major). Use `puda.PROTOCOL_VERSION`
 - `timestamp` (str): ISO 8601 UTC timestamp (auto-generated)
 - `user_id` (str): User ID who initiated the command
 - `username` (str): Username who initiated the command
@@ -119,7 +117,7 @@ Header metadata for NATS messages.
 ```python
 header = MessageHeader(
     message_type=MessageType.RESPONSE,
-    version="1.0",
+    protocol_version=PROTOCOL_VERSION,  # "1.0"; required
     timestamp="2026-01-20T02:00:46Z",
     user_id="user123",
     username="John Doe",
@@ -145,7 +143,7 @@ Complete NATS message structure combining header with optional command or respon
 {
   "header": {
     "message_type": "response",
-    "version": "1.0",
+    "protocol_version": "1.0",
     "timestamp": "2026-01-20T02:00:46Z",
     "user_id": "user123",
     "username": "John Doe",
@@ -158,8 +156,7 @@ Complete NATS message structure combining header with optional command or respon
       "deck_slot": "A3",
       "well_name": "G8"
     },
-    "step_number": 2,
-    "version": "1.0"
+    "step_number": 2
   },
   "response": {
     "status": "success",

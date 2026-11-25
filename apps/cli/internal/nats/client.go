@@ -220,7 +220,6 @@ func SendStartCommandWithContext(ctx context.Context, interlock *sync.Mutex, nc 
 		MachineID:  machineID,
 		Params:     make(map[string]interface{}),
 		StepNumber: 0,
-		Version:    "1.0",
 	}
 	return sendImmediateCommandWithContext(ctx, interlock, nc, request, runID, userID, username, timeoutSeconds, store, onPublishAttempt)
 }
@@ -245,7 +244,6 @@ func SendCompleteCommand(nc *nats.Conn, machineID, runID, userID, username strin
 		MachineID:  machineID,
 		Params:     params,
 		StepNumber: stepNumber,
-		Version:    "1.0",
 	}
 	return SendImmediateCommand(nc, request, runID, userID, username, timeoutSeconds, store)
 }
@@ -257,7 +255,6 @@ func SendResetCommand(nc *nats.Conn, machineID, runID, userID, username string, 
 		MachineID:  machineID,
 		Params:     make(map[string]interface{}),
 		StepNumber: 0,
-		Version:    "1.0",
 	}
 	return SendImmediateCommand(nc, request, runID, userID, username, timeoutSeconds, store)
 }
@@ -269,7 +266,6 @@ func SendEstopCommand(nc *nats.Conn, machineID, runID, userID, username string, 
 		MachineID:  machineID,
 		Params:     make(map[string]interface{}),
 		StepNumber: 0,
-		Version:    "1.0",
 	}
 	return SendImmediateCommand(nc, request, runID, userID, username, timeoutSeconds, store)
 }
@@ -281,7 +277,6 @@ func SendPauseCommand(nc *nats.Conn, machineID, runID, userID, username string, 
 		MachineID:  machineID,
 		Params:     make(map[string]interface{}),
 		StepNumber: 0,
-		Version:    "1.0",
 	}
 	return SendImmediateCommand(nc, request, runID, userID, username, timeoutSeconds, store)
 }
@@ -293,7 +288,6 @@ func SendResumeCommand(nc *nats.Conn, machineID, runID, userID, username string,
 		MachineID:  machineID,
 		Params:     make(map[string]interface{}),
 		StepNumber: 0,
-		Version:    "1.0",
 	}
 	return SendImmediateCommand(nc, request, runID, userID, username, timeoutSeconds, store)
 }

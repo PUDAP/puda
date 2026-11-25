@@ -27,7 +27,30 @@ func (r localUpdateTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	return r.transport.RoundTrip(clone)
 }
 
-func TestUpdatePreflightOrderingAndAlreadyLatest(t *testing.T) {
+func TestReleaseNotificationCheckFetchesOnlyLatest(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if !strings.HasSuffix(r.URL.Path, "/releases/latest") {
+			t.Errorf("check-only fetched %s", r.URL)
+		}
+		fmt.Fprint(w, `{"tag_name":"v0.1.6"}`)
+	}))
+	defer server.Close()
+	base, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := http.DefaultTransport
+	http.DefaultTransport = localUpdateTransport{base, old}
+	defer func() { http.DefaultTransport = old }()
+	rel, err := fetchLatestRelease()
+	if err != nil || rel.TagName != "v0.1.6" || calls != 1 {
+		t.Fatalf("release=%+v err=%v calls=%d", rel, err, calls)
+	}
+}
+
+func TestUpdateConfirmationAndAlreadyLatest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/releases/latest") {
 			fmt.Fprint(w, `{"tag_name":"v0.1.6","assets":[]}`)
@@ -48,13 +71,12 @@ func TestUpdatePreflightOrderingAndAlreadyLatest(t *testing.T) {
 	for _, tc := range []struct {
 		name, current string
 		yes           bool
-		calls         int
 		want          string
 	}{
-		{"already-latest", "0.1.6", true, 0, "Nothing to do"},
-		{"noninteractive-advisory-continues", "0.1.5", true, 1, ""},
-		{"decline-keeps-confirmation", "0.1.5", false, 1, "Aborted"},
-		{"downgrade-keeps-confirmation", "0.1.7", false, 1, "Aborted"},
+		{"already-latest", "0.1.6", true, "Nothing to do"},
+		{"noninteractive-continues", "0.1.5", true, ""},
+		{"decline-keeps-confirmation", "0.1.5", false, "Aborted"},
+		{"downgrade-keeps-confirmation", "0.1.7", false, "Aborted"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			input, err := os.CreateTemp(t.TempDir(), "stdin")
@@ -71,33 +93,17 @@ func TestUpdatePreflightOrderingAndAlreadyLatest(t *testing.T) {
 			oldIn := os.Stdin
 			os.Stdin = input
 			defer func() { os.Stdin = oldIn }()
-			var out, stderr bytes.Buffer
+			var out bytes.Buffer
 			cmd := &cobra.Command{}
 			cmd.SetOut(&out)
-			cmd.SetErr(&stderr)
-			calls := 0
-			err = Run(cmd, "", tc.yes, tc.current, func(tag string) {
-				calls++
-				if tag != "v0.1.6" {
-					t.Errorf("tag=%s", tag)
-				}
-				if strings.Contains(out.String(), "Would you like") || strings.Contains(out.String(), "Are you sure") || strings.Contains(out.String(), "Downloading") {
-					t.Errorf("preflight too late: %s", out.String())
-				}
-				fmt.Fprintln(cmd.ErrOrStderr(), "compatibility unknown (advisory only)")
-			})
-			if calls != tc.calls {
-				t.Fatalf("calls=%d", calls)
-			}
+			cmd.SetErr(&out)
+			err = Run(cmd, "", tc.yes, tc.current)
 			if tc.want != "" {
 				if err != nil || !strings.Contains(out.String(), tc.want) {
 					t.Fatalf("err=%v out=%s", err, out.String())
 				}
 			} else if err == nil || !strings.Contains(err.Error(), "no asset matching") {
-				t.Fatalf("advisory blocked existing path: %v", err)
-			}
-			if strings.Contains(out.String(), "compatibility") {
-				t.Fatal("advisory polluted stdout")
+				t.Fatalf("confirmed update did not reach download: %v", err)
 			}
 		})
 	}

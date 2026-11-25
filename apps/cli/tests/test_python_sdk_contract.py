@@ -128,28 +128,10 @@ class PythonSDKContract(unittest.IsolatedAsyncioTestCase):
 
     async def test_real_discovery_and_advisories(self):
         self.assertEqual(self.client.sdk_version, version("puda"))
-        cli_output, _ = await self.cli_run("--version")
-        cli_version = cli_output.splitlines()[0].removeprefix("v")
-        self.assertRegex(cli_version, r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
-        policy = json.loads((Path(__file__).resolve().parents[3] / "compatibility.json").read_text())
-        # Independently evaluate the rule union; invalid metadata fails closed.
-        def stable(value):
-            if isinstance(value, str) and re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", value):
-                return tuple(map(int, value.split(".")))
-            return None
-        cli = stable(cli_version)
-        sdk = stable(self.client.sdk_version)
-        matching = []
-        valid = True
-        for rule in policy["compatibility"]:
-            cr, sr = rule.get("cli", {}), rule.get("python_sdk", {})
-            cmin, cmax = stable(cr.get("min")), stable(cr.get("max"))
-            smin, smax = stable(sr.get("min")), stable(sr.get("max"))
-            if cmin is None or cmax is None or smin is None or smax is None or cmin > cmax or smin > smax:
-                valid = False
-                break
-            if cli is not None and cmin <= cli <= cmax:
-                matching.append((smin, smax))
+        # The CLI judges edges only by the pong's protocol_version (major 1).
+        reported = (await self.client._pong_payload()).get("protocol_version")
+        warning = "warning: machine contract-edge speaks edge protocol"
+        supported = isinstance(reported, str) and re.fullmatch(r"1\.(0|[1-9][0-9]*)", reported) is not None
         for args in [("list",), ("info", "contract-edge")]:
             out, err = await self.cli_run("machine", *args, "--timeout", "100ms")
             payload = json.loads(out)
@@ -158,32 +140,34 @@ class PythonSDKContract(unittest.IsolatedAsyncioTestCase):
             else:
                 self.assertEqual(payload["results"][0]["sdk_version"], version("puda"))
                 self.assertEqual(payload["responded"], 1)
-            # Check the declaration independently of the CLI's policy helper.
-            # Passing this bounded smoke test is not comprehensive qualification.
-            if not valid or not matching or sdk is None:
-                self.assertIn("compatibility unknown", err)
-            elif any(minimum <= sdk <= maximum for minimum, maximum in matching):
-                self.assertNotIn("Python SDK", err)
+            if supported:
+                self.assertNotIn(warning, err)
             else:
-                self.assertIn("outside the supported range", err)
-                self.assertNotIn("compatibility unknown", err)
-        for reported in ["", "unknown", "0.0.22.dev1", "not-a-version"]:
-            self.client.sdk_version = reported
+                self.assertIn(warning, err)
+        original = self.client._pong_payload
+        for protocol, expect_warning in [(None, True), ("2.0", True), ("garbage", True), ("1.7", False)]:
+            async def pong(protocol=protocol):
+                payload = await original()
+                payload.pop("protocol_version", None)
+                if protocol is not None:
+                    payload["protocol_version"] = protocol
+                return payload
+            self.client._pong_payload = pong
             out, err = await self.cli_run("machine", "info", "contract-edge", "--timeout", "100ms")
             self.assertEqual(json.loads(out)["responded"], 1)
-            self.assertIn("compatibility unknown", err)
-            self.assertNotIn("outside the supported range", err)
+            self.assertEqual(warning in err, expect_warning, (protocol, err))
+        self.client._pong_payload = original
         out, err = await self.cli_run("machine", "info", "contract-edge,absent", "--timeout", "100ms", success=False)
         self.assertEqual(json.loads(out)["responded"], 1)
         self.assertEqual(json.loads(out)["failed"], 1)
-        self.assertEqual(err.count("Python SDK compatibility unknown"), 1)
+        self.assertEqual(err.count(warning), 0 if supported else 1)
         out, err = await self.cli_run("machine", "info", "absent", "--timeout", "100ms", success=False)
         self.assertEqual(json.loads(out)["failed"], 1)
-        self.assertNotIn("Python SDK", err)
+        self.assertNotIn("edge protocol", err)
         await self.client.disconnect()
         out, err = await self.cli_run("machine", "list", "--timeout", "100ms")
         self.assertEqual(json.loads(out), {"machines": [], "count": 0})
-        self.assertNotIn("Python SDK", err)
+        self.assertNotIn("edge protocol", err)
 
     async def test_catalog_and_command_round_trip(self):
         out, _ = await self.cli_run("machine", "commands", "contract-edge")
@@ -197,7 +181,7 @@ class PythonSDKContract(unittest.IsolatedAsyncioTestCase):
                                     "--kwargs", '{"label":"round-trip"}', "--yes", "--run-id", "contract-run")
         self.assertEqual(json.loads(out)["failed"], 0)
         self.assertEqual(self.driver.calls, [(7, "round-trip")])
-        self.assertNotIn("Python SDK", err)  # execution is not gated by the map
+        self.assertNotIn("edge protocol", err)  # execution is not gated by the protocol check
         out, err = await self.cli_run("machine", "run", "contract-edge", "fail", "--run-id", "contract-run", success=False)
         self.assertEqual(json.loads(out)["failed"], 1)
         self.assertIn("intentional software fixture failure", out + err)

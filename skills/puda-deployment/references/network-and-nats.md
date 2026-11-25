@@ -35,6 +35,7 @@ CLIs older than the `issues` list: map the JSON report to the next check:
 | `jetstream.status: failed` | server JetStream configuration and account permissions; `jetstream.error` holds the cause |
 | `compatibility.reason: no_responders` | edges, not the broker: edge logs and NATS connection |
 | `compatibility.reason: discovery_error` | permissions for `puda.cmd.ping` and `_INBOX` replies; `compatibility.error` holds the cause |
+| `compatibility.machines[].status: unsupported` | the edge's `protocol_version` is missing or not `1.x`: update the PUDA SDK on that machine and restart the edge |
 
 ## Heartbeats
 

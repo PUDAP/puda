@@ -179,10 +179,10 @@ class Wire:
     def envelope(self, name: str, run_id: str | None, step: int, params=None, kwargs=None,
                  timestamp: str | None = None) -> dict[str, Any]:
         command: dict[str, Any] = {"name": name, "params": params or {}, "step_number": step,
-                                   "version": "1.0", "machine_id": self.machine_id}
+                                   "machine_id": self.machine_id}
         if kwargs is not None:
             command["kwargs"] = kwargs
-        return {"header": {"version": "1.0", "message_type": "command", "user_id": "it", "username": "it",
+        return {"header": {"protocol_version": "1.0", "message_type": "command", "user_id": "it", "username": "it",
                            "machine_id": self.machine_id, "run_id": run_id,
                            "timestamp": timestamp or _now()},
                 "command": command}

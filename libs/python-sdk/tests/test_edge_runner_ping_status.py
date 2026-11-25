@@ -73,6 +73,7 @@ class EdgeRunnerPingStatusTests(unittest.IsolatedAsyncioTestCase):
         response = await runner._handle_immediate(
             NATSMessage(
                 header=MessageHeader(
+                    protocol_version="1.0",
                     message_type=MessageType.COMMAND,
                     user_id="user-1",
                     username="user",

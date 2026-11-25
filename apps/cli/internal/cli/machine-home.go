@@ -69,7 +69,6 @@ func homeMachines(w io.Writer, machineIDs []string) error {
 			Name:       "home",
 			Params:     make(map[string]interface{}),
 			StepNumber: i + 1,
-			Version:    "1.0",
 			MachineID:  machineID,
 		})
 	}

@@ -131,20 +131,19 @@ func buildUpdateMessage(machineID, runID, userID, username string, params Update
 	runIDPtr := &runID
 	return puda.NATSMessage{
 		Header: puda.MessageHeader{
-			Version:     "1.0",
-			MessageType: puda.MessageTypeCommand,
-			UserID:      userID,
-			Username:    username,
-			MachineID:   machineID,
-			RunID:       runIDPtr,
-			Timestamp:   GetCurrentTimestamp(),
+			ProtocolVersion: ProtocolVersion,
+			MessageType:     puda.MessageTypeCommand,
+			UserID:          userID,
+			Username:        username,
+			MachineID:       machineID,
+			RunID:           runIDPtr,
+			Timestamp:       GetCurrentTimestamp(),
 		},
 		Command: &puda.CommandRequest{
 			Name:       "update",
 			MachineID:  machineID,
 			Params:     cmdParams,
 			StepNumber: 0,
-			Version:    "1.0",
 		},
 	}
 }

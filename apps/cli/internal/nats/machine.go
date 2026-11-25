@@ -20,21 +20,24 @@ const (
 
 // PingResult is the outcome of a direct Core NATS ping request.
 type PingResult struct {
-	MachineID     string   `json:"machine_id"`
-	Status        string   `json:"status"`
-	Timestamp     string   `json:"timestamp,omitempty"`
-	SDKVersion    string   `json:"sdk_version,omitempty"`
-	UptimeSeconds float64  `json:"uptime_seconds,omitempty"`
-	RunStatus     string   `json:"run_status,omitempty"`
-	Description   string   `json:"description,omitempty"`
-	LocalIP       string   `json:"local_ip,omitempty"`
-	TailscaleIP   string   `json:"tailscale_ip,omitempty"`
-	MagicDNS      string   `json:"magicdns,omitempty"`
-	LatencyMS     float64  `json:"latency_ms,omitempty"`
-	Error         string   `json:"error,omitempty"`
-	EncryptKID    string   `json:"e2e_encrypt_kid,omitempty"`
-	DecryptKIDs   []string `json:"e2e_decrypt_kids,omitempty"`
-	Persist       *bool    `json:"e2e_persist,omitempty"`
+	MachineID  string `json:"machine_id"`
+	Status     string `json:"status"`
+	Timestamp  string `json:"timestamp,omitempty"`
+	SDKVersion string `json:"sdk_version,omitempty"`
+	// ProtocolVersion is the Edge Protocol "MAJOR.MINOR" the edge speaks;
+	// empty for edges that predate Edge Protocol 1.0. SDKVersion is informational.
+	ProtocolVersion string   `json:"protocol_version,omitempty"`
+	UptimeSeconds   float64  `json:"uptime_seconds,omitempty"`
+	RunStatus       string   `json:"run_status,omitempty"`
+	Description     string   `json:"description,omitempty"`
+	LocalIP         string   `json:"local_ip,omitempty"`
+	TailscaleIP     string   `json:"tailscale_ip,omitempty"`
+	MagicDNS        string   `json:"magicdns,omitempty"`
+	LatencyMS       float64  `json:"latency_ms,omitempty"`
+	Error           string   `json:"error,omitempty"`
+	EncryptKID      string   `json:"e2e_encrypt_kid,omitempty"`
+	DecryptKIDs     []string `json:"e2e_decrypt_kids,omitempty"`
+	Persist         *bool    `json:"e2e_persist,omitempty"`
 	// TlmStreams is nil for edges on SDK versions that predate telemetry streams.
 	TlmStreams []TlmStream `json:"tlm_streams,omitempty"`
 }
@@ -54,7 +57,7 @@ type MachineCommands struct {
 	Catalog  []MachineCommand `json:"catalog"`
 	// Hooks lists the lifecycle hooks the driver implements (pause, resume,
 	// reset, estop, abort, shutdown). Nil when the edge does not report them
-	// (Python SDK older than 0.0.24).
+	// (Python SDK older than 0.1.0).
 	Hooks []string `json:"hooks"`
 }
 

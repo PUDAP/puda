@@ -157,7 +157,7 @@ class Driver:
 
 ## Lifecycle commands
 
-These lifecycle hooks are optional. Define them when the machine has matching hardware behavior. Hooks are plain methods: **do not decorate them with `@command`**. The edge finds them by name and calls them as part of the matching CLI action, and refuses to start if one is decorated (Python SDK 0.0.24 or later). `home` is different: it is an ordinary `@command`.
+These lifecycle hooks are optional. Define them when the machine has matching hardware behavior. Hooks are plain methods: **do not decorate them with `@command`**. The edge finds them by name and calls them as part of the matching CLI action, and refuses to start if one is decorated (Python SDK 0.1.0 or later). `home` is different: it is an ordinary `@command`.
 
 - `shutdown`: if defined, the edge calls it before the process stops so ports, sockets, and other resources are released.
 - `home`: if defined, triggered by `puda machine home <machine_id>`. Omit it if the machine has no home motion.

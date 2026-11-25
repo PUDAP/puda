@@ -165,7 +165,7 @@ def require_command_names(driver: Any) -> frozenset[str]:
         raise LifecycleHookError(
             f"{methods}: lifecycle hooks must not be decorated with @command. "
             "Remove @command; the edge calls pause, resume, reset, estop, abort and "
-            "shutdown by name (puda SDK 0.0.24+)."
+            "shutdown by name (puda SDK 0.1.0+)."
         )
     if not names:
         raise RuntimeError(SDK_UPDATE_ERROR)

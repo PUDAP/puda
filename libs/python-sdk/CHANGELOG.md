@@ -5,9 +5,21 @@ All notable changes to the PUDA Python SDK are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
+SDK versions are independent of the PUDA CLI. Edges report the PUDA Edge
+Protocol version they speak (`protocol_version` in every pong), and clients
+judge compatibility by that, not by package versions.
 
 ## [Unreleased]
+
+### Added
+
+- Every pong carries `protocol_version: "1.0"` (exported as
+  `puda.PROTOCOL_VERSION`). The CLI accepts edges speaking protocol 1.x,
+  whatever their implementation (Python SDK, C SDK).
+- **Breaking:** the envelope's `header.version` (the protocol version, which
+  nothing read) is now `header.protocol_version` and required. The edge answers
+  a command without it, or with another major, `EXECUTION_ERROR` "Invalid
+  command envelope: header.protocol_version: ..." and never runs it.
 
 ### Changed
 
@@ -46,6 +58,8 @@ SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
 
 ### Removed
 
+- **Breaking:** `command.version` (`CommandRequest.version`). It was a
+  per-command version nothing used.
 - **Breaking:** the `cancel` immediate command (`ImmediateCommand.CANCEL`). It did
   not stop the running command. Edges now answer `cancel` with `UNKNOWN_COMMAND`;
   use `complete` with `params: {"abort": true}`.

@@ -22,6 +22,7 @@ def message(name: str, run_id: str | None = "run-1", params: dict | None = None,
             step_number: int = 1) -> NATSMessage:
     return NATSMessage(
         header=MessageHeader(
+            protocol_version="1.0",
             message_type=MessageType.COMMAND,
             user_id="user-1",
             username="user",
