@@ -191,7 +191,7 @@ Immediate commands (`start`, `complete`, `pause`, `resume`, `reset`, `estop`) ar
 
 For every command it acts on, the edge MUST produce exactly one response:
 
-- **Queued command:** published through JetStream to `puda.<id>.cmd.response.queue`; the edge waits for the PubAck.
+- **Queued command:** published through JetStream to `puda.<id>.cmd.response.queue`, and stored (PubAck) **before** the command message is acked or terminated. If the broker is unreachable the edge MUST keep retrying, sending `+WPI` meanwhile, so a result is never lost. It SHOULD set `Nats-Msg-Id: <machine_id>:<stream sequence>` so that re-sending the same result is a duplicate JetStream drops.
 - **Immediate command:** sent as the reply on the request's reply subject (sealed with that inbox as AAD, §13.3), then published as a copy to `puda.<id>.cmd.response.immediate` for observers. The reply comes first so that recording never delays it. Clients wait for the reply, not for the copy.
 
 The response is the received message with these changes:
@@ -216,7 +216,7 @@ Rules:
 - On error, `status` is `"error"`, and `code` (§8.6) and `message` are set.
 - `data` is a JSON object or `null`. A handler result that is not an object MUST be wrapped as `{"result": <value>}`. A handler returning `false` is a **success** with `{"result": false}` ([example](v1.0/examples/response-queue-bool-false.json)).
 - Python adds `"kwargs": {}` to the echoed `command` when it was absent. Edges MAY do the same.
-- For queue commands, the reference acks or terminates first and then publishes the response.
+- Storing the result before the ack means an edge that dies in between leaves the message unacked, so JetStream redelivers it. A redelivery MUST NOT run the command again (§9.2 rows 0a and 0b).
 
 **Malformed commands.** A payload that opens (§13.4) but is not a valid envelope:
 
@@ -260,10 +260,12 @@ Rules:
 
 ### 9.2 Queued command decision table
 
-The edge MUST evaluate these checks in this order:
+The edge MUST evaluate these checks in this order. The edge MUST remember the results of at least its last queued command by stream sequence; the reference keeps 64. Rows 0a and 0b make every queued command run at most once even though results are stored before the ack (§8.4): a redelivery that already has a result is answered again, and one without (the edge restarted mid-command, so the hardware may have acted) is reported, not run. Clients take the first response per `(run_id, step_number, machine_id)`.
 
 | # | Condition | Ack | Response | Run | State |
 |---|---|---|---|---|---|
+| 0a | Redelivered, and this edge has the result of that stream sequence | as before | the same result again (same `Nats-Msg-Id`) | — | — |
+| 0b | Redelivered (delivery count > 1: the `<delivered>` token of the reply subject `$JS.ACK.<stream>.<consumer>.<delivered>.…`) with no result on record and not NAKed by this edge on pause | `+TERM` | `EXECUTION_ERROR` "Redelivered without a result: the edge restarted while handling this command. Outcome unknown; it was not run again" | cleared | — |
 | 1 | Payload unreadable or not a valid envelope | `+TERM` | `EXECUTION_ERROR` if correlatable (§8.4), else none | — | — |
 | 2 | Estop latch set | `+TERM` | `MACHINE_ESTOPPED` "Machine emergency stopped; send reset before queuing commands" | — | — |
 | 3 | Paused | `-NAK`, confirmed (§9.4) | none; redelivered after resume | — | — |
