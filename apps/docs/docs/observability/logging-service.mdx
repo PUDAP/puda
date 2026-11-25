@@ -8,7 +8,7 @@ By default, the PUDA CLI uses SQLite for local storage. This is enough for a loc
 
 For backups, persistent storage, and a more reliable record of the whole runtime environment, run the PUDA logger. It should run 24/7 on an always-on machine, in a Docker container.
 
-The recommended template is [PUDAP/puda-logger](https://github.com/PUDAP/puda-logger). It has one folder per database (`influxdb`, `clickhouse`, `postgres`, `reductstore`); copy only the one your deployment uses into your [deployment monorepo](../setup/deployment-monorepo). A Python subscriber receives NATS messages, decrypts them when configured, and converts them to Influx line protocol. Telegraf receives that output through `inputs.execd`, then buffers, batches, and writes it to InfluxDB.
+The recommended template is [`services/logger`](https://github.com/PUDAP/puda/tree/main/services/logger) in the PUDA repository. It has one folder per database (`influxdb`, `clickhouse`, `postgres`, `reductstore`); copy only the one your deployment uses into your [deployment monorepo](../setup/deployment-monorepo). A Python subscriber receives NATS messages, decrypts them when configured, and converts them to Influx line protocol. Telegraf receives that output through `inputs.execd`, then buffers, batches, and writes it to InfluxDB.
 
 The template uses InfluxDB. Most PUDA log queries are filtered by timestamp—runs, commands, telemetry, and events over a time window.
 
@@ -26,8 +26,8 @@ If you already have an InfluxDB server, reuse it and skip to [Start the logger](
 
 ```bash
 mkdir -p services/influxdb
-curl -fsSL https://github.com/PUDAP/puda-logger/archive/refs/heads/main.tar.gz \
-  | tar -xz --strip-components=2 -C services/influxdb puda-logger-main/influxdb
+curl -fsSL https://github.com/PUDAP/puda/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=4 -C services/influxdb puda-main/services/logger/influxdb
 ```
 
 Commit the folder. On the machine that will host the database—for example, a NAS—check out the deployment monorepo and open the server stack:
@@ -123,7 +123,7 @@ If you change `telegraf.conf.template`, restart without rebuilding:
 docker compose restart influxdb-logger
 ```
 
-To run without Docker, install Python 3.11+, `uv`, Telegraf, and `envsubst`. Run `uv sync --frozen`, export the variables above, and configure Telegraf's `inputs.execd.command` with absolute paths to `.venv/bin/python` and `subscriber.py`. Render the InfluxDB placeholders in the template and start Telegraf with that configuration. See the [local setup instructions](https://github.com/PUDAP/puda-logger/blob/main/influxdb/logger/README.md#local-without-docker); the container entrypoint uses container-specific paths.
+To run without Docker, install Python 3.11+, `uv`, Telegraf, and `envsubst`. Run `uv sync --frozen`, export the variables above, and configure Telegraf's `inputs.execd.command` with absolute paths to `.venv/bin/python` and `subscriber.py`. Render the InfluxDB placeholders in the template and start Telegraf with that configuration. See the [local setup instructions](https://github.com/PUDAP/puda/blob/main/services/logger/influxdb/logger/README.md#local-without-docker); the container entrypoint uses container-specific paths.
 
 ## What the logger records
 
@@ -144,7 +144,7 @@ Command **requests**, health, and driver telemetry use live Core NATS subscripti
 Acknowledgment happens after handing line protocol to Telegraf, not after confirmation of an InfluxDB write. Crashes or exhausted buffers can lose data, and redelivery can produce duplicates. Monitor both subscriber and Telegraf errors.
 
 :::tip
-For the full field and tag schema, see the [influxdb-logger README](https://github.com/PUDAP/puda-logger/blob/main/influxdb/logger/README.md).
+For the full field and tag schema, see the [influxdb-logger README](https://github.com/PUDAP/puda/blob/main/services/logger/influxdb/logger/README.md).
 :::
 
 ## Migrate an existing database

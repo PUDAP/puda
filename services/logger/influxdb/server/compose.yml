@@ -1,0 +1,57 @@
+services:
+  influxdb-init:
+    image: alpine:3
+    command: sh -c "chown -R 1500:1500 /data"
+    volumes:
+      - influxdb_data:/data
+
+  # For high ingest, put this volume on local NVMe (or S3-compatible object
+  # storage via INFLUXDB3_OBJECT_STORE). A NAS Docker volume is fine for a
+  # lab and will not keep up at 100k-machine write rates.
+  influxdb:
+    image: influxdb:3.11.2-core
+    container_name: influxdb
+    restart: always
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "${INFLUXDB_PORT:-8181}:8181"
+    volumes:
+      - influxdb_data:/home/influxdb3/.influxdb3
+      - ./admin-token.json:/run/secrets/admin-token:ro
+    env_file:
+      - .env
+    environment:
+      # 3.11 authenticates /health by default; Docker probes have no token.
+      INFLUXDB3_DISABLE_AUTHZ: health
+    depends_on:
+      influxdb-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8181/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # Last-value cache on telemetry(machine_id). Retries until the logger has
+  # written the telemetry table, then exits. Re-run after a fresh database.
+  influxdb-cache-init:
+    image: influxdb:3.11.2-core
+    container_name: influxdb-cache-init
+    restart: on-failure
+    env_file:
+      - .env
+    environment:
+      INFLUXDB3_HOST_URL: http://influxdb:8181
+    volumes:
+      - ./init-last-cache.sh:/init-last-cache.sh:ro
+    entrypoint: ["/bin/sh", "/init-last-cache.sh"]
+    depends_on:
+      influxdb:
+        condition: service_healthy
+
+volumes:
+  influxdb_data:

@@ -43,7 +43,7 @@ curl -fsSL https://github.com/<owner>/<template>/archive/refs/heads/main.tar.gz 
 | `edges/<machine_id>` | `PUDAP/edge-python-template` (or `edge-python-gui-template`) | `1` |
 | `services/nats` | `PUDAP/puda` | `3`, `puda-main/infra/nats/<layout> puda-main/infra/nats/jetstream` |
 | `services/chrony` | `PUDAP/puda` | `3`, `puda-main/infra/chrony` |
-| `services/<database>` | `PUDAP/puda-logger` | `2`, `puda-logger-main/<database>` |
+| `services/<database>` | `PUDAP/puda` | `4`, `puda-main/services/logger/<database>` |
 | `services/grafana` | `PUDAP/puda-grafana` | `1` |
 | `services/livestream` | `PUDAP/livestream` | `1` |
 

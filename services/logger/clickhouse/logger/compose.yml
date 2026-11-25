@@ -1,0 +1,33 @@
+name: puda-clickhouse-logger
+services:
+  logger:
+    build: .
+    image: pudap/clickhouse-logger:local
+    restart: unless-stopped
+    # Linux: reach the loopback-only ClickHouse server without publishing NATS.
+    network_mode: host
+    user: "${LOGGER_UID:-10001}:${LOGGER_GID:-10001}"
+    env_file: .env
+    environment:
+      PUDA_NATS_CA: "${PUDA_NATS_CA:+/run/puda-ca/ca.pem}"
+      PUDA_E2E_KEY_FILE: "${PUDA_E2E_KEY_FILE:+/run/puda-key/e2e.key}"
+    volumes:
+      - type: bind
+        source: ${PUDA_NATS_CA:-/dev/null}
+        target: /run/puda-ca/ca.pem
+        read_only: true
+        bind:
+          create_host_path: false
+      # Mount the DIRECTORY so SDK writes/sidecar key IDs survive rotation.
+      - type: bind
+        source: ${PUDA_E2E_KEY_DIR:-/dev/null}
+        target: /run/puda-key
+        bind:
+          create_host_path: false
+    stop_grace_period: 75s
+    init: true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

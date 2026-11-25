@@ -1,0 +1,14 @@
+[project]
+name = "puda-clickhouse-logger"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["puda==0.0.19rc1", "nats-py==2.12.0"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = ["integration: disposable Docker or native ClickHouse and NATS (opt-in)"]

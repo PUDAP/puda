@@ -1,0 +1,9 @@
+services:
+  postgres-logger:
+    build: .
+    image: ghcr.io/pudap/postgres-logger:latest
+    container_name: postgres-logger
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env
