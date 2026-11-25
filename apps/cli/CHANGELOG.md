@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.0-rc1 — 2026-11-25 (prerelease)
+
+CLI 0.2.0 speaks Edge Protocol 1.0 and pairs with Python SDK 0.1.0, the first SDK release that speaks it. The CLI judges edges by the `protocol_version` in their pong, not by SDK version: edges on Python SDK older than 0.1.0 report none and are flagged as unsupported.
+
 ### Added
 
 - `puda machine commands` reports the lifecycle hooks the driver implements (`hooks` in JSON, a "Lifecycle hooks" line with `--human`), so agents can tell whether `estop` or `abort` reaches the hardware. `puda protocol validate` and `run` reject `start`, `complete` and hook names as steps with an explanation instead of "not found".

@@ -11,6 +11,12 @@ judge compatibility by that, not by package versions.
 
 ## [Unreleased]
 
+## [0.1.0rc1] - 2026-11-25
+
+Release candidate. First release speaking PUDA Edge Protocol 1.0
+(`docs/edge-protocol/`); fixes its deviations D-1 to D-8. Use CLI 0.2.0
+(`0.2.0-rc1`) or later. No compatibility with earlier SDKs, CLIs or brokers.
+
 ### Added
 
 - Every pong carries `protocol_version: "1.0"` (exported as
