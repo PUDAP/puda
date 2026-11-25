@@ -56,6 +56,8 @@ class CommandProcessor:
         self._client = client
         self.run_manager = RunManager(machine_id=client.machine_id)
         self._pause_lock = asyncio.Lock()
+        # Immediate verbs other than estop run one at a time, in arrival order.
+        self._immediate_lock = asyncio.Lock()
         self._is_paused = False
         # Set by ESTOP, cleared only by a successful RESET.
         self._is_estopped = False
@@ -362,6 +364,10 @@ class CommandProcessor:
         command sent while the edge is offline never arrives (the client sees
         no responders) and nothing stale can replay. Every request with a reply
         inbox gets exactly one reply, including malformed ones.
+
+        Each request runs in its own task. ``estop`` is handled at once; the
+        other verbs take turns in arrival order, so a slow driver hook never
+        delays an emergency stop.
         """
         try:
             try:
@@ -380,7 +386,11 @@ class CommandProcessor:
                 )
                 return
             command_name = message.command.name.lower()
-            response = await self._dispatch_immediate(command_name, message.header.run_id, message, handler)
+            if command_name == ImmediateCommand.ESTOP:
+                response = await self._dispatch_immediate(command_name, message.header.run_id, message, handler)
+            else:
+                async with self._immediate_lock:
+                    response = await self._dispatch_immediate(command_name, message.header.run_id, message, handler)
             await self._reply_immediate(msg, response)
         except Exception as e:
             logger.error("Error processing immediate command: %s", e)

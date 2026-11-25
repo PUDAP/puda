@@ -73,6 +73,9 @@ judge compatibility by that, not by package versions.
   the edge stopped waiting after 5 s (abort) or at once (estop) and started the
   next command while the hardware call could still be running. The CLI no longer
   raises its timeout for `--abort`.
+- `estop` is never delayed by another immediate command. Each request runs in its
+  own task, `estop` skips the line, and `estop` and `abort` use separate threads.
+  Previously an `estop` sent during `complete --abort` waited up to 5 s.
 - Immediate commands sent while an edge was offline no longer act when it comes
   back (see request/reply above). Previously a stale `start`, `reset` or `estop`
   replayed on startup; a replayed `start` left an active run hidden behind

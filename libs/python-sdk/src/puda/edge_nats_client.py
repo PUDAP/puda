@@ -134,6 +134,7 @@ class EdgeNatsClient:
 
         self._cmd_queue_sub = None
         self._cmd_queue_task = None
+        self._immediate_tasks: set[asyncio.Task] = set()
         self._cmd_immediate_sub = None
         self._ping_sub: Any = None
         self._ping_broadcast_sub: Any = None
@@ -758,7 +759,11 @@ class EdgeNatsClient:
         self._immediate_handler = handler
 
         async def message_handler(msg: Msg) -> None:
-            await self.commands.process_immediate(msg, self._immediate_handler)
+            # nats-py runs one subscription's callbacks one at a time; a task per
+            # request lets estop overtake a slow driver hook (see process_immediate).
+            task = asyncio.create_task(self.commands.process_immediate(msg, self._immediate_handler))
+            self._immediate_tasks.add(task)
+            task.add_done_callback(self._immediate_tasks.discard)
 
         await self._safe_unsubscribe(self._cmd_immediate_sub)
         self._cmd_immediate_sub = await self.nc.subscribe(subject=self.cmd_immediate, cb=message_handler)
