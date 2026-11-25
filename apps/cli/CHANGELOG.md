@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- A full machine queue no longer loses commands. `COMMAND_QUEUE` now holds at most 10 commands per machine (was 100) and refuses an 11th; before, the broker accepted it and silently deleted that machine's oldest command, possibly the one running, so the CLI waited forever for its response. The CLI reports the refusal as `queue full: machine <id> already has the maximum number of commands waiting …` without retrying. Re-run `infra/nats/jetstream/setup_streams.sh` on existing brokers to apply the new stream config, while no machine has more than 10 commands waiting (for example with no protocol runs in progress): lowering the limit makes the broker delete the oldest excess commands.
+
 ## 0.2.0-rc1 — 2026-11-25 (prerelease)
 
 CLI 0.2.0 speaks Edge Protocol 1.0 and pairs with Python SDK 0.1.0, the first SDK release that speaks it. The CLI judges edges by the `protocol_version` in their pong, not by SDK version: edges on Python SDK older than 0.1.0 report none and are flagged as unsupported.

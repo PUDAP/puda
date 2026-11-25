@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -147,6 +148,19 @@ func publishQueueCommandWithCancellation(ctx context.Context, interlock *sync.Mu
 	return publish()
 }
 
+// ErrQueueFull means the broker refused a queued command because the machine
+// already has the maximum number of commands waiting in COMMAND_QUEUE.
+var ErrQueueFull = errors.New("queue full")
+
+// isQueueFull reports the broker's refusal of a publish beyond the stream's
+// max_msgs_per_subject (with discard_new_per_subject). Its error code 10077 is
+// the generic store failure, so the description identifies it.
+func isQueueFull(err error) bool {
+	var apiErr *nats.APIError
+	return errors.As(err, &apiErr) && apiErr.ErrorCode == 10077 &&
+		strings.Contains(apiErr.Description, "maximum messages per subject exceeded")
+}
+
 // SendQueueCommandWithContext interlocks cancellation with each actual NATS
 // publication. The interlock is released before retries and response waiting.
 func SendQueueCommandWithContext(ctx context.Context, interlock *sync.Mutex, js nats.JetStreamContext, dispatcher *ResponseDispatcher, request puda.CommandRequest, runID, userID, username string, store *db.Store) (*puda.NATSMessage, error) {
@@ -178,6 +192,10 @@ func SendQueueCommandWithContext(ctx context.Context, interlock *sync.Mutex, js 
 		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
+		}
+		if isQueueFull(err) {
+			// Final: nothing was stored, and retrying would only be refused again.
+			return nil, fmt.Errorf("%w: machine %s already has the maximum number of commands waiting (COMMAND_QUEUE max_msgs_per_subject, 10 by default); nothing was queued. Wait for them to finish, or check that the edge is online and not paused", ErrQueueFull, request.MachineID)
 		}
 		if attempt < maxPublishRetries {
 			log.Printf("Publish attempt %d/%d failed: %v; retrying...", attempt, maxPublishRetries, err)

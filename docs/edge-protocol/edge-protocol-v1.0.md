@@ -72,7 +72,7 @@ Provisioning is the operator's job, not the edge's. `setup_streams.sh` applies t
 
 | Name | Kind | Subjects / key | Retention and settings |
 |---|---|---|---|
-| `COMMAND_QUEUE` | Stream | `puda.*.cmd.queue` | `workqueue`, file storage, `discard: new`, `max_msgs_per_subject: 100` |
+| `COMMAND_QUEUE` | Stream | `puda.*.cmd.queue` | `workqueue`, file storage, `discard: new`, `max_msgs_per_subject: 10`, `discard_new_per_subject: true` |
 | `RESPONSE_QUEUE` | Stream | `puda.*.cmd.response.queue` | `interest`, file storage, `max_age` 24 h |
 | `RESPONSE_IMMEDIATE` | Stream | `puda.*.cmd.response.immediate` | `interest`, file storage, `max_age` 24 h |
 | `MACHINE_STATE` | KV | key `<machine_id>` | history 1 |
@@ -83,13 +83,13 @@ Provisioning is the operator's job, not the edge's. `setup_streams.sh` applies t
 
 The broker config (`infra/nats/*/nats.conf`) sets `max_payload: 64MB` and JetStream limits of 4 GB memory and 10 GB file storage per server. No stream or consumer is defined for `puda.<id>.cmd.immediate` (§8.3).
 
-`max_msgs_per_subject: 100` caps each machine at 100 messages in `COMMAND_QUEUE`, counting the delivered command not yet acked. `discard: new` does **not** apply to this per-subject limit unless the stream also sets `discard_new_per_subject: true`, which the provisioned config does not. So the 101st publish succeeds and the broker silently deletes that machine's **oldest** message, which may be the command the edge is running (its later ack still succeeds). The client then waits forever for the deleted step. Observed on `nats-server 2.15.3` with the provisioned config, cap lowered to 3: publishes 4 and 5 were stored, and the running command and the next one were gone. With `discard_new_per_subject: true` the same publishes are rejected (`503`, error code `10077`, "maximum messages per subject exceeded") and nothing is deleted. See §18. Edges are unaffected either way.
+`COMMAND_QUEUE` holds at most **10 commands per machine** (`max_msgs_per_subject: 10`), counting a delivered command not yet acked. With `discard_new_per_subject: true` the broker refuses an 11th publish with `503`, error code `10077`, "maximum messages per subject exceeded", stores nothing and deletes nothing. A client MUST treat this as "queue full" and MUST NOT retry it blindly; the CLI reports it as `queue full` naming the machine. Without `discard_new_per_subject` the broker would instead delete the machine's oldest message, possibly the running command, so provisioning MUST set it. Clients that wait for each response before sending the next command (the CLI and `CommandService` do) keep at most two messages per machine in the stream.
 
 Rules:
 
 - An edge MUST work against these pre-provisioned objects without creating or modifying any of them.
 - An edge MUST NOT update or delete a stream or bucket (`STREAM.UPDATE`, `STREAM.DELETE`). An update replaces the whole config, so it can overwrite provisioned settings such as replicas or `max_msgs_per_subject`. If an existing object does not match this table, the edge MUST leave it unchanged and SHOULD log the mismatch.
-- An edge MAY call `STREAM.INFO` to check that an object exists, and MAY create one that is **missing** (`STREAM.CREATE`), logging a warning that the broker is unprovisioned. This keeps development brokers usable without `setup_streams.sh`. A Core edge (§15) SHOULD instead log the problem and retry.
+- An edge MAY call `STREAM.INFO` to check that an object exists, and MAY create one that is **missing** (`STREAM.CREATE`) with the settings in the table, logging a warning that the broker is unprovisioned. This keeps development brokers usable without `setup_streams.sh`. A Core edge (§15) SHOULD instead log the problem and retry.
 - Writing a KV value needs no API call. Publishing to `$KV.<bucket>.<key>` through JetStream is enough (Appendix A).
 
 The reference calls `STREAM.INFO` on the three command and response streams and opens the `MACHINE_STATE` and `MACHINE_COMMANDS` buckets on every connect; it creates only what is missing.
@@ -621,7 +621,6 @@ The Communication page (`apps/docs/docs/overview/communication.mdx`) does not ma
 1. Define broker authentication (NKEY/JWT) for edges outside a trusted network.
 2. Consider an MQTT binding. The broker already exposes MQTT, and ESP-IDF has a native MQTT client. Work-queue consumption and ack semantics would need to be specified first.
 3. Consider `sdk_name` in the pong, so reports can tell implementations apart; compatibility does not need it (§2).
-4. Set `discard_new_per_subject: true` on `COMMAND_QUEUE` so a full per-machine queue rejects new commands instead of silently deleting the oldest one, including a running command (§5). This is a provisioning change with no wire change for edges; clients must then treat publish error `10077` as "queue full".
 
 ---
 

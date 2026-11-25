@@ -90,7 +90,7 @@ NATS_URL=tls://127.0.0.1:4222 NATS_CA=/path/to/ca.pem REPLICAS=1 ./setup_streams
 
 | Stream | Subjects | Retention |
 |---|---|---|
-| `COMMAND_QUEUE` | `puda.*.cmd.queue` | workqueue |
+| `COMMAND_QUEUE` | `puda.*.cmd.queue` | workqueue; at most 10 per machine, an 11th publish is refused (`discard_new_per_subject`). Lowering the limit on a live stream deletes the oldest excess commands, so apply it with no runs in progress. |
 | `RESPONSE_QUEUE` | `puda.*.cmd.response.queue` | interest (24h max-age) |
 | `RESPONSE_IMMEDIATE` | `puda.*.cmd.response.immediate` | interest (24h max-age) |
 

@@ -49,6 +49,22 @@ _REQUIRED_STREAMS = (
     (STREAM_RESPONSE_IMMEDIATE, f"{NAMESPACE}.*.cmd.response.immediate", "interest"),
 )
 
+# Settings of a stream the edge creates on an unprovisioned broker, matching
+# infra/nats/jetstream/streams/*.json (a test keeps them equal).
+COMMAND_QUEUE_PER_MACHINE = 10  # queued commands per machine, the running one included
+_STREAM_DEFAULTS = {
+    # A full per-machine queue refuses the new command (error 10077) instead
+    # of deleting the oldest one, which may be the command that is running.
+    STREAM_COMMAND_QUEUE: {
+        "storage": "file",
+        "discard": "new",
+        "max_msgs_per_subject": COMMAND_QUEUE_PER_MACHINE,
+        "discard_new_per_subject": True,
+    },
+    STREAM_RESPONSE_QUEUE: {"storage": "file", "max_age": 24 * 3600 * 10**9},  # ns, as on the wire
+    STREAM_RESPONSE_IMMEDIATE: {"storage": "file", "max_age": 24 * 3600 * 10**9},
+}
+
 
 def _sdk_version() -> str:
     try:
@@ -264,12 +280,17 @@ class EdgeNatsClient:
             existing = (await self.js.stream_info(stream_name)).config
         except NotFoundError:
             logger.warning(
-                "Stream %s is missing; creating a minimal one (subject=%s, retention=%s). "
+                "Stream %s is missing; creating it with the default settings (subject=%s, retention=%s). "
                 "Provision the broker with infra/nats/jetstream/setup_streams.sh for production.",
                 stream_name, subject_pattern, retention,
             )
             await self.js.add_stream(
-                StreamConfig(name=stream_name, subjects=[subject_pattern], retention=retention)
+                StreamConfig.from_response({
+                    "name": stream_name,
+                    "subjects": [subject_pattern],
+                    "retention": retention,
+                    **_STREAM_DEFAULTS.get(stream_name, {}),
+                })
             )
             return
         retention_value = getattr(getattr(existing, "retention", None), "value", getattr(existing, "retention", None))
