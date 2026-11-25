@@ -27,7 +27,7 @@ async def main():
                 "user_id": "test-user",
                 "run_id": "test-run",
             },
-            "command": {"name": "sample", "step_number": 1, "version": "1.0"},
+            "command": {"name": "sample", "step_number": 1},
             "response": {"status": "success", "completed_at": "2026-07-07T09:41:43Z"},
         }
         for suffix in (

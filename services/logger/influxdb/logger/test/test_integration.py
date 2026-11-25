@@ -262,7 +262,7 @@ async def test_container_pipeline(tmp_path, encrypted):
                 "username": "ACME\\test user",
                 "run_id": "run-1",
             }
-            command = {"name": name, "step_number": 1, "version": "1.0"}
+            command = {"name": name, "step_number": 1}
             data = {
                 "header": header,
                 "command": command,

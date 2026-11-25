@@ -302,7 +302,6 @@ class LoggerService:
                 "subject": msg.subject,
                 "user_id": header.get("user_id"),
                 "step_number": command.get("step_number"),
-                "cmd_version": command.get("version"),
             }
             if msg_type == "response":
                 labels["response_code"] = response.get("code")

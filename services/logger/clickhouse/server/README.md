@@ -88,7 +88,7 @@ SELECT event_time, JSONExtractString(data, 'status') AS status,
 FROM puda.telemetry WHERE stream = 'health'
 ORDER BY event_time DESC LIMIT 100;
 
-SELECT event_time, user_id, username, cmd_version, cmd_name, status
+SELECT event_time, user_id, username, cmd_name, status
 FROM puda.command_logs WHERE run_id = 'run-1'
 ORDER BY event_time;
 ```

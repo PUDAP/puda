@@ -220,7 +220,6 @@ def to_line(subject: str, payload: bytes) -> str:
         fields = {"step_number": f"{step}i"}
         for name, value in (
             ("user_id", header.get("user_id")),
-            ("cmd_version", command.get("version")),
         ):
             if value is not None:
                 fields[name] = field_value(value)

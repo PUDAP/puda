@@ -34,7 +34,7 @@ def command():
             "run_id": "run-1",
             "user_id": "user-1",
         },
-        "command": {"name": "home", "step_number": 1, "version": "1.0"},
+        "command": {"name": "home", "step_number": 1},
         "response": {
             "status": "success",
             "code": 200,
@@ -114,7 +114,7 @@ def test_command_schema(command):
     assert line == (
         "commands,cmd_name=home,machine_id=first,msg_type=command,"
         "run_id=run-1,status=sent,subject=puda.first.cmd.queue,topic=queue,username=user "
-        'cmd_version="1.0",step_number=1i,user_id="user-1" 1783417302000000000'
+        'step_number=1i,user_id="user-1" 1783417302000000000'
     )
 
 

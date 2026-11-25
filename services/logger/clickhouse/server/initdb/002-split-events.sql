@@ -16,7 +16,6 @@ CREATE TABLE IF NOT EXISTS puda.command_logs
     step_number Nullable(Int64),
     username String,
     user_id String,
-    cmd_version String,
     status LowCardinality(String),
     raw_json String CODEC(ZSTD(3))
 )

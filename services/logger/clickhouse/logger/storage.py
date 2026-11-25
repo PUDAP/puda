@@ -307,7 +307,6 @@ def to_row(subject, payload):
         ("username", header, "username"),
         ("user_id", header, "user_id"),
         ("cmd_name", command, "name"),
-        ("cmd_version", command, "version"),
     ):
         value = source.get(source_field)
         if value is None and key not in ("machine_id", "cmd_name"):

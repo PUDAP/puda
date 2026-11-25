@@ -25,7 +25,6 @@ Each NATS message is stored as a timestamped JSON record with InfluxDB-style lab
 | `subject` | NATS subject |
 | `user_id` | `header.user_id` |
 | `step_number` | `command.step_number` |
-| `cmd_version` | `command.version` |
 | `response_code` | `response.code` (responses only) |
 | `completed_at` | `response.completed_at` (responses only) |
 | `response` | `response.message`, or `response.data` when message is empty, or `response.code` (responses only; truncated at 4000 chars). Commas are stored as `;` so Grafana's batch label parser does not split the value. |

@@ -69,7 +69,8 @@ def test_mixed_batch_routes_to_separate_tables(http_server):
     commands = tables["INSERT INTO `puda`.`command_logs` FORMAT JSONEachRow"]
     telemetry = tables["INSERT INTO `puda`.`telemetry` FORMAT JSONEachRow"]
     assert [row["msg_type"] for row in commands] == ["command", "response"]
-    assert [(row["user_id"], row["username"], row["cmd_version"]) for row in commands] == [("user-1", "tester", "1.0")] * 2
+    assert [(row["user_id"], row["username"]) for row in commands] == [("user-1", "tester")] * 2
+    assert not any("cmd_version" in row for row in commands)
     assert not any("stream" in row or "data" in row for row in commands)
     assert len(telemetry) == 1 and json.loads(telemetry[0]["data"]) == {"status": "ready"}
 

@@ -280,13 +280,13 @@ async def test_real_nats_clickhouse_delivery_failure_and_isolation(services, tmp
         await responses[0].ack()
         stored = json.loads(
             await query(
-                "SELECT event_ns, toUnixTimestamp64Nano(event_time) AS ns, raw_json, user_id, username, cmd_version FROM puda.command_logs WHERE msg_type='response' LIMIT 1 FORMAT JSONEachRow"
+                "SELECT event_ns, toUnixTimestamp64Nano(event_time) AS ns, raw_json, user_id, username FROM puda.command_logs WHERE msg_type='response' LIMIT 1 FORMAT JSONEachRow"
             )
         )
         assert int(stored["event_ns"]) == 1783417302123456789
         assert int(stored["ns"]) == 1783417302123456789
         assert stored["raw_json"] == raw.decode()
-        assert (stored["user_id"], stored["username"], stored["cmd_version"]) == ("user-1", "tester", "1.0")
+        assert (stored["user_id"], stored["username"]) == ("user-1", "tester")
         assert await query("SELECT uniqExact(msg_type) FROM puda.command_logs") == "2"
         assert await query("SELECT count() FROM puda.events") == "0"
         for suffix in ("health", "stream.position"):

@@ -16,7 +16,6 @@ CREATE TABLE IF NOT EXISTS puda.events
     step_number Nullable(Int64),
     username String,
     user_id String,
-    cmd_version String,
     status LowCardinality(String),
     stream LowCardinality(String),
     cpu Nullable(Float64),

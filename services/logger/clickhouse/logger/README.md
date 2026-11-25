@@ -123,8 +123,8 @@ incompatible ClickHouse consumers fail closed rather than resetting their cursor
 ## Schema and timestamps
 
 `puda.command_logs` keeps commands and responses together, exposing
-machine/run/user/command/step/status/topic metadata, including `user_id`,
-`username`, and `cmd_version`. `puda.telemetry` exposes machine/time/msg_type/topic
+machine/run/user/command/step/status/topic metadata, including `user_id`
+and `username`. `puda.telemetry` exposes machine/time/msg_type/topic
 and `stream` (`health` for health; the complete suffix for named streams).
 Telemetry `data` is **JSON text in a String**, not ClickHouse native JSON, and has
 no fixed CPU/memory/temperature columns. Nested objects, arrays, nulls, status,

@@ -14,7 +14,6 @@ def command():
         "command": {
             "name": "move",
             "step_number": 2,
-            "version": "1.0",
             "params": {"x": 3},
         },
         "response": {"status": "success", "data": {"x": 3}},

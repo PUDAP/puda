@@ -14,7 +14,7 @@ def convert(rows):
             row[key] = int(source[key])
         row["event_id"] = source["event_id"]
         if row["msg_type"] in ("command", "response"):
-            for key in ("machine_id", "run_id", "username", "user_id", "cmd_name", "cmd_version", "step_number", "status"):
+            for key in ("machine_id", "run_id", "username", "user_id", "cmd_name", "step_number", "status"):
                 row[key] = source[key]
             table = "command_logs"
         else:

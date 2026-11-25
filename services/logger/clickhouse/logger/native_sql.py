@@ -103,7 +103,6 @@ def command_select(source, kind):
     invalid = ["JSONType(raw_json)!='Object'", "JSONType(h)!='Object'", "JSONType(c)!='Object'",
         "JSONType(h,'machine_id')!='String'", "JSONType(c,'name')!='String'", "NOT JSONHas(h,'timestamp')"]
     invalid += [f"JSONType(h,'{field}') NOT IN ('String','Null')" for field in ('run_id','username','user_id')]
-    invalid += ["JSONType(c,'version') NOT IN ('String','Null')"]
     if kind == 'response':
         invalid += ["JSONType(doc,'response')!='Object'", "JSONType(r,'status')!='String'"]
     guard = ' OR '.join(invalid)
@@ -119,7 +118,7 @@ def command_select(source, kind):
       JSONExtractString(c,'name') AS cmd_name,
       if(throwIf(JSONType(c,'step_number') NOT IN ('Int64','UInt64') OR isNull(toInt64OrNull(JSONExtractRaw(c,'step_number'))), 'Native command rejected')=0,JSONExtractInt(c,'step_number'),0) AS step_number,
       JSONExtractString(h,'username') AS username, JSONExtractString(h,'user_id') AS user_id,
-      JSONExtractString(c,'version') AS cmd_version, {status} AS status,
+      {status} AS status,
       raw_json FROM {source}"""
 
 

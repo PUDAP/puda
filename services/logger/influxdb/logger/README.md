@@ -26,7 +26,6 @@ when configured, maps them to Influx line protocol, and writes to Telegraf's
 | tag | `username` | `header.username` (when present) |
 | field | `user_id` | `header.user_id` |
 | field | `step_number` | `command.step_number` |
-| field | `cmd_version` | `command.version` |
 | field | `response_code` | `response.code` (responses only) |
 | field | `response_message` | `response.message`, or `response.data` when message is empty (responses only) |
 | field | `completed_at` | `response.completed_at` (responses only) |
