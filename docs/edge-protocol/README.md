@@ -4,7 +4,7 @@ The wire contract between a PUDA edge (the process that owns a machine) and the 
 
 | Version | Spec | Status |
 |---|---|---|
-| 1.0 | [edge-protocol-v1.0.md](edge-protocol-v1.0.md) | Draft. Reference: Python SDK 0.0.24 / CLI 0.1.7. Transcripts were captured from SDK 0.0.23; payloads added for the 0.0.24 fixes come from the fixed SDK. |
+| 1.0 | [edge-protocol-v1.0.md](edge-protocol-v1.0.md) | Draft. Reference: Python SDK 0.1.0 / CLI 0.2.0 (the first releases speaking 1.0; edges report `protocol_version` in their pong). Transcripts were captured from SDK 0.0.23; payloads added for the 0.1.0 changes come from the fixed SDK. |
 
 Supporting material for 1.0 lives in [`v1.0/`](v1.0/):
 

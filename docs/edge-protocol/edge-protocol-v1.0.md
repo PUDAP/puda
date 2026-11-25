@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | Status | Draft for review |
-| Protocol version | `1.0`, carried as `header.version` in every command and response. E2E frames are format `0x01`. |
-| Reference implementations | Python SDK `0.0.24` (`libs/python-sdk`, first as `0.0.24rc1`). CLI `0.1.7` (`apps/cli`, first as `0.1.7-rc2`). Both on branch `fix/edge-protocol-bugs`. Broker `nats-server 2.15.3` provisioned by `infra/nats/jetstream/setup_streams.sh`. |
+| Protocol version | `1.0`, carried as `header.protocol_version` in every command and response and as `protocol_version` in every pong. E2E frames are format `0x01`. |
+| Reference implementations | Python SDK `0.1.0` (`libs/python-sdk`, first as `0.1.0rc1`). CLI `0.2.0` (`apps/cli`, first as `0.2.0-rc1`). Both on branch `fix/edge-protocol-bugs`. Broker `nats-server 2.15.3` provisioned by `infra/nats/jetstream/setup_streams.sh`. |
 | Evidence | Wire captures in [`v1.0/transcripts/`](v1.0/transcripts/). Payload examples in [`v1.0/examples/`](v1.0/examples/). Schemas in [`v1.0/schemas/`](v1.0/schemas/). E2E vectors in [`v1.0/vectors/`](v1.0/vectors/). Run [`v1.0/check.py`](v1.0/check.py) to validate them. |
 
 This document specifies what a PUDA **edge** must do on the wire to be driven by the PUDA CLI, agents and loggers. An edge is the process that owns one machine. The spec is written so a second implementation, such as a C SDK on an ESP32, can interoperate without reading the Python source.
@@ -14,7 +14,7 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as in RFC 2119
 Behaviour is described in two ways:
 
 - **Normative text** is the contract. A conforming edge MUST follow it.
-- **Observed** notes record measurements of the Python reference. They are not requirements. Where an implementation deviates from the normative text, the normative text wins. §16 lists the deviations found in SDK 0.0.23 and the 0.0.24 fix for each.
+- **Observed** notes record measurements of the Python reference. They are not requirements. Where an implementation deviates from the normative text, the normative text wins. §16 lists the deviations found in SDK 0.0.23 and the 0.1.0 fix for each.
 
 ---
 
@@ -24,7 +24,7 @@ Behaviour is described in two ways:
 |---|---|---|
 | Edge | Owns one machine (`machine_id`). Consumes commands, publishes responses, state, catalog and telemetry. | `EdgeRunner` + `EdgeNatsClient` |
 | Client | Sends commands and waits for responses. Examples: the CLI, agents, `CommandService`. | `apps/cli`, `puda.command_service` |
-| Observer | Subscribes without sending. Examples: loggers, `puda machine watch`. | `puda-logger` |
+| Observer | Subscribes without sending. Examples: loggers, `puda machine watch`. Observers MUST NOT subscribe to `puda.<id>.cmd.immediate` (§8.3). | `services/logger` |
 | Provisioner | Creates streams and KV buckets. | `infra/nats/jetstream/setup_streams.sh` |
 | Broker | NATS with JetStream. | `nats:2.15.3` |
 
@@ -32,10 +32,13 @@ An edge serves exactly one `machine_id`. Several edges MAY share a host and a NA
 
 ## 2. Versioning
 
-- `header.version` MUST be `"1.0"` in messages produced under this spec. `command.version` defaults to `"1.0"`.
-- Receivers MUST ignore unknown JSON fields. Both reference implementations already do this: pydantic ignores extras and Go `encoding/json` drops them. Additive fields are therefore backward compatible within `1.x`.
-- Changing a subject, consumer name, required field, ack rule or the E2E frame layout requires a new major version.
-- An edge does not currently advertise a protocol version. §18 proposes adding `protocol_version` to the pong.
+The protocol version is `MAJOR.MINOR`, and it is the only compatibility signal. Package versions (`sdk_version`, the CLI version) are informational: implementations are versioned independently, and a C SDK and the Python SDK that both speak `1.x` are interchangeable.
+
+- Every command and response carries `header.protocol_version`. Clients MUST send `"1.0"` under this spec. An edge MUST refuse a command whose `header.protocol_version` is missing, is not two dot-separated decimal numbers, or has a major other than its own: it is an invalid envelope (§8.4), answered `EXECUTION_ERROR` "Invalid command envelope: header.protocol_version: …" and never executed ([example](v1.0/examples/response-queue-protocol-mismatch.json)). A response echoes the request's value.
+- Every pong carries `protocol_version`, the version the edge speaks. Clients judge an edge by its major: the CLI supports `1.x`, reports any other value (or none) as unsupported in `puda machine list`/`info` and `puda healthcheck`, and does not block on it.
+- A minor version only adds: new optional fields, verbs or codes. Receivers MUST ignore unknown JSON fields; pydantic and Go `encoding/json` both do. So any `1.x` edge works with any `1.x` client.
+- Changing a subject, consumer name, required field, ack rule, reply rule or the E2E frame layout requires a new major version, which is a breaking release of every client and edge implementation. There is no negotiation and no support for older majors.
+- Commands carry no per-command version.
 
 ## 3. Machine identity
 
@@ -70,7 +73,6 @@ Provisioning is the operator's job, not the edge's. `setup_streams.sh` creates t
 | Name | Kind | Subjects / key | Retention and settings |
 |---|---|---|---|
 | `COMMAND_QUEUE` | Stream | `puda.*.cmd.queue` | `workqueue`, file storage, `discard: new`, `max_msgs_per_subject: 100` |
-| `COMMAND_IMMEDIATE` | Stream | `puda.*.cmd.immediate` | `workqueue`, file storage, `discard: new`, `max_msgs_per_subject: 100` |
 | `RESPONSE_QUEUE` | Stream | `puda.*.cmd.response.queue` | `interest`, `max_age` 24 h |
 | `RESPONSE_IMMEDIATE` | Stream | `puda.*.cmd.response.immediate` | `interest`, `max_age` 24 h |
 | `MACHINE_STATE` | KV | key `<machine_id>` | history 1 |
@@ -86,7 +88,7 @@ Rules:
 - An edge MAY call `STREAM.INFO` to check that an object exists, and MAY create one that is **missing** (`STREAM.CREATE`), logging a warning that the broker is unprovisioned. This keeps development brokers usable without `setup_streams.sh`. A Core edge (§15) SHOULD instead log the problem and retry.
 - Writing a KV value needs no API call. Publishing to `$KV.<bucket>.<key>` through JetStream is enough (Appendix A).
 
-The reference calls `STREAM.INFO` on the four command and response streams and opens the `MACHINE_STATE` and `MACHINE_COMMANDS` buckets on every connect; it creates only what is missing.
+The reference calls `STREAM.INFO` on the three command and response streams and opens the `MACHINE_STATE` and `MACHINE_COMMANDS` buckets on every connect; it creates only what is missing.
 
 ## 6. Subject map
 
@@ -95,9 +97,9 @@ The reference calls `STREAM.INFO` on the four command and response streams and o
 | Subject | Transport | Direction | Payload | Required (Core) |
 |---|---|---|---|---|
 | `puda.<id>.cmd.queue` | JetStream `COMMAND_QUEUE` | client → edge | [NATSMessage](v1.0/schemas/nats-message.schema.json) command | MUST |
-| `puda.<id>.cmd.immediate` | JetStream `COMMAND_IMMEDIATE` | client → edge | NATSMessage command | MUST |
+| `puda.<id>.cmd.immediate` | core request/reply | client → edge, reply edge → client | NATSMessage command → NATSMessage response on the inbox | MUST |
 | `puda.<id>.cmd.response.queue` | JetStream `RESPONSE_QUEUE` | edge → clients | NATSMessage response | MUST |
-| `puda.<id>.cmd.response.immediate` | JetStream `RESPONSE_IMMEDIATE` | edge → clients | NATSMessage response | MUST |
+| `puda.<id>.cmd.response.immediate` | JetStream `RESPONSE_IMMEDIATE` | edge → observers | copy of each immediate reply, for history | MUST |
 | `puda.<id>.cmd.ping` | core request/reply | client → edge | literal `ping` → [pong](v1.0/schemas/pong.schema.json) | MUST |
 | `puda.cmd.ping` | core request/reply, fleet broadcast | client → all edges | literal `ping` → pong | MUST |
 | `$KV.MACHINE_STATE.<id>` | JetStream KV put | edge → | [state](v1.0/schemas/machine-state.schema.json) | MUST |
@@ -118,13 +120,13 @@ On every successful connect, and after every reconnect, an edge MUST:
 
 1. If E2E is configured, read `E2E_KEYRING/current` and adopt it (§13.5) **before** consuming commands.
 2. Subscribe to `puda.<id>.cmd.ping` and `puda.cmd.ping`.
-3. Bind the immediate consumer (§8.3), **then** the queue consumer (§8.2), so stale immediate commands are discarded (§9.7) before queued work is pulled.
+3. Subscribe to `puda.<id>.cmd.immediate` (§8.3) and bind the queue consumer (§8.2).
 4. Subscribe to `puda.<id>.update` if it supports updates.
 5. Put the catalog to `MACHINE_COMMANDS/<id>`.
 6. Put state `idle` with the active `run_id` (normally `null` after a restart) to `MACHINE_STATE/<id>`, or `estopped` if the estop latch is set (§9.6).
 7. Start heartbeats (§12).
 
-An edge MUST hold exactly one connection per machine. After a disconnect it MUST either reconnect that connection or close it before opening another, so it never answers a ping twice. The active run survives a broker restart, because it lives in edge memory (§9.1). See [transcript 01](v1.0/transcripts/01-startup-and-discovery.md) and [transcript 05](v1.0/transcripts/05-lifecycle-and-recovery.md).
+An edge MUST hold exactly one connection per machine. After a disconnect it MUST either reconnect that connection or close it before opening another, so it never answers a ping or an immediate command twice. The active run survives a broker restart, because it lives in edge memory (§9.1). See [transcript 01](v1.0/transcripts/01-startup-and-discovery.md) and [transcript 05](v1.0/transcripts/05-lifecycle-and-recovery.md).
 
 ## 8. Commands
 
@@ -135,7 +137,7 @@ Commands and responses share one envelope ([schema](v1.0/schemas/nats-message.sc
 ```json
 {
   "header": {
-    "version": "1.0",
+    "protocol_version": "1.0",
     "message_type": "command",
     "user_id": "00000000-0000-4000-8000-000000000001",
     "username": "puda",
@@ -147,12 +149,12 @@ Commands and responses share one envelope ([schema](v1.0/schemas/nats-message.sc
     "name": "echo",
     "params": {"message": "hi"},
     "step_number": 1,
-    "version": "1.0",
     "machine_id": "proto-test"
   }
 }
 ```
 
+- `header.protocol_version` is required (§2).
 - `command.kwargs` is optional; the CLI omits it. Before dispatch the edge MUST merge `kwargs` over `params`, with `kwargs` winning on conflict ([transcript 03, `kwargs_merge`](v1.0/transcripts/03-errors.md)).
 - `header.run_id` may be a UUID string, `null`, or the empty string. The CLI sends `""` for `pause`, `resume` and `reset` (observed in every capture of those commands).
 - `command.params` of an immediate verb carries its options. The only one defined is `complete`'s `abort` (§9.3).
@@ -172,22 +174,24 @@ Commands and responses share one envelope ([schema](v1.0/schemas/nats-message.sc
 - While a queued command runs longer than `ack_wait`, the edge MUST send `+WPI` (in progress) at an interval shorter than `ack_wait`. The reference sends it every 25 s ([transcript 02, `run2_slow`](v1.0/transcripts/02-run-lifecycle.md)).
 - Acknowledgements go to the delivered message's reply subject `$JS.ACK.COMMAND_QUEUE.cmd_queue_<id>.…`. An empty body and `+ACK` are equivalent. The reference sends an empty body for ack and `+TERM` for terminate. `+NAK` is not used.
 
-### 8.3 Immediate consumer
+### 8.3 Immediate requests
 
-| Item | Value |
-|---|---|
-| Stream | `COMMAND_IMMEDIATE` |
-| Durable name | `cmd_immed_<id>` |
-| Kind | Push with a `deliver_subject` (reference) or pull. Both conform. |
-| Config | `{"durable_name":"cmd_immed_<id>","filter_subject":"puda.<id>.cmd.immediate","ack_policy":"explicit","deliver_policy":"all"}` |
+Immediate commands (`start`, `complete`, `pause`, `resume`, `reset`, `estop`) are **core NATS request/reply**. There is no stream, consumer or ack.
 
-- On each connect the edge MUST delete and recreate `cmd_immed_<id>`, so a durable left behind by an earlier implementation with a different kind cannot block binding.
+- The client publishes the command to `puda.<id>.cmd.immediate` with a reply subject (an inbox). It MUST publish with headers enabled, so that the broker answers a `503` no-responders status when no edge is subscribed.
+- The edge subscribes to `puda.<id>.cmd.immediate` (core, no queue group) and MUST answer every request that has a reply subject **exactly once**, on that reply subject, including malformed ones (§8.4).
+- Nothing is stored. A command sent while the edge is offline is never delivered: the client gets no responders at once, and the command cannot act later. This is why immediate commands are not JetStream: a stored `start`, `reset` or `estop` replayed minutes later is a hazard (D-5).
+- **Only the edge subscribes to this subject.** Any other subscriber (a logger, a tap, a stream) creates interest, so the broker no longer answers no responders for an offline machine and clients wait for their timeout instead. A JetStream stream bound to the subject also answers every request with a PubAck. Observers record immediate commands from `RESPONSE_IMMEDIATE` (§8.4), which carries the full header and command.
 - Immediate commands MUST be processed **concurrently** with a running queued command. `pause`, `complete` with `abort`, and `estop` exist to act while a queued command is running.
-- The edge MUST ack an immediate command on receipt, before executing it. A malformed immediate MUST still be acked or terminated so it is not redelivered.
+- Client side: a no-responders status means the machine is offline and nothing happened. A timeout without a reply means the outcome is unknown; the command may have run. Every immediate verb is safe to retry (§9.3), so a client MAY resend after a timeout.
+- Clients SHOULD NOT buffer publishes while reconnecting (the CLI sets `ReconnectBufSize(-1)`), so a command fails at once instead of being sent late.
 
 ### 8.4 Responses
 
-For every command it acts on, the edge MUST publish exactly one response through JetStream and wait for the PubAck. Queue commands go to `puda.<id>.cmd.response.queue`; immediate commands go to `puda.<id>.cmd.response.immediate`.
+For every command it acts on, the edge MUST produce exactly one response:
+
+- **Queued command:** published through JetStream to `puda.<id>.cmd.response.queue`; the edge waits for the PubAck.
+- **Immediate command:** sent as the reply on the request's reply subject (sealed with that inbox as AAD, §13.3), then published as a copy to `puda.<id>.cmd.response.immediate` for observers. The reply comes first so that recording never delays it. Clients wait for the reply, not for the copy.
 
 The response is the received message with these changes:
 
@@ -215,10 +219,11 @@ Rules:
 
 **Malformed commands.** A payload that opens (§13.4) but is not a valid envelope:
 
-- MUST NOT act, and MUST NOT be redelivered: a queued message is terminated, an immediate message is acked.
+- MUST NOT act, and MUST NOT be redelivered: a queued message is terminated. An immediate request is not stored, so there is nothing to ack.
 - MUST NOT change the run or the machine state.
 - MUST be answered `EXECUTION_ERROR` "Invalid command envelope: <field>: <problem>" when it is **correlatable**: a JSON object with a `header` object whose `machine_id` is a string and `run_id` a string or `null`, and a `command` object whose `step_number` is an integer. The response echoes the received object as in the rules above ([example](v1.0/examples/response-queue-malformed.json)).
-- Otherwise it is dropped and logged; no client can match a response to it. `JSON_DECODE_ERROR` is therefore not emitted.
+- Otherwise a queued message is dropped and logged; no client can match a response to it. An immediate request is still answered on its reply subject, because the reply needs no correlation: the body is `{"response": {…EXECUTION_ERROR…}}` without `header` or `command`. It is not recorded on `RESPONSE_IMMEDIATE`. `JSON_DECODE_ERROR` is not emitted.
+- A missing or unsupported `header.protocol_version` (§2) is an invalid envelope like any other.
 
 ### 8.5 Driver command dispatch
 
@@ -276,9 +281,11 @@ Row 3 only applies to a message delivered at the instant the edge paused; otherw
 
 Immediate verbs are matched case-insensitively. Any other name is dispatched to the driver like a queued command (§8.5), without run checks.
 
+Every verb is safe to repeat, so a client that timed out (§8.3) can resend it: `start` of the run that is already active answers `success` with `data: {"already_started": true}` ([example](v1.0/examples/response-immediate-start-repeat.json)); `complete` of a run that already ended answers `already_completed` (§9.8); `pause`, `resume`, `reset` and `estop` are idempotent.
+
 | Verb | Precondition | Effect | Response | State |
 |---|---|---|---|---|
-| `start` | `run_id` set; no estop latch; no active run | Run becomes active | `success` / `MISSING_RUN_ID` / `MACHINE_ESTOPPED` / `RUN_ID_MISMATCH` "cannot start, <active> is currently running" | `idle` + `run_id` |
+| `start` | `run_id` set; no estop latch; no other active run | Run becomes active | `success` (`already_started` if it was) / `MISSING_RUN_ID` / `MACHINE_ESTOPPED` / `RUN_ID_MISMATCH` "cannot start, <active> is currently running" | `idle` + `run_id` |
 | `complete` | `run_id` = active run, and no command of the run running unless `params.abort` | Run cleared; see §9.8 | `success` / `EXECUTION_LOCKED` / `MISSING_RUN_ID` / `RUN_ID_MISMATCH` "Run <id> not active" | `idle`, `run_id: null` |
 | `pause` | — | Pause latch set; driver `pause` hook called if implemented (§11.2) | Driver result, or `success` if absent | `paused` + active run |
 | `resume` | No estop latch | Pause latch cleared; driver `resume` called if present | Driver result, or `success` if absent / `MACHINE_ESTOPPED` | `idle` + active run, or `busy` if a command is running |
@@ -331,18 +338,11 @@ Only a successful `reset` clears the latch ([transcript 04, `estop_flow`](v1.0/t
 
 On hardware with a physical e-stop input, the edge SHOULD also enter this latched state locally and publish `estopped`.
 
-### 9.7 Backlog and staleness
+### 9.7 Backlog
 
-`COMMAND_QUEUE` and `COMMAND_IMMEDIATE` are work-queue streams, so messages published while an edge is offline wait for it.
+`COMMAND_QUEUE` is a work-queue stream, so queued commands published while an edge is offline wait for it. After a restart there is no active run, so they are evaluated normally and get `RUN_ID_MISMATCH` (§9.2).
 
-Immediate commands act on the machine *now*, so a backlog of them must not replay. Recreating the immediate durable with `deliver_policy: all` delivers every immediate command published while the edge was offline, including `start`, `estop` and `reset`.
-
-- The edge MUST discard an immediate command whose **stored time** is more than `immediate_max_age` before its receipt. The default is 10 s; it MAY be configurable, and disabling it is not conforming.
-- The stored time is the JetStream server timestamp of the message: the `timestamp` field of the delivery metadata, which is the 8th token (nanoseconds since the Unix epoch) of the reply subject `$JS.ACK.COMMAND_IMMEDIATE.cmd_immed_<id>.<delivered>.<stream_seq>.<consumer_seq>.<timestamp>.<pending>`. `header.timestamp` MUST NOT be used: it is the client's clock and second-precision. The comparison uses the edge's synchronised clock (§4.3); if the stored time cannot be read the command is processed.
-- A discarded command MUST be acked, MUST NOT act, and MUST be answered `EXECUTION_ERROR` "Stale immediate command discarded: stored <age>s ago (max <max>s); the edge was offline when it was sent", so a client that is still waiting learns why ([example](v1.0/examples/response-immediate-stale.json)). It does not change state.
-- Queued commands published while the edge was offline remain in `COMMAND_QUEUE` and are evaluated normally; after a restart there is no active run, so they get `RUN_ID_MISMATCH`.
-
-`deliver_policy: new` was rejected as an alternative: undelivered messages would stay in the stream and count against `max_msgs_per_subject` (100).
+Immediate commands have no backlog: they are request/reply (§8.3), so one sent while the edge is offline fails at once with no responders and never reaches it. An edge therefore never sees a stale `start`, `estop` or `reset`, and needs no age check or binding order.
 
 ### 9.8 Completing and aborting a run
 
@@ -470,7 +470,7 @@ All of these use core NATS, fire-and-forget, and are sealed when E2E is enabled.
 | `evt.alert` | `{"timestamp","type","severity",…}` | For example `update_restart`. |
 | `evt.media` | `{"timestamp","media_url","media_type",…}` | After uploading media. |
 
-Telemetry samples use the `{timestamp, data}` wrapper. Consumers SHOULD accept both wrapped and flat shapes for compatibility with older edges.
+Telemetry samples MUST use the `{timestamp, data}` wrapper.
 
 > **Observed.** In the capture, heartbeat and health both had a median interval of 5.04 s, and `pos` (declared at 3 s) had 3.00 s.
 
@@ -510,7 +510,7 @@ A payload is a frame if and only if it is at least 34 bytes long and begins `E2 
 |---|---|
 | Message published on subject S | S, as UTF-8 |
 | JetStream delivery of a message | the original publish subject, which is the delivered message's subject |
-| Reply to a request (pong) | the request's **reply** subject, i.e. the inbox |
+| Reply to a request (pong, immediate command reply) | the request's **reply** subject, i.e. the inbox |
 | Ping request | `puda.<id>.cmd.ping` or `puda.cmd.ping` |
 | KV value of bucket B, key K | `kv:B:K`, for example `kv:MACHINE_STATE:esp32-demo` |
 | KV value read via `DIRECT.GET` or watch | `kv:B:K`, using the `Nats-Subject: $KV.B.K` header |
@@ -571,8 +571,9 @@ The CLI judges an edge "ready" from the kids it reports in its pong. This whole 
 | §5 work without provisioning rights | MUST | MUST |
 | §6/§8 ping and broadcast ping | MUST | MUST |
 | §8.2 queue consumer, serial, `+WPI` | MUST | MUST |
-| §8.3 immediate consumer, concurrent | MUST | MUST |
+| §8.3 immediate request/reply, concurrent | MUST | MUST |
 | §8.4–8.6 responses and codes | MUST | MUST |
+| §2 `protocol_version` in pong, `header.protocol_version` check | MUST | MUST |
 | §9 run model, pause, estop latch | MUST | MUST |
 | §10 state KV | MUST | MUST |
 | §11 catalog KV | MUST, static and generated at build time | MUST, from code |
@@ -584,18 +585,18 @@ The CLI judges an edge "ready" from the kids it reports in its pong. This whole 
 
 ## 16. Known deviations in the Python reference (SDK 0.0.23)
 
-Each was reproduced against the live stack with SDK 0.0.23. Transcript names refer to `v1.0/transcripts/`, which were captured from 0.0.23. The last column names the release that conforms; integration tests for each fix live in `libs/python-sdk/tests/integration/`.
+Each was reproduced against the live stack with SDK 0.0.23. Transcript names refer to `v1.0/transcripts/`, which were captured from 0.0.23. The last column names the release that conforms (0.1.0 is the first release speaking this spec); integration tests for each fix live in `libs/python-sdk/tests/integration/`.
 
 | ID | Behaviour | Impact | Evidence | Fixed |
 |---|---|---|---|---|
-| D-1 | A queued command received while paused is not acked. It is redelivered after `ack_wait` (30 s) and evaluated again. | A command the client was told failed can execute later. | 04 `run3_paused_cmd`, `imm_start_no_run` (delivery #2) | 0.0.24: pause holds the queue (§9.4) |
-| D-2 | `cancel` does not interrupt the running queued command. State says `idle`/`null` while it runs. | The operator believes the work stopped. Queued work stays blocked. | 04 `cancel_flow` | 0.0.24: `cancel` removed; `complete` with `abort` (§9.8) |
-| D-3 | `pause` writes `run_id` from the header (`""` from the CLI). `resume` writes `null` while a run is still active. | State KV misreports the run. | 04 `run3_pause`, `run3_resume` | 0.0.24: active run in state (§9.3) |
-| D-4 | After a broker restart the edge holds two connections and answers ping twice. | Duplicate pongs, duplicate subscriptions. | `connz` showed 2 edge connections; `nats req --replies=0` got 2 pongs | 0.0.24: one connection (§7) |
-| D-5 | Stale immediate commands replay on startup; the queue binds before immediate; a hidden active run blocks `start`. | Stale `start`/`estop`/`reset` act minutes or days later. | 05 `offline_backlog` | 0.0.24: stale immediates discarded, immediate binds first (§7, §9.7) |
-| D-6 | Malformed queue or immediate messages produce no response. | Client waits for its full timeout. | 03 `malformed` | 0.0.24: correlatable ones answered, state unchanged (§8.4) |
-| D-7 | Edge issues `STREAM.CREATE` for KV buckets and would `STREAM.UPDATE` command streams whose config differs. | May override provisioned settings. | 01 `startup` | 0.0.24: create only if missing, never update (§5) |
-| D-8 | `pause`, `resume` and `cancel` return `UNKNOWN_COMMAND` when the driver lacks the method, after applying the effect. | The CLI reports failure for an action that happened. | 04 `min_driver` | 0.0.24: missing hooks succeed (§9.3) |
+| D-1 | A queued command received while paused is not acked. It is redelivered after `ack_wait` (30 s) and evaluated again. | A command the client was told failed can execute later. | 04 `run3_paused_cmd`, `imm_start_no_run` (delivery #2) | 0.1.0: pause holds the queue (§9.4) |
+| D-2 | `cancel` does not interrupt the running queued command. State says `idle`/`null` while it runs. | The operator believes the work stopped. Queued work stays blocked. | 04 `cancel_flow` | 0.1.0: `cancel` removed; `complete` with `abort` (§9.8) |
+| D-3 | `pause` writes `run_id` from the header (`""` from the CLI). `resume` writes `null` while a run is still active. | State KV misreports the run. | 04 `run3_pause`, `run3_resume` | 0.1.0: active run in state (§9.3) |
+| D-4 | After a broker restart the edge holds two connections and answers ping twice. | Duplicate pongs, duplicate subscriptions. | `connz` showed 2 edge connections; `nats req --replies=0` got 2 pongs | 0.1.0: one connection (§7) |
+| D-5 | Stale immediate commands replay on startup; the queue binds before immediate; a hidden active run blocks `start`. | Stale `start`/`estop`/`reset` act minutes or days later. | 05 `offline_backlog` | 0.1.0: immediate commands are core request/reply, so nothing is stored to replay (§8.3, §9.7) |
+| D-6 | Malformed queue or immediate messages produce no response. | Client waits for its full timeout. | 03 `malformed` | 0.1.0: correlatable ones answered, state unchanged (§8.4) |
+| D-7 | Edge issues `STREAM.CREATE` for KV buckets and would `STREAM.UPDATE` command streams whose config differs. | May override provisioned settings. | 01 `startup` | 0.1.0: create only if missing, never update (§5) |
+| D-8 | `pause`, `resume` and `cancel` return `UNKNOWN_COMMAND` when the driver lacks the method, after applying the effect. | The CLI reports failure for an action that happened. | 04 `min_driver` | 0.1.0: missing hooks succeed (§9.3) |
 
 ## 17. Discrepancies with the public docs
 
@@ -609,16 +610,15 @@ The Communication page (`apps/docs/docs/overview/communication.mdx`) does not ma
 
 ## 18. Open issues for 1.1
 
-1. Advertise `protocol_version` and `sdk_name` in the pong. Today the CLI compatibility check keys on `sdk_version` against Python SDK ranges, so a C edge always shows "compatibility unknown".
-2. Fix D-1, D-2, D-3 and D-8 in the Python SDK and then remove the "Observed" notes.
-3. Define broker authentication (NKEY/JWT) for edges outside a trusted network.
-4. Consider an MQTT binding. The broker already exposes MQTT, and ESP-IDF has a native MQTT client. Work-queue consumption and ack semantics would need to be specified first.
+1. Define broker authentication (NKEY/JWT) for edges outside a trusted network.
+2. Consider an MQTT binding. The broker already exposes MQTT, and ESP-IDF has a native MQTT client. Work-queue consumption and ack semantics would need to be specified first.
+3. Consider `sdk_name` in the pong, so reports can tell implementations apart; compatibility does not need it (§2).
 
 ---
 
 ## Appendix A. JetStream wire operations for clients without a JetStream library
 
-Every request below is a core-NATS request with a fresh reply inbox. Responses are JSON. An `"error"` object means failure.
+Every request below is a core-NATS request with a fresh reply inbox. Responses are JSON. An `"error"` object means failure. Immediate commands (§8.3) need none of this: subscribe to `puda.<id>.cmd.immediate` and publish the answer to each message's reply subject.
 
 | Operation | Publish to | Body |
 |---|---|---|
@@ -626,7 +626,6 @@ Every request below is a core-NATS request with a fresh reply inbox. Responses a
 | Queue consumer info | `$JS.API.CONSUMER.INFO.COMMAND_QUEUE.cmd_queue_<id>` | empty; error `10014` means not found |
 | Create queue consumer | `$JS.API.CONSUMER.CREATE.COMMAND_QUEUE.cmd_queue_<id>.puda.<id>.cmd.queue` | `{"stream_name":"COMMAND_QUEUE","config":{"name":"cmd_queue_<id>","durable_name":"cmd_queue_<id>","deliver_policy":"all","ack_policy":"explicit","filter_subject":"puda.<id>.cmd.queue"}}` |
 | Delete consumer | `$JS.API.CONSUMER.DELETE.<stream>.<durable>` | empty |
-| Create immediate consumer, push | `$JS.API.CONSUMER.DURABLE.CREATE.COMMAND_IMMEDIATE.cmd_immed_<id>` | `{"stream_name":"COMMAND_IMMEDIATE","config":{"durable_name":"cmd_immed_<id>","deliver_policy":"all","ack_policy":"explicit","filter_subject":"puda.<id>.cmd.immediate","deliver_subject":"<your inbox>"}}` |
 | Pull next message | `$JS.API.CONSUMER.MSG.NEXT.COMMAND_QUEUE.cmd_queue_<id>` | `{"batch":1,"expires":<ns>}`. Reply is either a message or an empty status (`408` timeout, `404`/`409`). |
 | Ack / terminate / in-progress | the delivered message's reply `$JS.ACK.<stream>.<consumer>.<delivered>.<sseq>.<cseq>.<ts>.<pending>` | empty or `+ACK` / `+TERM` / `+WPI` |
 | JetStream publish | the subject itself, with a reply inbox | payload. The reply is a PubAck `{"stream":"…","seq":n}` or an error. |
@@ -639,7 +638,7 @@ A JetStream-delivered message arrives on the subscription's inbox with its MSG s
 ## Appendix B. Embedded implementation notes (non-normative)
 
 - **Memory.** A TLS session plus JSON parse buffers plus a 16 KiB command buffer fits comfortably on an ESP32-S3 with PSRAM. Allocate the catalog value in flash.
-- **Tasks.** Run the NATS reader, queue executor and immediate handler as separate tasks. The estop path MUST NOT wait on the queue executor's mutex. Keep the motion loop on its own core, and keep hardware interlocks independent of the network.
+- **Tasks.** Run the NATS reader, queue executor and immediate handler as separate tasks. The immediate handler answers on the request's reply subject; it never touches JetStream except to record the copy on `RESPONSE_IMMEDIATE`. The estop path MUST NOT wait on the queue executor's mutex. Keep the motion loop on its own core, and keep hardware interlocks independent of the network.
 - **Catalog.** Generate `commands`, `catalog`, `hooks` and the C dispatch table from one command spec (YAML/JSON) at build time. Emit `parameters` schemas (§11.3) so `puda protocol validate` does not depend on parsing Python-looking signatures.
 - **Time.** Gate startup on SNTP sync (§4.3).
 - **Keys.** Keep the ring in NVS (encrypted NVS if available). Use the hardware AES-GCM through mbedTLS.
@@ -651,5 +650,6 @@ A JetStream-delivered message arrives on the subscription's inbox with its MSG s
 - **Stack.** An isolated `nats-server 2.15.3` (plaintext and `tls://` instances), provisioned with `setup_streams.sh`.
 - **Edges.** The repository's `test-edge` driver on Python SDK 0.0.23: plaintext `proto-test`; E2E `proto-e2e` with a live CLI rotation, switch and retire; and a minimal driver `proto-min`.
 - **Clients.** CLI `0.1.6-rc2`, plus raw nats-py publishes for cases the CLI cannot produce: estop, cancel, malformed input, offline backlog.
+- **Later shape changes.** The transcripts predate SDK 0.1.0: they show immediate commands on the `COMMAND_IMMEDIATE` stream and `header.version`/`command.version`. The examples were updated to the 0.1.0 envelope (`header.protocol_version`, no `command.version`, `protocol_version` in pongs), and `response-immediate-start-repeat.json` and `response-queue-protocol-mismatch.json` were captured from a 0.1.0rc1 edge.
 - **Capture.** A `>` subscriber recorded every message. All 1,689 PUDA payloads in the captures (252 command/response envelopes, 69 state values, 7 catalogs, 33 pongs, 1,300 telemetry samples, 12 events and 16 keyring records) validate against the schemas in `v1.0/schemas/`. All 581 sealed frames in the E2E capture open under the AAD rules in §13.3, across both keys, with no plaintext seen on `puda.*`. The Go CLI opened the Python edge's frames, and the reverse, throughout, including across the rotation.
 - **Redaction.** IP addresses, host names and user IDs in the examples and transcripts are replaced with documentation values. Lab keys from the capture are not included; the vectors use fixed test keys.

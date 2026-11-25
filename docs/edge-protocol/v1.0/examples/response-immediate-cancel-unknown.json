@@ -1,6 +1,6 @@
 {
   "header": {
-    "version": "1.0",
+    "protocol_version": "1.0",
     "message_type": "response",
     "user_id": "00000000-0000-4000-8000-000000000001",
     "username": "puda",
@@ -13,7 +13,6 @@
     "params": {},
     "kwargs": {},
     "step_number": 6,
-    "version": "1.0",
     "machine_id": "proto-test"
   },
   "response": {

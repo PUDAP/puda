@@ -1,0 +1,27 @@
+{
+  "header": {
+    "protocol_version": "1.0",
+    "message_type": "response",
+    "user_id": "00000000-0000-4000-8000-000000000001",
+    "username": "puda",
+    "machine_id": "proto-test",
+    "run_id": "22222222-2222-4333-8444-555555555555",
+    "timestamp": "2026-11-25T03:55:03Z"
+  },
+  "command": {
+    "name": "start",
+    "params": {},
+    "kwargs": {},
+    "step_number": 0,
+    "machine_id": "proto-test"
+  },
+  "response": {
+    "status": "success",
+    "completed_at": "2026-11-25T03:55:03Z",
+    "code": null,
+    "message": null,
+    "data": {
+      "already_started": true
+    }
+  }
+}

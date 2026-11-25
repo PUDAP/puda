@@ -1,6 +1,6 @@
 {
   "header": {
-    "version": "1.0",
+    "protocol_version": "1.0",
     "message_type": "command",
     "user_id": "00000000-0000-4000-8000-000000000001",
     "username": "puda",
@@ -12,7 +12,6 @@
     "name": "start",
     "params": {},
     "step_number": 0,
-    "version": "1.0",
     "machine_id": "proto-test"
   }
 }
