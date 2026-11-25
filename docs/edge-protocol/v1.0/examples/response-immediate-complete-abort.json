@@ -5,8 +5,8 @@
     "user_id": "00000000-0000-4000-8000-000000000001",
     "username": "puda",
     "machine_id": "proto-test",
-    "run_id": "44444444-2222-4333-8444-555555555555",
-    "timestamp": "2026-11-24T03:58:37Z"
+    "run_id": "33333333-3333-4444-8555-666666666666",
+    "timestamp": "2026-11-25T04:22:01Z"
   },
   "command": {
     "name": "complete",
@@ -14,22 +14,21 @@
       "abort": true
     },
     "kwargs": {},
-    "step_number": 4,
+    "step_number": 1,
     "machine_id": "proto-test"
   },
   "response": {
     "status": "success",
-    "completed_at": "2026-11-24T03:58:37Z",
+    "completed_at": "2026-11-25T04:22:01Z",
     "code": null,
     "message": null,
     "data": {
       "aborted": {
         "name": "hold",
         "step_number": 1,
-        "elapsed_s": 1.6
+        "elapsed_s": 1.5
       },
       "driver_abort": true,
-      "finished": true,
       "queued": 1
     }
   }

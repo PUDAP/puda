@@ -172,7 +172,7 @@ Commands and responses share one envelope ([schema](v1.0/schemas/nats-message.sc
 - If the durable exists with a different `filter_subject`, `ack_policy` or `deliver_policy`, the edge MUST delete and recreate it. Otherwise it MUST reuse it, so a backlog survives restarts.
 - The edge MUST process queued commands **one at a time**, in delivery order. It MUST NOT request the next message until the current one is acked or terminated, and MUST NOT request one while paused (§9.4). The reference uses `{"batch":1,"expires":999900000}` in a loop. An embedded edge MAY use a longer `expires`, for example 30 s.
 - While a queued command runs longer than `ack_wait`, the edge MUST send `+WPI` (in progress) at an interval shorter than `ack_wait`. The reference sends it every 25 s ([transcript 02, `run2_slow`](v1.0/transcripts/02-run-lifecycle.md)).
-- Acknowledgements go to the delivered message's reply subject `$JS.ACK.COMMAND_QUEUE.cmd_queue_<id>.…`. An empty body and `+ACK` are equivalent. The reference sends an empty body for ack and `+TERM` for terminate. `+NAK` is not used.
+- Acknowledgements go to the delivered message's reply subject `$JS.ACK.COMMAND_QUEUE.cmd_queue_<id>.…`. An empty body and `+ACK` are equivalent. The reference sends an empty body for ack, `+TERM` for terminate, and `-NAK` (confirmed, §9.4) only for a message delivered at the instant of pausing.
 
 ### 8.3 Immediate requests
 
@@ -183,6 +183,7 @@ Immediate commands (`start`, `complete`, `pause`, `resume`, `reset`, `estop`) ar
 - Nothing is stored. A command sent while the edge is offline is never delivered: the client gets no responders at once, and the command cannot act later. This is why immediate commands are not JetStream: a stored `start`, `reset` or `estop` replayed minutes later is a hazard (D-5).
 - **Only the edge subscribes to this subject.** Any other subscriber (a logger, a tap, a stream) creates interest, so the broker no longer answers no responders for an offline machine and clients wait for their timeout instead. A JetStream stream bound to the subject also answers every request with a PubAck. Observers record immediate commands from `RESPONSE_IMMEDIATE` (§8.4), which carries the full header and command.
 - Immediate commands MUST be processed **concurrently** with a running queued command. `pause`, `complete` with `abort`, and `estop` exist to act while a queued command is running.
+- `estop` MUST NOT wait behind another immediate command, such as a slow driver `pause` or `reset` hook. Other verbs SHOULD be applied in arrival order. The reference handles each request in its own task: `estop` runs at once, the rest take turns through a fair lock.
 - Client side: a no-responders status means the machine is offline and nothing happened. A timeout without a reply means the outcome is unknown; the command may have run. Every immediate verb is safe to retry (§9.3), so a client MAY resend after a timeout.
 - Clients SHOULD NOT buffer publishes while reconnecting (the CLI sets `ReconnectBufSize(-1)`), so a command fails at once instead of being sent late.
 
@@ -265,17 +266,17 @@ The edge MUST evaluate these checks in this order:
 |---|---|---|---|---|---|
 | 1 | Payload unreadable or not a valid envelope | `+TERM` | `EXECUTION_ERROR` if correlatable (§8.4), else none | — | — |
 | 2 | Estop latch set | `+TERM` | `MACHINE_ESTOPPED` "Machine emergency stopped; send reset before queuing commands" | — | — |
-| 3 | Paused | held, keep-alive `+WPI` | none until resume, then rows 4–11 | — | — |
+| 3 | Paused | `-NAK`, confirmed (§9.4) | none; redelivered after resume | — | — |
 | 4 | `run_id` is `null` | `+ACK` | `EXECUTION_ERROR` "Command requires run_id" | — | — |
 | 5 | No active run | `+ACK` | `RUN_ID_MISMATCH` "Send START command to start a run before sending commands" | — | — |
 | 6 | `run_id` ≠ active run | `+ACK` | `RUN_ID_MISMATCH` "Run ID mismatch: expected active run, got <run_id>" | — | — |
 | 7 | Command is a lifecycle hook (§11.2) | `+TERM` | `EXECUTION_ERROR` naming the CLI action (§8.5) | cleared | — |
 | 8 | Name not dispatchable | `+TERM` | `UNKNOWN_COMMAND` | cleared | `busy` → `error` |
 | 9 | Handler raises | `+TERM` | `EXECUTION_ERROR` | cleared | `busy` → `error` |
-| 10 | Stopped by `estop` or `complete` with `abort` | `+TERM` | `COMMAND_CANCELLED` (`data` is the handler's result, if it returned) | cleared | `estopped`, or `idle` + `null` after abort |
+| 10 | Stopped by `estop` or `complete` with `abort`, answered when the driver call returns | `+TERM` | `COMMAND_CANCELLED` "Stopped by estop" / "Stopped by complete --abort" (`data` is the handler's result) | cleared | `estopped`, or `idle` + `null` after abort |
 | 11 | Success | `+ACK` | `success`, `data` | kept | `busy` → `idle` |
 
-Row 3 only applies to a message delivered at the instant the edge paused; otherwise a paused edge does not pull (§9.4). Rows 2 and 3 are re-evaluated when the hold ends, so an estop while held terminates the message with `MACHINE_ESTOPPED`.
+Row 3 only applies to a message delivered at the instant the edge paused; otherwise a paused edge does not pull (§9.4). When the message is redelivered, rows 2 and 3 apply again, so after an estop it is terminated with `MACHINE_ESTOPPED`.
 
 ### 9.3 Immediate commands
 
@@ -304,9 +305,9 @@ Pause **holds the queue**; resume continues it in order.
 
 - A queued command that is already running continues and is answered normally.
 - While paused the edge MUST NOT pull from `COMMAND_QUEUE`. Commands published meanwhile stay in the stream, unanswered.
-- A message already delivered when the pause took effect MUST be held in memory with `+WPI` at an interval shorter than `ack_wait`, so it is not redelivered, and MUST run first on resume.
+- A message already delivered when the pause took effect MUST be returned with `-NAK` and not answered. The edge MUST wait for the server to confirm the NAK before its next pull (send `-NAK` as a request to the message's reply subject; the server replies with an empty message), so the message is back at the head of the redelivery queue and runs first on resume. A fire-and-forget NAK can reach the server after the next pull, which then delivers a newer command first.
 - `resume` restarts pulling. Held and backlogged commands then go through §9.2 in delivery order; commands of a run that ended meanwhile get `RUN_ID_MISMATCH`.
-- `estop` while paused releases the hold: the held message and the backlog are terminated with `MACHINE_ESTOPPED` (§9.6). A later `reset` leaves the pause latch set.
+- `estop` while paused releases the hold: the backlog, including a NAKed message, is pulled and terminated with `MACHINE_ESTOPPED` (§9.6). A later `reset` leaves the pause latch set.
 - Pause does not affect immediate commands.
 - Clients wait for queued responses without a timeout, so a paused command answered later is not an error for them.
 
@@ -319,8 +320,8 @@ Pause **holds the queue**; resume continues it in order.
 On `estop` the edge MUST, in this order:
 
 1. Set the **estop latch** before anything else, so no queued command can start.
-2. Issue the hardware stop without waiting behind the running queued command. The reference uses a dedicated thread.
-3. Cancel the running queued command. Its response is `COMMAND_CANCELLED` and its message is terminated.
+2. Issue the hardware stop without waiting behind the running queued command or any other immediate command (§8.3). The reference uses a dedicated thread pool that nothing else uses.
+3. Mark the running queued command stopped. It is answered `COMMAND_CANCELLED` and its message terminated **when its driver call returns**; the edge MUST NOT start another queued command before then, so a hardware call is never overlapped. The stop in step 2 is what makes it return.
 4. Clear the run, put state `estopped`, and publish `evt.log` at level `CRITICAL`.
 5. Respond:
    - `success` with the driver's data, if the stop succeeded.
@@ -350,12 +351,11 @@ Immediate commands have no backlog: they are request/reply (§8.3), so one sent 
 
 1. **Already ended.** If `run_id` is not active but was active recently on this edge (completed, cleared by an error, `reset` or `estop`), respond `success` with `data: {"already_completed": true}` and change nothing ([example](v1.0/examples/response-immediate-complete-repeat.json)). The edge MUST remember at least the last ended run and SHOULD remember more; the reference keeps the last 64 since it started. Otherwise respond `RUN_ID_MISMATCH`.
 2. **Refusal.** If a queued command of the run is running and `params.abort` is not `true`, respond `EXECUTION_LOCKED` with `data.running` = `{"name", "step_number", "elapsed_s"}` and `data.queued` = the number of queued commands not yet answered behind it (`null` if unknown). The run stays active ([example](v1.0/examples/response-immediate-complete-locked.json)).
-3. **Abort.** With `params.abort: true` the edge MUST:
+3. **Abort.** With `params.abort: true` the edge MUST, without waiting for the running command:
    1. Count `queued` before stopping anything.
-   2. Call the driver's `abort` hook if implemented (§11.2), on a thread or task that does not wait behind the running command (like §9.6 step 2).
-   3. Wait up to 5 s for the running command to return. If it does not, stop waiting for it.
-   4. Answer the running command `COMMAND_CANCELLED` (§9.2 row 10, [example](v1.0/examples/response-queue-aborted.json)) and terminate its message.
-   5. Clear the run, put `idle` + `null`, publish `evt.log` at level `WARNING`, and respond `success` with `data` = `{"aborted": {name, step_number, elapsed_s} | null, "driver_abort": bool, "finished": bool, "queued": int | null}` ([example](v1.0/examples/response-immediate-complete-abort.json)). `finished: false` means the hardware call may still be running. A driver `abort` that raises adds `driver_error`.
+   2. Mark the running command stopped, and start the driver's `abort` hook if implemented (§11.2) on its own thread, without awaiting it. A hook that raises is logged and published as `evt.log` at level `ERROR`.
+   3. Clear the run, put `busy` + `null` while the stopped command is still executing (`idle` + `null` otherwise), publish `evt.log` at level `WARNING`, and respond `success` with `data` = `{"aborted": {name, step_number, elapsed_s} | null, "driver_abort": bool, "queued": int | null}` ([example](v1.0/examples/response-immediate-complete-abort.json)). `driver_abort` means the hook was started.
+   4. When the running command's driver call returns, answer it `COMMAND_CANCELLED` (§9.2 row 10, [example](v1.0/examples/response-queue-aborted.json)), terminate its message and put `idle` + `null`. The next queued command MUST NOT start before then. A command that ignores `abort` therefore keeps the machine `busy` until it finishes; `estop` (§9.6) is the stronger stop.
 4. **Plain completion.** Otherwise clear the run, put `idle` + `null` and respond `success`. `data` is `null`, or the abort object of step 3 when `abort` was set and nothing was running.
 
 Commands queued behind the run are not removed. They are evaluated when pulled and get `RUN_ID_MISMATCH`.
@@ -431,7 +431,7 @@ A hook is machine behaviour that the edge runs as part of a protocol action, not
 | `resume` | `resume`, after the queue is released | `success` |
 | `reset` | `reset`, after the run is cleared | `success`; the estop latch is still cleared |
 | `estop` | `estop`, on its own thread (§9.6) | `ESTOP_NOT_SUPPORTED`; the latch is still set |
-| `abort` | `complete` with `abort`, on its own thread (§9.8) | `driver_abort: false`, `finished: false` |
+| `abort` | `complete` with `abort`, on its own thread, not awaited (§9.8) | `driver_abort: false`; the command runs until it returns |
 | `shutdown` | Graceful edge shutdown, before `offline` is put | nothing |
 
 Hooks are advertised only through `hooks`, are never dispatchable as driver commands (§8.5), and are not valid protocol steps; neither are `start` and `complete`, which the protocol runner sends itself. In the Python SDK hooks are plain methods found by name; decorating one with `@command` is a startup error (`LifecycleHookError`).
@@ -627,7 +627,7 @@ Every request below is a core-NATS request with a fresh reply inbox. Responses a
 | Create queue consumer | `$JS.API.CONSUMER.CREATE.COMMAND_QUEUE.cmd_queue_<id>.puda.<id>.cmd.queue` | `{"stream_name":"COMMAND_QUEUE","config":{"name":"cmd_queue_<id>","durable_name":"cmd_queue_<id>","deliver_policy":"all","ack_policy":"explicit","filter_subject":"puda.<id>.cmd.queue"}}` |
 | Delete consumer | `$JS.API.CONSUMER.DELETE.<stream>.<durable>` | empty |
 | Pull next message | `$JS.API.CONSUMER.MSG.NEXT.COMMAND_QUEUE.cmd_queue_<id>` | `{"batch":1,"expires":<ns>}`. Reply is either a message or an empty status (`408` timeout, `404`/`409`). |
-| Ack / terminate / in-progress | the delivered message's reply `$JS.ACK.<stream>.<consumer>.<delivered>.<sseq>.<cseq>.<ts>.<pending>` | empty or `+ACK` / `+TERM` / `+WPI` |
+| Ack / terminate / in-progress | the delivered message's reply `$JS.ACK.<stream>.<consumer>.<delivered>.<sseq>.<cseq>.<ts>.<pending>` | empty or `+ACK` / `+TERM` / `+WPI` / `-NAK`. Sent as a request, the server confirms with an empty reply. |
 | JetStream publish | the subject itself, with a reply inbox | payload. The reply is a PubAck `{"stream":"…","seq":n}` or an error. |
 | KV put | `$KV.<bucket>.<key>`, as a JetStream publish | value |
 | KV get | `$JS.API.DIRECT.GET.KV_<bucket>.$KV.<bucket>.<key>` | empty. The reply carries headers `Nats-Subject`, `Nats-Sequence`; status `404` means missing. |
@@ -650,6 +650,6 @@ A JetStream-delivered message arrives on the subscription's inbox with its MSG s
 - **Stack.** An isolated `nats-server 2.15.3` (plaintext and `tls://` instances), provisioned with `setup_streams.sh`.
 - **Edges.** The repository's `test-edge` driver on Python SDK 0.0.23: plaintext `proto-test`; E2E `proto-e2e` with a live CLI rotation, switch and retire; and a minimal driver `proto-min`.
 - **Clients.** CLI `0.1.6-rc2`, plus raw nats-py publishes for cases the CLI cannot produce: estop, cancel, malformed input, offline backlog.
-- **Later shape changes.** The transcripts predate SDK 0.1.0: they show immediate commands on the `COMMAND_IMMEDIATE` stream and `header.version`/`command.version`. The examples were updated to the 0.1.0 envelope (`header.protocol_version`, no `command.version`, `protocol_version` in pongs), and `response-immediate-start-repeat.json` and `response-queue-protocol-mismatch.json` were captured from a 0.1.0rc1 edge.
+- **Later shape changes.** The transcripts predate SDK 0.1.0: they show immediate commands on the `COMMAND_IMMEDIATE` stream and `header.version`/`command.version`. The examples were updated to the 0.1.0 envelope (`header.protocol_version`, no `command.version`, `protocol_version` in pongs), and `response-immediate-start-repeat.json`, `response-queue-protocol-mismatch.json`, `response-immediate-complete-abort.json` and `response-queue-aborted.json` were captured from a 0.1.0rc1 edge.
 - **Capture.** A `>` subscriber recorded every message. All 1,689 PUDA payloads in the captures (252 command/response envelopes, 69 state values, 7 catalogs, 33 pongs, 1,300 telemetry samples, 12 events and 16 keyring records) validate against the schemas in `v1.0/schemas/`. All 581 sealed frames in the E2E capture open under the AAD rules in §13.3, across both keys, with no plaintext seen on `puda.*`. The Go CLI opened the Python edge's frames, and the reverse, throughout, including across the rotation.
 - **Redaction.** IP addresses, host names and user IDs in the examples and transcripts are replaced with documentation values. Lab keys from the capture are not included; the vectors use fixed test keys.

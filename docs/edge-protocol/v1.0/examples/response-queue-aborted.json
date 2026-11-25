@@ -2,11 +2,11 @@
   "header": {
     "protocol_version": "1.0",
     "message_type": "response",
-    "user_id": "00000000-0000-4000-8000-000000000001",
-    "username": "puda",
+    "user_id": "it",
+    "username": "it",
     "machine_id": "proto-test",
-    "run_id": "44444444-2222-4333-8444-555555555555",
-    "timestamp": "2026-11-24T03:58:37Z"
+    "run_id": "33333333-3333-4444-8555-666666666666",
+    "timestamp": "2026-11-25T04:22:01Z"
   },
   "command": {
     "name": "hold",
@@ -19,9 +19,9 @@
   },
   "response": {
     "status": "error",
-    "completed_at": "2026-11-24T03:58:37Z",
+    "completed_at": "2026-11-25T04:22:01Z",
     "code": "COMMAND_CANCELLED",
-    "message": "Aborted by complete --abort",
+    "message": "Stopped by complete --abort",
     "data": {
       "waited": 30,
       "stopped": true
