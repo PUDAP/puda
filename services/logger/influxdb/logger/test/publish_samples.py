@@ -6,7 +6,6 @@ import sys
 from pathlib import Path
 
 import nats
-from puda import e2e
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from subscriber import Config, Subscriber  # noqa: E402
@@ -42,7 +41,7 @@ async def main():
                 if suffix == "tlm.health"
                 else data
             )
-            await nc.publish(subject, e2e.seal(subject, json.dumps(payload).encode()))
+            await nc.publish(subject, config.context.seal(subject, json.dumps(payload).encode()))
         await nc.flush()
     finally:
         await nc.close()

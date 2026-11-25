@@ -3,8 +3,8 @@ name = "puda-influxdb-subscriber"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
-    "puda==0.0.19rc1",
-    "nats-py>=2.12.0",
+    "puda==0.1.0rc1",
+    "nats-py>=2.17.0",
 ]
 
 [dependency-groups]

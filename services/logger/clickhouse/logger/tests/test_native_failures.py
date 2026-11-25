@@ -8,6 +8,7 @@ import nats
 import pytest
 from nats.js.api import RetentionPolicy, StreamConfig
 from puda import e2e
+from e2e_context import ring_context
 import native_ingest
 from test_integration import services, eventually
 from test_logger import command
@@ -51,7 +52,7 @@ async def test_rejected_response_is_not_acked(services, tmp_path, retention, fai
     nc = await nats.connect(servers=config.servers)
     key, next_key = os.urandom(32), os.urandom(32)
     path = tmp_path / 'user_files' / 'puda-keys.tsv'
-    e2e.set_ring(e2e.Ring(key))
+    ctx = ring_context(e2e.Ring(key))
     try:
         js = nc.jetstream()
         for suffix in ('QUEUE', 'IMMEDIATE'):
@@ -63,7 +64,7 @@ async def test_rejected_response_is_not_acked(services, tmp_path, retention, fai
         native_ingest.write_keys(path, [] if failure == 'missing' else [key])
         subject = 'puda.robot.cmd.response.queue'
         raw = json.dumps(command()).encode()
-        frame = e2e.seal(subject if failure != 'subject' else 'puda.other.cmd.response.queue', raw)
+        frame = ctx.seal(subject if failure != 'subject' else 'puda.other.cmd.response.queue', raw)
         if failure == 'tamper':
             frame = frame[:-1] + bytes([frame[-1] ^ 1])
         if failure == 'key':
@@ -84,7 +85,7 @@ async def test_rejected_response_is_not_acked(services, tmp_path, retention, fai
                     'month': '2026-00-01T12:00:00Z',
                     'day': '2026-01-00T12:00:00Z',
                 }[failure]
-            frame = e2e.seal(subject, json.dumps(bad).encode())
+            frame = ctx.seal(subject, json.dumps(bad).encode())
         for sql in native_ingest.statements(config.servers[0], path):
             db.request(sql)
         if failure == 'storage':
@@ -106,7 +107,7 @@ async def test_rejected_response_is_not_acked(services, tmp_path, retention, fai
             record = json.dumps({'new_key': base64.b64encode(next_key).decode(),
                 'old_key': base64.b64encode(key).decode(),
                 'encrypt_kid': hashlib.sha256(next_key).digest()[:4].hex()}).encode()
-            await kv.put('current', e2e.seal('kv:E2E_KEYRING:current', record))
+            await kv.put('current', ctx.seal('kv:E2E_KEYRING:current', record))
             import subprocess
             import sys
             native_ingest.write_keys(path, [key])  # no dictionary reload yet
@@ -121,8 +122,8 @@ async def test_rejected_response_is_not_acked(services, tmp_path, retention, fai
             async def recovered():
                 return db.request('SELECT count() FROM puda.command_logs').strip() == b'1'
             await eventually(recovered)
-            e2e.set_ring(e2e.Ring(next_key, previous=key))
-            await js.publish(subject, e2e.seal(subject, raw))
+            ctx = ring_context(e2e.Ring(next_key, previous=key))
+            await js.publish(subject, ctx.seal(subject, raw))
             async def rotated():
                 return db.request('SELECT count() FROM puda.command_logs').strip() == b'2'
             await eventually(rotated)
@@ -140,5 +141,4 @@ async def test_rejected_response_is_not_acked(services, tmp_path, retention, fai
             content = (tmp_path / log).read_text()
             assert key.hex() not in content and next_key.hex() not in content
     finally:
-        e2e.set_ring(None)
         await nc.close()

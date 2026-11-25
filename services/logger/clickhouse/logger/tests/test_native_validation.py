@@ -3,6 +3,7 @@ import json
 import os
 import pytest
 from puda import e2e
+from e2e_context import ring_context
 import native_ingest
 import native_sql
 from storage import to_row
@@ -16,7 +17,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.skipif(
 def test_native_sql_rejects_invalid_wire(services, tmp_path):
     config, db = services
     key = os.urandom(32)
-    e2e.set_ring(e2e.Ring(key))
+    ctx = ring_context(e2e.Ring(key))
     path = tmp_path / 'user_files' / 'puda-keys.tsv'
     native_ingest.write_keys(path, [key])
     for sql in native_sql.key_statements(path):
@@ -31,27 +32,24 @@ def test_native_sql_rejects_invalid_wire(services, tmp_path):
         else:
             bad['header']['timestamp'] = value
         cases.append(('puda.robot.cmd.response.queue', json.dumps(bad).encode()))
-    try:
-        for subject, raw in cases:
-            with pytest.raises((ValueError, UnicodeError)):
-                to_row(subject, raw)
-            frame = e2e.seal(subject, raw)
-            source = f"(SELECT unhex('{frame.hex()}') AS payload, '{subject}' AS _subject)"
-            select = native_sql.command_select(source, 'response') if '.cmd.' in subject else native_sql.telemetry_select(source, 'telemetry')
-            with pytest.raises(RuntimeError, match='ClickHouse request failed'):
-                db.request(select)
-        duplicate = json.dumps(command()).replace('"machine_id": "robot"', '"machine_id":"wrong","machine_id":"robot"').encode()
-        for subject, raw in [('puda.robot.cmd.response.queue', duplicate),
-                             ('puda.robot.cmd.response.queue', json.dumps(command()).encode()),
-                             ('puda.robot.tlm.health', b'{"cpu":1}')]:
-            frame = e2e.seal(subject, raw)
-            source = f"(SELECT unhex('{frame.hex()}') AS payload, '{subject}' AS _subject)"
-            select = native_sql.command_select(source, 'response') if '.cmd.' in subject else native_sql.telemetry_select(source, 'telemetry')
-            actual = json.loads(db.request(select + ' FORMAT JSONEachRow'))
-            assert actual['raw_json'] == raw.decode()
-            assert actual['machine_id'] == to_row(subject,raw)['machine_id']
-    finally:
-        e2e.set_ring(None)
+    for subject, raw in cases:
+        with pytest.raises((ValueError, UnicodeError)):
+            to_row(subject, raw)
+        frame = ctx.seal(subject, raw)
+        source = f"(SELECT unhex('{frame.hex()}') AS payload, '{subject}' AS _subject)"
+        select = native_sql.command_select(source, 'response') if '.cmd.' in subject else native_sql.telemetry_select(source, 'telemetry')
+        with pytest.raises(RuntimeError, match='ClickHouse request failed'):
+            db.request(select)
+    duplicate = json.dumps(command()).replace('"machine_id": "robot"', '"machine_id":"wrong","machine_id":"robot"').encode()
+    for subject, raw in [('puda.robot.cmd.response.queue', duplicate),
+                         ('puda.robot.cmd.response.queue', json.dumps(command()).encode()),
+                         ('puda.robot.tlm.health', b'{"cpu":1}')]:
+        frame = ctx.seal(subject, raw)
+        source = f"(SELECT unhex('{frame.hex()}') AS payload, '{subject}' AS _subject)"
+        select = native_sql.command_select(source, 'response') if '.cmd.' in subject else native_sql.telemetry_select(source, 'telemetry')
+        actual = json.loads(db.request(select + ' FORMAT JSONEachRow'))
+        assert actual['raw_json'] == raw.decode()
+        assert actual['machine_id'] == to_row(subject,raw)['machine_id']
 
 
 def test_timestamp_calendar_clock_and_bounds_parity(services):

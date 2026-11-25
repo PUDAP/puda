@@ -20,6 +20,8 @@ import pytest
 from nats.js.api import AckPolicy, ConsumerConfig, RetentionPolicy, StreamConfig
 from puda import e2e
 
+from e2e_context import ring_context
+
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_DOCKER_TESTS") != "1", reason="set RUN_DOCKER_TESTS=1"
 )
@@ -253,7 +255,7 @@ async def test_container_pipeline(tmp_path, encrypted):
             assert (
                 await js.stream_info("RESPONSE_" + suffix.upper())
             ).config.max_msgs == 10000
-        e2e.set_ring(e2e.Ring(encrypt=original_key) if encrypted else None)
+        ctx = ring_context(e2e.Ring(encrypt=original_key) if encrypted else None)
 
         async def publish(name):
             header = {
@@ -274,7 +276,7 @@ async def test_container_pipeline(tmp_path, encrypted):
                 "cmd.response.immediate",
             ):
                 subject = "puda.test-machine." + topic
-                payload = e2e.seal(subject, json.dumps(data).encode())
+                payload = ctx.seal(subject, json.dumps(data).encode())
                 if "response" in topic:
                     await js.publish(subject, payload)
                 else:
@@ -282,7 +284,7 @@ async def test_container_pipeline(tmp_path, encrypted):
             subject = "puda.test-machine.tlm.health"
             await nc.publish(
                 subject,
-                e2e.seal(
+                ctx.seal(
                     subject,
                     json.dumps(
                         {
@@ -307,7 +309,7 @@ async def test_container_pipeline(tmp_path, encrypted):
                 ),
             ):
                 subject = "puda.test-machine.tlm.stream." + stream
-                await nc.publish(subject, e2e.seal(subject, json.dumps(sample).encode()))
+                await nc.publish(subject, ctx.seal(subject, json.dumps(sample).encode()))
             await nc.flush()
 
         await publish("initial")
@@ -350,7 +352,7 @@ async def test_container_pipeline(tmp_path, encrypted):
         # Invalid JSON and, in E2EE mode, plaintext must not become metrics.
         await nc.publish(
             "puda.test-machine.cmd.queue",
-            e2e.seal("puda.test-machine.cmd.queue", b"not-json"),
+            ctx.seal("puda.test-machine.cmd.queue", b"not-json"),
         )
         await nc.flush()
         await eventually(lambda: "Invalid message" in docker("logs", logger))
@@ -368,7 +370,7 @@ async def test_container_pipeline(tmp_path, encrypted):
                 "old_key": base64.b64encode(original_key).decode(),
                 "encrypt_kid": e2e.kid_hex(e2e.kid_for(next_key)),
             }
-            sealed = e2e.seal(
+            sealed = ctx.seal(
                 e2e.kv_aad(e2e.KEYRING_BUCKET, e2e.KEYRING_KEY),
                 json.dumps(record).encode(),
             )
@@ -376,7 +378,7 @@ async def test_container_pipeline(tmp_path, encrypted):
             await eventually(
                 lambda: base64.b64encode(next_key).decode() in key_path.read_text()
             )
-            e2e.set_ring(e2e.Ring(encrypt=next_key, previous=original_key))
+            ctx = ring_context(e2e.Ring(encrypt=next_key, previous=original_key))
             await publish("rotated")
             await eventually(
                 lambda: any("cmd_name=rotated" in body for body in received)
@@ -444,4 +446,3 @@ async def test_container_pipeline(tmp_path, encrypted):
         http.shutdown()
         http.server_close()
         thread.join(timeout=5)
-        e2e.reset()

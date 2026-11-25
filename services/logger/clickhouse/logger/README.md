@@ -5,7 +5,7 @@ and tested locally; see [NATIVE.md](NATIVE.md) for control-plane commands,
 acceptance coverage and deployment gates. The Python logger below remains the
 unchanged rollback path; native ingestion is not enabled by this Compose file.
 
-Python 3.11+ and `puda==0.0.19rc1`, matching the existing InfluxDB logger's E2EE
+Python 3.11+ and `puda==0.1.0rc1` (Edge Protocol 1.0), matching the existing InfluxDB logger's E2EE
 wire implementation. No Telegraf or ClickHouse client SDK is required. The
 standard-library HTTP transport sends `JSONEachRow` batches synchronously with
 `async_insert=0` and `wait_end_of_query=1`; it checks both HTTP status and an empty

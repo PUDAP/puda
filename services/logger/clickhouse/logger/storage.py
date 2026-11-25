@@ -31,6 +31,8 @@ class Config:
     batch_size: int = 1000
     batch_interval: float = 1.0
     timeout: float = 30.0
+    # Payload keys loaded once from PUDA_E2E_KEY_FILE; disabled for plaintext mode.
+    context: e2e.Context = field(default_factory=e2e.Context)
 
     @classmethod
     def from_env(cls):
@@ -93,16 +95,15 @@ class Config:
                     "E2EE key file and directory must be writable for rotation"
                 )
             try:
-                if e2e.reload() is None:
-                    raise ValueError
+                context = e2e.Context(key)
             except Exception:
                 raise ValueError(
                     "E2EE key file must contain a valid encrypt key"
                 ) from None
         else:
-            e2e.set_ring(None)
+            context = e2e.Context()
         try:
-            options = e2e.connect_kwargs(servers)
+            options = e2e.connect_kwargs(servers, ca or None)
         except Exception:
             raise ValueError("Cannot load TLS CA") from None
         url = required("CLICKHOUSE_URL").rstrip("/")
@@ -148,6 +149,7 @@ class Config:
             password=required("CLICKHOUSE_PASSWORD"),
             encrypted=bool(ca),
             connect_options=options,
+            context=context,
             **identifiers,
             max_ack_pending=number("JS_MAX_ACK_PENDING", 4096, int, 100000),
             batch_size=number("BATCH_SIZE", 1000, int, 10000),

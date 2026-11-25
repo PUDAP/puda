@@ -8,6 +8,7 @@ import nats
 import pytest
 from nats.js.api import StreamConfig, RetentionPolicy
 from puda import e2e
+from e2e_context import ring_context
 from native_services import native_services
 from native_transport import connect_options
 from native_ingest import write_keys, DURABLES
@@ -59,7 +60,7 @@ async def test_tls_encrypted_ingestion_storage_retry_and_remote_sync(tmp_path, r
     with native_services(ROOT, tmp_path, tls='good') as (config, db):
         nc = await nats.connect(**connect_options(tmp_path/'transport.xml', config.servers[0]))
         key = os.urandom(32)
-        e2e.set_ring(e2e.Ring(key))
+        ctx = ring_context(e2e.Ring(key))
         try:
             js = nc.jetstream()
             for suffix in ('queue','immediate'):
@@ -82,7 +83,7 @@ async def test_tls_encrypted_ingestion_storage_retry_and_remote_sync(tmp_path, r
             subject = 'puda.robot.cmd.response.queue'
             raw = json.dumps(command()).encode()
             db.request('ALTER TABLE puda.command_logs ADD CONSTRAINT tls_outage CHECK 0')
-            await js.publish(subject,e2e.seal(subject,raw))
+            await js.publish(subject,ctx.seal(subject,raw))
             await (await other.fetch(1,timeout=3))[0].ack_sync()
             async def failed():
                 return 'tls_outage' in (tmp_path/'error.log').read_text()
@@ -108,7 +109,7 @@ async def test_tls_encrypted_ingestion_storage_retry_and_remote_sync(tmp_path, r
             record = json.dumps({'new_key':base64.b64encode(next_key).decode(),
                 'old_key':base64.b64encode(key).decode(),
                 'encrypt_kid':hashlib.sha256(next_key).digest()[:4].hex()}).encode()
-            await kv.put('current', e2e.seal('kv:E2E_KEYRING:current',record))
+            await kv.put('current', ctx.seal('kv:E2E_KEYRING:current',record))
             local_keys = tmp_path/'agent.tsv'
             write_keys(local_keys,[key])
             keys.parent.chmod(0o700)
@@ -128,8 +129,8 @@ async def test_tls_encrypted_ingestion_storage_retry_and_remote_sync(tmp_path, r
             # Retry reads the retained local archive and installs it remotely.
             await native_control.install(args)
             assert len(transfers) == 1
-            e2e.set_ring(e2e.Ring(next_key,previous=key))
-            await js.publish(subject,e2e.seal(subject,raw))
+            ctx = ring_context(e2e.Ring(next_key,previous=key))
+            await js.publish(subject,ctx.seal(subject,raw))
             async def rotated():
                 return int(db.request('SELECT count() FROM puda.command_logs')) == 2
             await eventually(rotated)
@@ -139,5 +140,4 @@ async def test_tls_encrypted_ingestion_storage_retry_and_remote_sync(tmp_path, r
                 logs += (tmp_path/filename).read_text()
             assert key.hex() not in logs and next_key.hex() not in logs
         finally:
-            e2e.set_ring(None)
             await nc.close()

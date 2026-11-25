@@ -9,6 +9,7 @@ from nats.js.api import AckPolicy, RetentionPolicy, StreamConfig
 from nats.js.errors import NotFoundError
 from puda import e2e
 
+from e2e_context import ring_context
 from test_logger import command
 
 
@@ -25,7 +26,6 @@ def message(subject="puda.robot.cmd.response.queue", data=None):
 def service():
     from subscriber import Config, Subscriber
 
-    e2e.set_ring(None)
     return Subscriber(
         Config(
             ["nats://127.0.0.1:14222"], "http://127.0.0.1:18123", "test", "fake-secret"
@@ -79,7 +79,6 @@ async def test_e2ee_rotation_refresh_retry_and_retirement(tmp_path):
     old, new = b"o" * 32, b"n" * 32
     keyfile = tmp_path / "e2e.key"
     keyfile.write_text("encrypt=" + base64.b64encode(old).decode() + "\n")
-    old_ring = e2e.Ring(old, persistent=True, path=keyfile)
     record = json.dumps(
         {
             "new_key": base64.b64encode(new).decode(),
@@ -87,32 +86,29 @@ async def test_e2ee_rotation_refresh_retry_and_retirement(tmp_path):
             "encrypt_kid": e2e.kid_for(new).hex(),
         }
     ).encode()
-    e2e.set_ring(old_ring)
-    encrypted_record = e2e.seal(e2e.kv_aad(e2e.KEYRING_BUCKET, e2e.KEYRING_KEY), record)
+    sub.config.context = e2e.Context(keyfile)
+    encrypted_record = sub.config.context.seal(
+        e2e.kv_aad(e2e.KEYRING_BUCKET, e2e.KEYRING_KEY), record
+    )
     kv = SimpleNamespace(
         get=AsyncMock(return_value=SimpleNamespace(value=encrypted_record))
     )
     sub.js = SimpleNamespace(key_value=AsyncMock(return_value=kv))
-    e2e.set_ring(e2e.Ring(new))
     msg = message()
-    msg.data = e2e.seal(msg.subject, msg.data)
-    e2e.set_ring(old_ring)
+    msg.data = ring_context(e2e.Ring(new)).seal(msg.subject, msg.data)
     rows = []
     sub.sink.write = rows.extend
-    try:
-        await sub.process_batch([(msg, True)])
-        assert rows and e2e.current().encrypt == new
-        assert e2e.current().previous == old
-        assert base64.b64encode(new).decode() in keyfile.read_text()
-        msg.ack.assert_awaited_once()
-        kv.get.side_effect = NotFoundError
-        await sub.sync_keyring()
-        assert e2e.current().previous is None
-        msg.data = b"plaintext rejected in E2EE"
-        await sub.process_batch([(msg, True)])
-        msg.nak.assert_awaited_once_with(delay=5)
-    finally:
-        e2e.set_ring(None)
+    await sub.process_batch([(msg, True)])
+    assert rows and sub.config.context.current().encrypt == new
+    assert sub.config.context.current().previous == old
+    assert base64.b64encode(new).decode() in keyfile.read_text()
+    msg.ack.assert_awaited_once()
+    kv.get.side_effect = NotFoundError
+    await sub.sync_keyring()
+    assert sub.config.context.current().previous is None
+    msg.data = b"plaintext rejected in E2EE"
+    await sub.process_batch([(msg, True)])
+    msg.nak.assert_awaited_once_with(delay=5)
 
 
 @pytest.mark.asyncio

@@ -5,7 +5,7 @@ description = "Logger service that listens to NATS command/response/telemetry st
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "nats-py>=2.9",
+    "nats-py>=2.17.0",
     "python-dotenv>=1.2.1",
     "reduct-py>=1.17,<2",
 ]

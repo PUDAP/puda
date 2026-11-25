@@ -10,7 +10,7 @@ import re
 import signal
 import sys
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -55,6 +55,8 @@ class Config:
     connect_options: dict
     max_ack_pending: int = 20000
     response_max_age: float = 86400
+    # Payload keys loaded once from PUDA_E2E_KEY_FILE; disabled for plaintext mode.
+    context: e2e.Context = field(default_factory=e2e.Context)
 
     @classmethod
     def from_env(cls):
@@ -79,8 +81,7 @@ class Config:
                     "PUDA_NATS_CA and PUDA_E2E_KEY_FILE must reference existing files"
                 )
             try:
-                if e2e.reload() is None:
-                    raise ValueError("no encrypt key")
+                context = e2e.Context(key)
             except Exception:
                 raise ValueError(
                     "PUDA_E2E_KEY_FILE must contain a valid encrypt key"
@@ -90,9 +91,9 @@ class Config:
                     "Key file and its directory must be writable for key rotation"
                 )
         else:
-            e2e.set_ring(None)
+            context = e2e.Context()
         try:
-            options = e2e.connect_kwargs(servers)
+            options = e2e.connect_kwargs(servers, ca or None)
         except Exception:
             raise ValueError("Cannot load NATS TLS CA certificate") from None
         try:
@@ -102,7 +103,7 @@ class Config:
         except ValueError:
             raise ValueError("JS_MAX_ACK_PENDING must be a positive integer") from None
         max_age = duration_seconds(os.getenv("JS_RESPONSE_MAX_AGE", "24h"))
-        return cls(servers, encrypted, options, max_pending, max_age)
+        return cls(servers, encrypted, options, max_pending, max_age, context)
 
 
 def timestamp_ns(value):
@@ -280,12 +281,12 @@ class Subscriber:
             try:
                 entry = await kv.get(e2e.KEYRING_KEY)
             except NotFoundError:
-                e2e.drop_previous()
+                self.config.context.drop_previous()
                 return
-            plain = e2e.open_payload(
+            plain = self.config.context.open_payload(
                 e2e.kv_aad(e2e.KEYRING_BUCKET, e2e.KEYRING_KEY), entry.value
             )
-            e2e.adopt_record(plain)
+            self.config.context.adopt_record(plain)
 
     async def watch_keys(self):
         while True:
@@ -391,11 +392,11 @@ class Subscriber:
     async def process(self, msg, jetstream=False):
         try:
             try:
-                plain = e2e.open_payload(msg.subject, msg.data)
+                plain = self.config.context.open_payload(msg.subject, msg.data)
             except e2e.E2EError:
                 # A newly rotated message may arrive before the periodic keyring refresh.
                 await self.sync_keyring()
-                plain = e2e.open_payload(msg.subject, msg.data)
+                plain = self.config.context.open_payload(msg.subject, msg.data)
         except Exception as exc:
             log.error(
                 "Cannot decrypt message on %s (%s)", msg.subject, type(exc).__name__

@@ -139,7 +139,7 @@ There is no E2EE boolean. If both optional variables are unset or empty, use
 encrypted payloads. Setting only one, mixing URL schemes, or supplying missing or
 invalid files fails startup. Encryption never silently falls back to plaintext.
 
-The logger pins the E2EE-capable PUDA SDK `0.0.19rc1` and reuses its framing,
+The logger pins PUDA SDK `0.1.0rc1` (Edge Protocol 1.0) and reuses its framing,
 subject authentication, and keyring functions. It polls `E2E_KEYRING/current`
 every two seconds and refreshes again on a decryption failure. The shared key file
 must be writable so rotated keys persist across restarts. Its runtime directory
