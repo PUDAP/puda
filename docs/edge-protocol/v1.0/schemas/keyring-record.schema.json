@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docs.puda.co/schemas/edge-protocol/1.0/keyring-record.schema.json",
+  "title": "E2E_KEYRING current record",
+  "description": "Plaintext of KV E2E_KEYRING key \"current\" (sealed with the old key, AAD kv:E2E_KEYRING:current).",
+  "type": "object",
+  "required": [
+    "new_key",
+    "old_key",
+    "encrypt_kid"
+  ],
+  "properties": {
+    "new_key": {
+      "type": "string",
+      "description": "Base64 (standard) 32-byte key."
+    },
+    "old_key": {
+      "type": "string",
+      "description": "Base64 (standard) 32-byte key."
+    },
+    "encrypt_kid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}$",
+      "description": "kid of whichever key seals new messages."
+    }
+  }
+}

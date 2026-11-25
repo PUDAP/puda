@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docs.puda.co/schemas/edge-protocol/1.0/machine-commands.schema.json",
+  "title": "MACHINE_COMMANDS value",
+  "description": "Command catalog at KV bucket MACHINE_COMMANDS, key <machine_id>. The CLI rejects entries missing name, signature, doc or safety (null is allowed for doc and safety).",
+  "type": "object",
+  "required": [
+    "commands",
+    "catalog",
+    "hooks"
+  ],
+  "properties": {
+    "commands": {
+      "type": "string",
+      "description": "Human-readable catalog text."
+    },
+    "catalog": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    },
+    "hooks": {
+      "type": "array",
+      "description": "Lifecycle hooks the edge implements (spec §11.2), sorted. Never listed in catalog.",
+      "items": {
+        "enum": [
+          "abort",
+          "estop",
+          "pause",
+          "reset",
+          "resume",
+          "shutdown"
+        ]
+      },
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "required": [
+        "name",
+        "signature",
+        "doc",
+        "safety"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "signature": {
+          "type": "string",
+          "pattern": "^\\(.*\\)",
+          "description": "Python-style signature, e.g. \"(self, x_mm: float, speed: number = 10) -> dict\". Parsed by `puda protocol validate`; see spec \u00a79.2."
+        },
+        "doc": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "safety": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/safety"
+            }
+          ]
+        },
+        "parameters": {
+          "type": "object",
+          "description": "Optional explicit parameter schemas; override signature annotations.",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "required",
+              "schema"
+            ],
+            "properties": {
+              "required": {
+                "type": "boolean"
+              },
+              "schema": {
+                "$ref": "#/$defs/paramType"
+              }
+            }
+          }
+        }
+      }
+    },
+    "safety": {
+      "type": "object",
+      "required": [
+        "summary",
+        "hazards",
+        "requires",
+        "forbidden_when",
+        "confirm"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hazards": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "requires": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "forbidden_when": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "confirm": {
+          "type": "boolean"
+        }
+      }
+    },
+    "paramType": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "int",
+            "float",
+            "str",
+            "bool",
+            "bytes",
+            "null",
+            "any",
+            "dict",
+            "list",
+            "union"
+          ]
+        },
+        "nullable": {
+          "type": "boolean"
+        },
+        "values": {
+          "$ref": "#/$defs/paramType"
+        },
+        "items": {
+          "$ref": "#/$defs/paramType"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/paramType"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "header": {
+    "protocol_version": "1.0",
+    "message_type": "response",
+    "user_id": "00000000-0000-4000-8000-000000000001",
+    "username": "puda",
+    "machine_id": "proto-test",
+    "run_id": "22222222-2222-4333-8444-555555555555",
+    "timestamp": "2026-11-23T13:26:02Z"
+  },
+  "command": {
+    "name": "not_a_command",
+    "params": {},
+    "kwargs": {},
+    "step_number": 1,
+    "machine_id": "proto-test"
+  },
+  "response": {
+    "status": "error",
+    "completed_at": "2026-11-23T13:26:02Z",
+    "code": "UNKNOWN_COMMAND",
+    "message": "Unknown or restricted command: not_a_command",
+    "data": null
+  }
+}

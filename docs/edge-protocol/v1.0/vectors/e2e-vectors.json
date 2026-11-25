@@ -1,0 +1,140 @@
+{
+  "protocol": "PUDA Edge Protocol 1.0",
+  "frame": {
+    "magic": "0xE2",
+    "version": "0x01",
+    "layout": "magic(1) version(1) kid(4) nonce(12) ciphertext||tag(16)",
+    "kid": "first 4 bytes of SHA-256(key)",
+    "aead": "AES-256-GCM, 128-bit tag"
+  },
+  "positive": [
+    {
+      "name": "queue_command",
+      "note": "Command published on the queue subject; AAD is the publish subject (also the subject of the JetStream delivery).",
+      "key_b64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "kid_hex": "630dcd29",
+      "aad": "puda.esp32-demo.cmd.queue",
+      "nonce_hex": "000102030405060708090a0b",
+      "plaintext_utf8": "{\"header\":{\"version\":\"1.0\",\"message_type\":\"command\",\"user_id\":\"00000000-0000-4000-8000-000000000000\",\"username\":\"vector\",\"machine_id\":\"esp32-demo\",\"run_id\":\"11111111-2222-4333-8444-555555555555\",\"timestamp\":\"2026-01-01T00:00:00Z\"},\"command\":{\"name\":\"move_to\",\"params\":{\"x_mm\":1.5,\"y_mm\":0,\"z_mm\":10},\"step_number\":1,\"version\":\"1.0\",\"machine_id\":\"esp32-demo\"}}",
+      "frame_hex": "e201630dcd29000102030405060708090a0b3c20be7ea481a769af7beca9c78c0a1eeab9e916ca596e520845c9a7700c73c16077cba3dbb862fd569e5d8ee7ea4559803d42a178a3d0bf4dc8437d3ad9d7dec00cf64ae3e1164c2c649a5ec2bb3ed808a7f15246537e58cdcdaefc48c089bdfbc869c48863bd69fb6e50d325100345981107c897aa57b861dd3aace18e0760de0d69a296ede9367b917b9310be29af59d6cf174764fd15e53bca4dd8e3d8dfa2a6af24d8d2fe4c9551f0ceecb3b596a5fafe16a69e468950eaf5f244f082c6266ea6d879b4bbac4422b28bca63e3a6d34eca4010308bdc41a0cef77172bfca7913e4f5c45d2f073128d565d47f187392e89b1bfc5dec872d490a1cfdf91df57bf3deb2edbb3a5f1aac503dcc0f4255b7d9e8f7b1a5b4835356323c67d6807b2d21a417d7a8ec2da30c477628e6d4b6e895352b24f6aa65ba0b2c3ab54b209bbafc1044a95a5ad88dd0590c7fbe7c01fb73b9e1c37de12a73811d15fd827ad23d4a94b6a7290f3d85df21782a89cf3f130fa76c2960dc"
+    },
+    {
+      "name": "state_kv_put",
+      "note": "MACHINE_STATE value; AAD is kv:<bucket>:<key>, not the $KV subject.",
+      "key_b64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "kid_hex": "630dcd29",
+      "aad": "kv:MACHINE_STATE:esp32-demo",
+      "nonce_hex": "101112131415161718191a1b",
+      "plaintext_utf8": "{\"timestamp\":\"2026-01-01T00:00:01Z\",\"state\":\"busy\",\"run_id\":\"11111111-2222-4333-8444-555555555555\"}",
+      "frame_hex": "e201630dcd29101112131415161718191a1b06dcec7f24ac49c7ab18783f355b5b63e566633e2aef6780b3c9d25d6e646eeb61b3752fd7d51a8e0a53b06ba8fa66686a9e6b5191fe37add57a180bd1a6955a34c90e12789339065fb218caebf2db93058da6994ba8670fb5c5152adbb1d62049253392a87af1b37e3e12d3607b5efca02658"
+    },
+    {
+      "name": "ping_request",
+      "note": "Direct ping body. The broadcast ping uses AAD puda.cmd.ping.",
+      "key_b64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "kid_hex": "630dcd29",
+      "aad": "puda.esp32-demo.cmd.ping",
+      "nonce_hex": "202122232425262728292a2b",
+      "plaintext_utf8": "ping",
+      "frame_hex": "e201630dcd29202122232425262728292a2ba253c8170e164587569a2784ce122cdb78425814"
+    },
+    {
+      "name": "pong_reply",
+      "note": "Pong reply; AAD is the request's reply subject (the inbox), not the ping subject.",
+      "key_b64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "kid_hex": "630dcd29",
+      "aad": "_INBOX.vector.reply",
+      "nonce_hex": "303132333435363738393a3b",
+      "plaintext_utf8": "{\"status\":\"pong\",\"machine_id\":\"esp32-demo\",\"timestamp\":\"2026-01-01T00:00:02Z\",\"sdk_version\":\"0.1.0\",\"uptime_seconds\":12.5,\"run_status\":\"idle\",\"tlm_streams\":[],\"e2e_encrypt_kid\":\"630dcd29\",\"e2e_decrypt_kids\":[\"630dcd29\"],\"e2e_persist\":true}",
+      "frame_hex": "e201630dcd29303132333435363738393a3bc81742b4881b3f700809ac9c7df7594ab0052236a0562d6b42e13828ca895c5b30103f5601a4fecac1063e6b0eafbe48dd383c245b93ff059f7053626d7860d96057eabfa493070fca2bab0c44435eb358b26f75e6b761b66a881988416031d9e5877435720d777937c47e0f77928a7e51003d7b6a7751c6077c9ec42a3d289f8733a960d0611c2dddda271cd5f0f74f3675b229032ca8b182eb643cadb49b3979fd2d00d221c757dc38636d9bef60f5fbc8ceece71b43f76117c73b3b7a8c8dde4dd2476f70bd5173500b99be74c1482d2e12a41a33a42f30e13c896e8ae0c607145eef25ff62c09c3d3348956bc08129bb47bfadcf6dbf526be43b17a522"
+    },
+    {
+      "name": "keyring_phase1",
+      "note": "Rotation phase 1 (new key decrypt-only). Always sealed with the OLD key.",
+      "key_b64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "kid_hex": "630dcd29",
+      "aad": "kv:E2E_KEYRING:current",
+      "nonce_hex": "404142434445464748494a4b",
+      "plaintext_utf8": "{\"new_key\":\"ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=\",\"old_key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\",\"encrypt_kid\":\"630dcd29\"}",
+      "frame_hex": "e201630dcd29404142434445464748494a4b999bc0465163ec66b4e62d14d227563230bf0330fd5c6c4c3c142197db50ddaed472b2d493d392646fa0525cde49b4ec840bdd0863adda34a336f66b4b8e77ab816af790269f6aef148014d4d03a9b0b073b03a4672e55bf38925d7e49454c18e2b528b3d04725ab2955edccd3839a34b59d71cccef1110faecec1bb03c126e18d2158f636551ae3c142fad597f972d50d01f6e3280256b426fcd28e"
+    },
+    {
+      "name": "keyring_phase2",
+      "note": "Rotation phase 2 (switch to new key). Still sealed with the OLD key.",
+      "key_b64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "kid_hex": "630dcd29",
+      "aad": "kv:E2E_KEYRING:current",
+      "nonce_hex": "505152535455565758595a5b",
+      "plaintext_utf8": "{\"new_key\":\"ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=\",\"old_key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\",\"encrypt_kid\":\"72dbb733\"}",
+      "frame_hex": "e201630dcd29505152535455565758595a5be9055811930fd2832594074784a2c6bcaa56ac876818f94d6fda8fa9bc03a5011d95cba5264cde84278ebcad9ac692e19e5101207a776a50bdeac66bc3ad5bf95513fea0abb2563461b6935ed8042d20cebece68b8b2475cbf3f35804c55e44bf2e2089b02bbb34e766941850e2e6666db723d36a22367219dbcba22c6fef5a5f49bb12d643d0e3fffed3c3d2200344966af8b73fba368e5473772d4"
+    },
+    {
+      "name": "queue_command_new_key",
+      "note": "Same command after the switch, sealed with the NEW key.",
+      "key_b64": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=",
+      "kid_hex": "72dbb733",
+      "aad": "puda.esp32-demo.cmd.queue",
+      "nonce_hex": "606162636465666768696a6b",
+      "plaintext_utf8": "{\"header\":{\"version\":\"1.0\",\"message_type\":\"command\",\"user_id\":\"00000000-0000-4000-8000-000000000000\",\"username\":\"vector\",\"machine_id\":\"esp32-demo\",\"run_id\":\"11111111-2222-4333-8444-555555555555\",\"timestamp\":\"2026-01-01T00:00:00Z\"},\"command\":{\"name\":\"move_to\",\"params\":{\"x_mm\":1.5,\"y_mm\":0,\"z_mm\":10},\"step_number\":1,\"version\":\"1.0\",\"machine_id\":\"esp32-demo\"}}",
+      "frame_hex": "e20172dbb733606162636465666768696a6b99b6c5ce92b41e27db7e1c9e632f010a1b68f5207b2f69e73b85954ae2b4c04e01cc19dc50baa09e7e46473b5d371f6627ad1d85ee7b8a06c855d9433cf27d03d8262317a9288bbe58a81e7ba8490ad6cd7508f94dea59c69208cba4d1b0fe75ca33d2fed5c953d60b08b332853e28a0b8c486e64520417fcbef3c944873ccce2a9e0d3e9f7a1d204e78a90ce3ebeea9da4943e83df2a02b7ef377fd86aad598df5d8b39b486d2eef5d304318b0286535e0498c7025b238023903a0b8c6e039b6d5d6fd78ffda57a4ab64665b2d5e8524547dc51daa120dfb37f366a8090608a4bcca296edebe4b6c8047907be2b3b285428f9b863780d48e0d1a74e0734a9128877de12aa42a52eceda50dd2a70015a16878b9624a181179d3c801ebb4f83ff49043d7c8fc6ebcdc4b68b8bb63b00e256d5d52f96cbb9c0845c11bb068e421b1aaa21a2a7d397e2d1d4bc8cea3901849ab25c09f8ce9eb1460ecaf30f06221bdbd805cd38f1158c7eb9707041c1344dd76a900bb2c6b6"
+    }
+  ],
+  "negative": [
+    {
+      "name": "wrong_aad",
+      "frame_hex": "e201630dcd29000102030405060708090a0b3c20be7ea481a769af7beca9c78c0a1eeab9e916ca596e520845c9a7700c73c16077cba3dbb862fd569e5d8ee7ea4559803d42a178a3d0bf4dc8437d3ad9d7dec00cf64ae3e1164c2c649a5ec2bb3ed808a7f15246537e58cdcdaefc48c089bdfbc869c48863bd69fb6e50d325100345981107c897aa57b861dd3aace18e0760de0d69a296ede9367b917b9310be29af59d6cf174764fd15e53bca4dd8e3d8dfa2a6af24d8d2fe4c9551f0ceecb3b596a5fafe16a69e468950eaf5f244f082c6266ea6d879b4bbac4422b28bca63e3a6d34eca4010308bdc41a0cef77172bfca7913e4f5c45d2f073128d565d47f187392e89b1bfc5dec872d490a1cfdf91df57bf3deb2edbb3a5f1aac503dcc0f4255b7d9e8f7b1a5b4835356323c67d6807b2d21a417d7a8ec2da30c477628e6d4b6e895352b24f6aa65ba0b2c3ab54b209bbafc1044a95a5ad88dd0590c7fbe7c01fb73b9e1c37de12a73811d15fd827ad23d4a94b6a7290f3d85df21782a89cf3f130fa76c2960dc",
+      "aad": "puda.esp32-demo.cmd.immediate",
+      "keys_b64": [
+        "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+      ],
+      "expect": "reject",
+      "why": "AAD binds the frame to its subject; replay on another subject must fail."
+    },
+    {
+      "name": "tampered_tag",
+      "frame_hex": "e201630dcd29000102030405060708090a0b3c20be7ea481a769af7beca9c78c0a1eeab9e916ca596e520845c9a7700c73c16077cba3dbb862fd569e5d8ee7ea4559803d42a178a3d0bf4dc8437d3ad9d7dec00cf64ae3e1164c2c649a5ec2bb3ed808a7f15246537e58cdcdaefc48c089bdfbc869c48863bd69fb6e50d325100345981107c897aa57b861dd3aace18e0760de0d69a296ede9367b917b9310be29af59d6cf174764fd15e53bca4dd8e3d8dfa2a6af24d8d2fe4c9551f0ceecb3b596a5fafe16a69e468950eaf5f244f082c6266ea6d879b4bbac4422b28bca63e3a6d34eca4010308bdc41a0cef77172bfca7913e4f5c45d2f073128d565d47f187392e89b1bfc5dec872d490a1cfdf91df57bf3deb2edbb3a5f1aac503dcc0f4255b7d9e8f7b1a5b4835356323c67d6807b2d21a417d7a8ec2da30c477628e6d4b6e895352b24f6aa65ba0b2c3ab54b209bbafc1044a95a5ad88dd0590c7fbe7c01fb73b9e1c37de12a73811d15fd827ad23d4a94b6a7290f3d85df21782a89cf3f130fa76c2960dd",
+      "aad": "puda.esp32-demo.cmd.queue",
+      "keys_b64": [
+        "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+      ],
+      "expect": "reject",
+      "why": "GCM authentication failure."
+    },
+    {
+      "name": "unknown_kid",
+      "frame_hex": "e20100000000000102030405060708090a0b3c20be7ea481a769af7beca9c78c0a1eeab9e916ca596e520845c9a7700c73c16077cba3dbb862fd569e5d8ee7ea4559803d42a178a3d0bf4dc8437d3ad9d7dec00cf64ae3e1164c2c649a5ec2bb3ed808a7f15246537e58cdcdaefc48c089bdfbc869c48863bd69fb6e50d325100345981107c897aa57b861dd3aace18e0760de0d69a296ede9367b917b9310be29af59d6cf174764fd15e53bca4dd8e3d8dfa2a6af24d8d2fe4c9551f0ceecb3b596a5fafe16a69e468950eaf5f244f082c6266ea6d879b4bbac4422b28bca63e3a6d34eca4010308bdc41a0cef77172bfca7913e4f5c45d2f073128d565d47f187392e89b1bfc5dec872d490a1cfdf91df57bf3deb2edbb3a5f1aac503dcc0f4255b7d9e8f7b1a5b4835356323c67d6807b2d21a417d7a8ec2da30c477628e6d4b6e895352b24f6aa65ba0b2c3ab54b209bbafc1044a95a5ad88dd0590c7fbe7c01fb73b9e1c37de12a73811d15fd827ad23d4a94b6a7290f3d85df21782a89cf3f130fa76c2960dc",
+      "aad": "puda.esp32-demo.cmd.queue",
+      "keys_b64": [
+        "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+      ],
+      "expect": "reject",
+      "why": "Key id matches neither the encrypt nor the previous key."
+    },
+    {
+      "name": "plaintext_while_enabled",
+      "frame_hex": "7b22686561646572223a7b2276657273696f6e223a22312e30222c226d6573736167655f74797065223a22636f6d6d616e64222c22757365725f6964223a2230303030303030302d303030302d343030302d383030302d303030303030303030303030222c22757365726e616d65223a22766563746f72222c226d616368696e655f6964223a2265737033322d64656d6f222c2272756e5f6964223a2231313131313131312d323232322d343333332d383434342d353535353535353535353535222c2274696d657374616d70223a22323032362d30312d30315430303a30303a30305a227d2c22636f6d6d616e64223a7b226e616d65223a226d6f76655f746f222c22706172616d73223a7b22785f6d6d223a312e352c22795f6d6d223a302c227a5f6d6d223a31307d2c22737465705f6e756d626572223a312c2276657273696f6e223a22312e30222c226d616368696e655f6964223a2265737033322d64656d6f227d7d",
+      "aad": "puda.esp32-demo.cmd.queue",
+      "keys_b64": [
+        "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+      ],
+      "expect": "reject",
+      "why": "An edge with a key configured rejects unframed payloads."
+    },
+    {
+      "name": "frame_while_disabled",
+      "frame_hex": "e201630dcd29000102030405060708090a0b3c20be7ea481a769af7beca9c78c0a1eeab9e916ca596e520845c9a7700c73c16077cba3dbb862fd569e5d8ee7ea4559803d42a178a3d0bf4dc8437d3ad9d7dec00cf64ae3e1164c2c649a5ec2bb3ed808a7f15246537e58cdcdaefc48c089bdfbc869c48863bd69fb6e50d325100345981107c897aa57b861dd3aace18e0760de0d69a296ede9367b917b9310be29af59d6cf174764fd15e53bca4dd8e3d8dfa2a6af24d8d2fe4c9551f0ceecb3b596a5fafe16a69e468950eaf5f244f082c6266ea6d879b4bbac4422b28bca63e3a6d34eca4010308bdc41a0cef77172bfca7913e4f5c45d2f073128d565d47f187392e89b1bfc5dec872d490a1cfdf91df57bf3deb2edbb3a5f1aac503dcc0f4255b7d9e8f7b1a5b4835356323c67d6807b2d21a417d7a8ec2da30c477628e6d4b6e895352b24f6aa65ba0b2c3ab54b209bbafc1044a95a5ad88dd0590c7fbe7c01fb73b9e1c37de12a73811d15fd827ad23d4a94b6a7290f3d85df21782a89cf3f130fa76c2960dc",
+      "aad": "puda.esp32-demo.cmd.queue",
+      "keys_b64": [],
+      "expect": "reject",
+      "why": "An edge without a key rejects framed payloads (peer has encryption enabled)."
+    },
+    {
+      "name": "short_frame_is_not_a_frame",
+      "frame_hex": "e201630dcd29000102030405060708090a0b3c20be7ea481a769af7beca9c78c0a",
+      "aad": "puda.esp32-demo.cmd.queue",
+      "keys_b64": [],
+      "expect": "accept_as_plaintext",
+      "why": "Fewer than 34 bytes (18 header + 16 tag) is not a frame; with encryption off it is passed through as plaintext."
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "header": {
+    "protocol_version": "1.0",
+    "message_type": "response",
+    "user_id": "00000000-0000-4000-8000-000000000001",
+    "username": "puda",
+    "machine_id": "proto-test",
+    "run_id": "33333333-3333-4444-8555-666666666666",
+    "timestamp": "2026-11-25T04:22:01Z"
+  },
+  "command": {
+    "name": "complete",
+    "params": {
+      "abort": true
+    },
+    "kwargs": {},
+    "step_number": 1,
+    "machine_id": "proto-test"
+  },
+  "response": {
+    "status": "success",
+    "completed_at": "2026-11-25T04:22:01Z",
+    "code": null,
+    "message": null,
+    "data": {
+      "aborted": {
+        "name": "hold",
+        "step_number": 1,
+        "elapsed_s": 1.5
+      },
+      "driver_abort": true,
+      "queued": 1
+    }
+  }
+}

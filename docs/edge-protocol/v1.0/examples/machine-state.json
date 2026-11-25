@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-11-23T13:25:24Z",
+  "state": "busy",
+  "run_id": "22222222-2222-4333-8444-555555555555",
+  "homed": false,
+  "position": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "heater_celsius": 0.0,
+  "last_error": null
+}

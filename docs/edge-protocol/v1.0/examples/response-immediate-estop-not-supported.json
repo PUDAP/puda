@@ -1,0 +1,25 @@
+{
+  "header": {
+    "protocol_version": "1.0",
+    "message_type": "response",
+    "user_id": "proto",
+    "username": "proto",
+    "machine_id": "proto-test",
+    "run_id": "66666666-2222-4333-8444-555555555555",
+    "timestamp": "2026-11-23T13:27:05Z"
+  },
+  "command": {
+    "name": "estop",
+    "params": {},
+    "kwargs": {},
+    "step_number": 0,
+    "machine_id": "proto-test"
+  },
+  "response": {
+    "status": "error",
+    "completed_at": "2026-11-23T13:27:05Z",
+    "code": "ESTOP_NOT_SUPPORTED",
+    "message": "Driver has no estop command: queue halted and running command cancelled, but no hardware stop was sent",
+    "data": null
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "header": {
+    "protocol_version": "1.0",
+    "message_type": "command",
+    "user_id": "00000000-0000-4000-8000-000000000001",
+    "username": "puda",
+    "machine_id": "proto-test",
+    "run_id": "",
+    "timestamp": "2026-11-23T13:26:08Z"
+  },
+  "command": {
+    "name": "pause",
+    "params": {},
+    "step_number": 0,
+    "machine_id": "proto-test"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "header": {
+    "protocol_version": "2.0",
+    "message_type": "response",
+    "user_id": "it",
+    "username": "it",
+    "machine_id": "proto-test",
+    "run_id": "22222222-2222-4333-8444-555555555555",
+    "timestamp": "2026-11-25T03:55:03Z"
+  },
+  "command": {
+    "name": "echo",
+    "params": {
+      "message": "hi"
+    },
+    "step_number": 1,
+    "machine_id": "proto-test"
+  },
+  "response": {
+    "status": "error",
+    "completed_at": "2026-11-25T03:55:03Z",
+    "code": "EXECUTION_ERROR",
+    "message": "Invalid command envelope: header.protocol_version: Value error, unsupported protocol version '2.0'; this SDK speaks 1.0",
+    "data": null
+  }
+}

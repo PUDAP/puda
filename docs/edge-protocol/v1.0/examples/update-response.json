@@ -1,0 +1,28 @@
+{
+  "header": {
+    "protocol_version": "1.0",
+    "message_type": "response",
+    "user_id": "00000000-0000-4000-8000-000000000001",
+    "username": "puda",
+    "machine_id": "proto-test",
+    "run_id": "f469f611-d913-4dfe-a883-579448dc3b7a",
+    "timestamp": "2026-11-23T13:25:08Z"
+  },
+  "command": {
+    "name": "update",
+    "params": {
+      "ref": "invalid.invalid/none:0",
+      "source_type": "docker"
+    },
+    "kwargs": {},
+    "step_number": 0,
+    "machine_id": "proto-test"
+  },
+  "response": {
+    "status": "error",
+    "completed_at": "2026-11-23T13:25:08Z",
+    "code": "EXECUTION_ERROR",
+    "message": "docker pull failed: permission denied while trying to connect to the docker API at unix:///var/run/docker.sock. Ensure the docker CLI is available and the docker socket is accessible.",
+    "data": null
+  }
+}

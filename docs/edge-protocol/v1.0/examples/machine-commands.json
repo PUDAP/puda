@@ -1,0 +1,57 @@
+{
+  "commands": "cancel(self) -> 'dict'\n    Acknowledge cancel. Run teardown is handled by the edge client.\n\necho(self, message: 'str' = '') -> 'dict'\n    Echo a string inside a dict. Useful for round-trip command tests.\n\n    Args:\n        message: Payload to return\n    \n    Returns:\n        dict: The same message\n\necho_any(self, payload: 'Any') -> 'Any'\n    Round-trip any JSON value. Protocol validate accepts Any without type-checking the payload.\n\n    Args:\n        payload: Any JSON value\n    \n    Returns:\n        Any: The same value\n\necho_bool(self, enabled: 'bool') -> 'bool'\n    Round-trip a boolean.\n\n    \n... (truncated in this example)",
+  "catalog": [
+    {
+      "name": "echo",
+      "signature": "(self, message: 'str' = '') -> 'dict'",
+      "doc": "Echo a string inside a dict. Useful for round-trip command tests.\n\nArgs:\n    message: Payload to return\n\nReturns:\n    dict: The same message",
+      "safety": null
+    },
+    {
+      "name": "echo_bool",
+      "signature": "(self, enabled: 'bool') -> 'bool'",
+      "doc": "Round-trip a boolean.\n\nArgs:\n    enabled: Boolean payload\n\nReturns:\n    bool: The same value",
+      "safety": null
+    },
+    {
+      "name": "home",
+      "signature": "(self) -> 'dict'",
+      "doc": "Home the machine. Used by ``puda machine home <machine-id>``.\n\nReturns:\n    dict: Homed flag and origin position",
+      "safety": null
+    },
+    {
+      "name": "move_to",
+      "signature": "(self, x: 'float', y: 'float', z: 'float') -> 'dict'",
+      "doc": "Move to an absolute simulated position.\n\nArgs:\n    x: Target X\n    y: Target Y\n    z: Target Z\n\nReturns:\n    dict: New position",
+      "safety": {
+        "summary": "Collision risk from unhomed motion or an occupied workspace.",
+        "hazards": [
+          "collision"
+        ],
+        "requires": "Machine must just have been homed.",
+        "forbidden_when": "Do not move if the workspace is occupied or human movement is detected.",
+        "confirm": true
+      }
+    },
+    {
+      "name": "set_heater",
+      "signature": "(self, celsius: 'float') -> 'dict'",
+      "doc": "Set the simulated heater temperature. Advisory safety only; no operator confirm.\n\nArgs:\n    celsius: Target temperature in Celsius\n\nReturns:\n    dict: Applied setpoint",
+      "safety": {
+        "summary": "Thermal hazard from simulated heater power.",
+        "hazards": [
+          "thermal"
+        ],
+        "requires": "Workspace must be clear of flammable material.",
+        "forbidden_when": "Do not heat if a thermal interlock is active.",
+        "confirm": false
+      }
+    }
+  ],
+  "hooks": [
+    "pause",
+    "reset",
+    "resume",
+    "shutdown"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "header": {
+    "protocol_version": "1.0",
+    "message_type": "response",
+    "user_id": "proto",
+    "username": "proto",
+    "machine_id": "proto-test",
+    "run_id": "55555555-2222-4333-8444-555555555555",
+    "timestamp": "2026-11-23T13:27:05Z"
+  },
+  "command": {
+    "name": "echo",
+    "params": {
+      "message": "after cancel"
+    },
+    "kwargs": {},
+    "step_number": 2,
+    "machine_id": "proto-test"
+  },
+  "response": {
+    "status": "error",
+    "completed_at": "2026-11-23T13:27:05Z",
+    "code": "MACHINE_ESTOPPED",
+    "message": "Machine emergency stopped; send reset before queuing commands",
+    "data": null
+  }
+}
