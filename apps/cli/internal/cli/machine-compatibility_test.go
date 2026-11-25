@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"io"
-	"strings"
 	"testing"
 
 	pudanats "github.com/PUDAP/puda/apps/cli/internal/nats"
@@ -12,12 +11,13 @@ import (
 )
 
 func TestDiscoveryCompatibilityPreservesOutput(t *testing.T) {
-	old := Version
-	Version = "0.1.6"
-	t.Cleanup(func() { Version = old })
 	for _, list := range []bool{true, false} {
 		for _, human := range []bool{true, false} {
-			results := []pudanats.PingResult{{MachineID: "edge", Status: "pong", SDKVersion: "99.0.0"}}
+			results := []pudanats.PingResult{
+				{MachineID: "current", Status: "pong", SDKVersion: "0.1.0", ProtocolVersion: "1.0"},
+				{MachineID: "legacy", Status: "pong", SDKVersion: "0.0.23"},
+				{MachineID: "future", Status: "pong", ProtocolVersion: "2.0"},
+			}
 			var out, stderr, expected bytes.Buffer
 			cmd := &cobra.Command{}
 			cmd.SetOut(&out)
@@ -33,15 +33,17 @@ func TestDiscoveryCompatibilityPreservesOutput(t *testing.T) {
 			if out.String() != expected.String() {
 				t.Fatalf("output changed: %s", out.String())
 			}
-			if !strings.Contains(stderr.String(), "outside the supported range") {
-				t.Fatalf("missing stderr warning: %q", stderr.String())
+			want := "warning: machine legacy speaks edge protocol none; this CLI supports 1.x (update the edge's PUDA SDK)\n" +
+				"warning: machine future speaks edge protocol 2.0; this CLI supports 1.x (update the edge's PUDA SDK)\n"
+			if stderr.String() != want {
+				t.Fatalf("stderr warnings: %q", stderr.String())
 			}
 		}
 	}
 }
 
 func TestDiscoveryNoPongNoCompatibilityWarning(t *testing.T) {
-	for _, results := range [][]pudanats.PingResult{nil, {{MachineID: "offline", Status: "timeout", SDKVersion: "99.0.0"}}} {
+	for _, results := range [][]pudanats.PingResult{nil, {{MachineID: "offline", Status: "timeout"}}} {
 		var stderr bytes.Buffer
 		cmd := &cobra.Command{}
 		cmd.SetOut(io.Discard)
@@ -63,7 +65,7 @@ func TestDiscoveryWarningFailureIsNonblocking(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(failedDiscoveryWriter{})
-	if err := writeMachineDiscovery(cmd, []pudanats.PingResult{{MachineID: "edge", Status: "pong", SDKVersion: "99.0.0"}}, nil, false, false); err != nil {
+	if err := writeMachineDiscovery(cmd, []pudanats.PingResult{{MachineID: "edge", Status: "pong"}}, nil, false, false); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -57,31 +57,17 @@ puda
 └── version                  Print the version information
 ```
 
-## CLI / Python SDK compatibility
+## Edge protocol compatibility
 
-`machine list`, `machine info`, and `healthcheck` check each responding edge's
-existing `sdk_version` against the embedded repository-root `compatibility.json`.
-For `machine list` and `machine info`, stable versions outside the supported range
-warn on stderr; unknown/development reports remain unknown. These warnings never
-change stdout or exit status or block execution. `healthcheck` instead includes
-all compatibility outcomes in its report (see its machine contract below).
-The root `compatibility` array contains inclusive CLI/SDK range rules:
-CLI 0.0.0–0.0.36 with SDK 0.0.15–0.0.16 (user-declared legacy support, **not
-runtime-tested**), and CLI 0.1.0–0.1.6 with SDK 0.0.17–0.0.22. Legacy lower bounds
-come from retained published-history inventory, not an invented SDK start.
-All bounds are inclusive and compared numerically; prereleases remain unknown.
-No matching CLI rule or invalid/missing bounds means unknown. Overlapping valid
-rules form a union, not an envelope filling SDK gaps. In-range stable versions
-are silent. Ranges are declarations, not exhaustive qualification: unpublished
-SDK 0.0.20 is implied, not tested, and 0.0.22 is a pending local artifact.
-Encryption, telemetry consumers and hardware remain outside the bounded software
-checks. See the
-[historical matrix](docs/compatibility-history.md) and the
-[compatibility policy and test evidence](docs/compatibility.md).
-
-Source builds require the full checkout: the CLI uses the root Go module to
-embed the one policy file without generated duplication. Released binaries
-remain standalone.
+Edges report `protocol_version` (`"MAJOR.MINOR"`) in every pong. This CLI
+supports Edge Protocol 1.x; an edge that reports no `protocol_version` (Python
+SDK before 0.1.0), another major or a malformed value is unsupported: update the
+PUDA SDK on that machine. `sdk_version` is informational. `machine list` and
+`machine info` print one stderr warning per unsupported responding edge without
+changing stdout or exit status; `healthcheck` reports the result in its JSON
+(see its machine contract below). CLI and SDK packages are versioned
+independently; CLI 0.2.0 and Python SDK 0.1.0 are the first releases speaking
+Edge Protocol 1.0. See [Edge protocol compatibility](docs/compatibility.md).
 
 The `machine ping` alias has been removed; use `puda machine info <machine_ids>`.
 
@@ -89,9 +75,9 @@ The `machine ping` alias has been removed; use `puda machine info <machine_ids>`
 
 `puda healthcheck` writes exactly one JSON object to stdout by default, including
 unhealthy reports; `--human` renders the same checks as text. A completed report
-has empty stderr: no separate SDK compatibility advisory, redundant `Error: NATS
+has empty stderr: no separate edge-protocol advisory, redundant `Error: NATS
 healthcheck ...`, or update notification. Exit code is 0 for NATS `status: "ok"`
-and 1 for `degraded`/`unhealthy`. SDK compatibility is advisory only and **never**
+and 1 for `degraded`/`unhealthy`. Edge protocol compatibility is advisory only and **never**
 changes that status or exit code. Configuration/pre-report errors and stdout write
 failures still exit nonzero and print an error on stderr; do not assume their
 stdout contains a complete report. Other commands retain their error behavior.
@@ -109,60 +95,39 @@ affected `servers[].error` (or gateway's `servers[].error`). Dependent local/rem
   longer distinguishes failure from not checked; use `status`.
 
 The additive `compatibility` object always includes `advisory_only: true`,
-`cli_version`, and `machines` (an array, empty when not checked). Its status is:
+`supported_protocol` (`"1.x"`), and `machines` (an array, empty when not
+checked). Its status is:
 
 | `status` | `reason` | Meaning |
 | --- | --- | --- |
 | `not_checked` | `nats_unreachable` | No local server reachable; fleet discovery is skipped. See server errors. |
 | `not_checked` | `no_responders` | Fresh discovery yielded no valid pongs (including silent subscriptions). |
 | `not_checked` | `discovery_error` | Fresh discovery failed before any edge replied; `error` contains this distinct failure. |
-| `supported`/`unsupported`/`unknown` | `discovery_incomplete` | Some edges replied before discovery reported `error`; `machines` lists them, but others may be missing. |
-| `supported` | absent (or `discovery_incomplete`) | Every unique responding edge is declared supported. |
-| `unsupported` | absent | At least one responding edge is outside the declared ranges. |
-| `unknown` | absent | No unsupported edge, but at least one cannot be evaluated. |
+| `supported`/`unsupported` | `discovery_incomplete` | Some edges replied before discovery reported `error`; `machines` lists them, but others may be missing. |
+| `supported` | absent | Every unique responding edge speaks Edge Protocol 1.x. |
+| `unsupported` | absent | At least one responding edge does not. |
 
-Each `machines[]` entry has `machine_id`, the exact reported `sdk_version` (empty
-if missing), `status` (`supported`/`unsupported`/`unknown`), and `supported_ranges`
-(an array of inclusive `{min,max}` bounds from the shared evaluator, empty for
-unknown policy). Aggregate precedence is unsupported, then unknown, then supported;
-inspect all entries for a mixed fleet. No local pip metadata is used.
+Each `machines[]` entry has `machine_id`, the reported `sdk_version` and
+`protocol_version` (empty if missing), and `status` (`supported`/`unsupported`).
+Each unsupported edge also gets an advisory `sdk_unsupported` issue whose
+`next_step` names the machine whose PUDA SDK to update.
 
 Discovery uses only successfully probed local URLs and the active profile, with
 `--timeout` as the fleet pong window (default 2s; also each server probe timeout).
 It checks every unique valid live responder, never stored machine states; offline
-or late edges are not certified. Compatibility policy and SDK wire formats are
-unchanged. For example, after a transport failure the dependent fields include:
+or late edges are not certified. For example, after a transport failure the dependent fields include:
 
 ```json
 {
   "jetstream": {"status": "not_checked", "reason": "nats_unreachable", "ok": false},
   "compatibility": {
     "status": "not_checked", "reason": "nats_unreachable",
-    "advisory_only": true, "cli_version": "dev", "machines": []
+    "advisory_only": true, "supported_protocol": "1.x", "machines": []
   }
 }
 ```
 
 This snippet shows only the dependent fields, not the complete report.
-
-## Update compatibility preflight
-
-`puda update` (latest, positional version, or `--version`) checks responding edges
-before its existing confirmation and binary replacement. Unlike inspection
-commands, it fetches `compatibility.json` from the **target release's exact tag,
-pinned to its commit**, not the installed CLI's bundled policy. Metadata fetches
-are bounded and never fall back to `main` or a local policy. Warnings identify
-machine IDs, reported Python SDK versions and the target's inclusive supported SDK
-range to upgrade/change to, distinguishing newly unsupported pairs from
-existing out-of-range pairs. Missing metadata/versions, failed discovery and no
-responders remain unknown/not checked. A two-second fleet response window cannot
-certify offline or late edges.
-
-This is advisory: prompts and `--yes` retain their existing behavior, warnings use
-stderr, and no SDK or machine is modified. Already-latest and background notifier
-checks do not preflight. Source metadata trusts GitHub/repository ownership, not
-a signed binding to the release binary; see the
-[policy and trust details](docs/compatibility.md#update-preflight).
 
 ## Protocol run context
 

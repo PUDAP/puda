@@ -64,7 +64,7 @@ NATS_URL=nats://<nats1-ip>:<nats1-port> REPLICAS=3 ./setup_streams.sh
 ```
 
 The shared stream JSON contains no topology-specific replica count. The setup
-command applies R3 consistently to all four streams and both KV buckets.
+command applies R3 consistently to all three streams and both KV buckets.
 Do not run the bootstrap independently on all three servers.
 
 If only the individual node folders are copied to their hosts, retain or copy
@@ -75,7 +75,7 @@ provisioning and future schema updates.
 
 ```bash
 nats stream info COMMAND_QUEUE -s nats://<nats1-ip>:<nats1-port>
-nats stream info COMMAND_IMMEDIATE -s nats://<nats1-ip>:<nats1-port>
+nats stream info RESPONSE_IMMEDIATE -s nats://<nats1-ip>:<nats1-port>
 nats kv info MACHINE_STATE -s nats://<nats1-ip>:<nats1-port>
 nats kv info MACHINE_COMMANDS -s nats://<nats1-ip>:<nats1-port>
 nats kv info LIVESTREAMS -s nats://<nats1-ip>:<nats1-port>

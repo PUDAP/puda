@@ -43,7 +43,7 @@ func TestTelemetryPayloadsAreValidJSON(t *testing.T) {
 }
 
 func TestSuccessResponsePreservesCorrelationFields(t *testing.T) {
-	request := []byte(`{"header":{"version":"1.0","message_type":"command","machine_id":"test-1","run_id":"run-1","timestamp":"old"},"command":{"name":"echo","step_number":7,"machine_id":"test-1","params":{}}}`)
+	request := []byte(`{"header":{"protocol_version":"1.0","message_type":"command","machine_id":"test-1","run_id":"run-1","timestamp":"old"},"command":{"name":"echo","step_number":7,"machine_id":"test-1","params":{}}}`)
 	response, err := SuccessResponse(request)
 	if err != nil {
 		t.Fatal(err)

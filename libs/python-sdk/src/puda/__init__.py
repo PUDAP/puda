@@ -1,7 +1,8 @@
 # Import models first to ensure they're initialized before other modules that depend on them
 from . import models
 
-from .command import command, safety
+from .constants import PROTOCOL_VERSION
+from .command import LIFECYCLE_HOOKS, LifecycleHookError, command, safety
 from .tlm_stream import tlm_stream
 from .machine_state import machine_state
 from .edge_nats_client import EdgeNatsClient
@@ -14,6 +15,9 @@ from .stream_subscriber import StreamSubscriber
 __all__ = [
     "command",
     "safety",
+    "LIFECYCLE_HOOKS",
+    "LifecycleHookError",
+    "PROTOCOL_VERSION",
     "tlm_stream",
     "machine_state",
     "EdgeNatsClient",

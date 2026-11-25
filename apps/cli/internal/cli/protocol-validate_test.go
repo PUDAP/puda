@@ -417,3 +417,20 @@ func TestValidateAndEnrichProtocolAllowsWaitOnlyProtocol(t *testing.T) {
 		t.Fatalf("got = %+v", got)
 	}
 }
+
+func TestValidateAndEnrichProtocolRejectsLifecycleSteps(t *testing.T) {
+	for name, want := range map[string]string{
+		"complete": "puda protocol run starts and completes every machine itself",
+		"Start":    "puda protocol run starts and completes every machine itself",
+		"pause":    "is a lifecycle hook, not a protocol step",
+		"abort":    "is a lifecycle hook, not a protocol step",
+	} {
+		protocol := validProtocol(puda.CommandRequest{StepNumber: 1, MachineID: "machine-001", Name: name})
+		got, validationErrors := validateAndEnrichProtocol(protocol, func(string) (pudanats.MachineCommands, error) {
+			return moveCatalog(), nil
+		})
+		if got != nil || len(validationErrors) != 1 || !strings.Contains(validationErrors[0].Message, want) {
+			t.Fatalf("%s: got = %+v, errors = %+v", name, got, validationErrors)
+		}
+	}
+}

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	compatibility "github.com/PUDAP/puda"
 	pudanats "github.com/PUDAP/puda/apps/cli/internal/nats"
 )
 
@@ -43,12 +42,12 @@ func TestHealthCompatibilityKeepsRespondersOnDiscoveryError(t *testing.T) {
 }
 
 func TestHealthcheckHumanCompatibilityAndWriteFailures(t *testing.T) {
-	report := pudanats.HealthReport{Status: "unhealthy", JetStream: pudanats.JetStreamHealth{Status: "not_checked", Reason: "nats_unreachable"}, Compatibility: &pudanats.CompatibilityHealth{Status: "unknown", AdvisoryOnly: true, Machines: []pudanats.MachineCompatibilityHealth{{MachineID: "edge", SDKVersion: "dev", Status: compatibility.Unknown}}}}
+	report := pudanats.HealthReport{Status: "unhealthy", JetStream: pudanats.JetStreamHealth{Status: "not_checked", Reason: "nats_unreachable"}, Compatibility: &pudanats.CompatibilityHealth{Status: "unsupported", AdvisoryOnly: true, SupportedProtocol: "1.x", Machines: []pudanats.MachineCompatibilityHealth{{MachineID: "edge", SDKVersion: "dev", Status: pudanats.ProtocolUnsupported}}}}
 	var out bytes.Buffer
 	if err := writeHealthReport(&out, report, true); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"jetstream: not_checked: nats_unreachable", "compatibility: unknown", "edge", "dev", "advisory only"} {
+	for _, want := range []string{"jetstream: not_checked: nats_unreachable", "compatibility: unsupported", "supported_protocol=1.x", "edge: protocol=none", "dev", "advisory only"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("missing %q: %s", want, out.String())
 		}

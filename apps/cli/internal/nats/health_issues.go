@@ -223,14 +223,10 @@ func compatibilityIssues(result *CompatibilityHealth) []HealthIssue {
 		if machine.Status != "unsupported" {
 			continue
 		}
-		ranges := make([]string, 0, len(machine.SupportedRanges))
-		for _, bounds := range machine.SupportedRanges {
-			ranges = append(ranges, bounds.Min+"–"+bounds.Max)
-		}
 		issues = append(issues, HealthIssue{
 			Code: "sdk_unsupported", Severity: IssueAdvisory, Target: machine.MachineID, Source: fmt.Sprintf("compatibility.machines[%d]", i),
-			Detail:   fmt.Sprintf("Python SDK %s is outside the supported range for CLI %s", machine.SDKVersion, result.CLIVersion),
-			NextStep: fmt.Sprintf("Upgrade the edge's puda SDK to a supported version (%s) and restart the edge.", strings.Join(ranges, ", ")),
+			Detail:   fmt.Sprintf("edge protocol %s is not supported by this CLI (supports %s)", ProtocolLabel(machine.ProtocolVersion), SupportedProtocol),
+			NextStep: fmt.Sprintf("Update the PUDA SDK on %s", machine.MachineID),
 		})
 	}
 	return issues

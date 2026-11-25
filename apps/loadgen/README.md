@@ -25,8 +25,8 @@ go build -o bin/puda-loadgen ./cmd/puda-loadgen
 ### Full fidelity
 
 Creates one NATS connection per virtual edge. The `consumers` and `soak`
-scenarios also create one durable queue consumer and one durable immediate
-consumer per edge.
+scenarios also create one durable queue consumer and one core NATS
+subscription on `puda.<id>.cmd.immediate` per edge.
 
 ```bash
 docker run --rm --network host puda-loadgen:dev \
@@ -62,14 +62,16 @@ docker run --rm --network host puda-loadgen:dev \
 | Scenario | Connections | Consumers | Heartbeat | Position/health |
 |---|---:|---:|---:|---:|
 | `connections` | yes | no | no | no |
-| `consumers` | yes | 2 per edge | no | no |
+| `consumers` | yes | 1 per edge | no | no |
 | `heartbeat` | yes | no | yes | no |
 | `telemetry` | yes | no | yes | yes |
-| `soak` | yes | 2 per edge | yes | yes |
+| `soak` | yes | 1 per edge | yes | yes |
 
-`consumers` and `soak` require full-fidelity mode. Consumers bind to
-`COMMAND_QUEUE` and `COMMAND_IMMEDIATE` by default; override with
-`--queue-stream` and `--immediate-stream` when testing another topology.
+`consumers` and `soak` require full-fidelity mode. Queue consumers bind to
+`COMMAND_QUEUE` by default; override with `--queue-stream` when testing another
+topology. Immediate commands are core NATS request/reply, as on a real edge:
+each virtual edge answers on the request's reply inbox and keeps a copy on
+`RESPONSE_IMMEDIATE`.
 Use `soak` rather than `consumers` when exercising CLI operations that first
 check heartbeat-based online presence.
 

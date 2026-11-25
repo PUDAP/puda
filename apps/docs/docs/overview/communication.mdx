@@ -52,7 +52,7 @@ The `start` immediate command sets the active `run_id`. The `complete` immediate
 | Subject | Stream semantics |
 | --- | --- |
 | `puda.opentron.cmd.queue` | WorkQueue, ordered, exactly-once. |
-| `puda.opentron.cmd.immediate` | WorkQueue, ordered, exactly-once. |
+| `puda.opentron.cmd.immediate` | Core NATS request/reply, no stream. The edge answers on the reply inbox; an offline edge gets an instant "no responders" and nothing is stored. Only the edge may subscribe to it. |
 | `puda.opentron.cmd.response.queue` | Limits, 24h. Independent durables (CLI, loggers) each get a copy; messages survive a consumer restart. |
 | `puda.opentron.cmd.response.immediate` | Limits, 24h. Independent durables (CLI, loggers) each get a copy; messages survive a consumer restart. |
 

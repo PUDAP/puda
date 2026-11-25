@@ -38,7 +38,7 @@ Error codes for command responses:
 - `NO_EXECUTION`: No execution found
 - `RUN_ID_MISMATCH`: Run ID doesn't match current execution
 - `CANCEL_ERROR`: Error occurred while cancelling execution
-- `MACHINE_PAUSED`: Machine is currently paused
+- `MACHINE_PAUSED`: Reserved; paused machines hold queued commands instead of rejecting them
 
 ##### `MessageType`
 Type of NATS message:
@@ -50,9 +50,8 @@ Type of NATS message:
 
 ##### `ImmediateCommand`
 Command names for immediate/control commands:
-- `PAUSE`: Pause the current execution
-- `RESUME`: Resume a paused execution
-- `CANCEL`: Cancel the current execution
+- `PAUSE`: Hold the queue; the running command finishes, later commands wait
+- `RESUME`: Run the held commands in order
 
 #### Data Models
 
@@ -64,7 +63,6 @@ Represents a command to be sent to a machine.
 - `machine_id` (str): Machine ID to send the command to (required)
 - `params` (Dict[str, Any]): Command parameters (default: empty dict)
 - `step_number` (int): Execution step number for tracking progress
-- `version` (str): Command version (default: "1.0")
 
 **Example:**
 ```python
@@ -73,7 +71,6 @@ command = CommandRequest(
     machine_id="first",
     params={"deck_slot": "A3", "well_name": "G8"},
     step_number=2,
-    version="1.0"
 )
 ```
 
@@ -109,7 +106,7 @@ Header metadata for NATS messages.
 
 **Fields:**
 - `message_type` (MessageType): Type of message (COMMAND, RESPONSE, LOG, etc.)
-- `version` (str): Message version (default: "1.0")
+- `protocol_version` (str): PUDA Edge Protocol version, `MAJOR.MINOR` (required; edges refuse another major). Use `puda.PROTOCOL_VERSION`
 - `timestamp` (str): ISO 8601 UTC timestamp (auto-generated)
 - `user_id` (str): User ID who initiated the command
 - `username` (str): Username who initiated the command
@@ -120,7 +117,7 @@ Header metadata for NATS messages.
 ```python
 header = MessageHeader(
     message_type=MessageType.RESPONSE,
-    version="1.0",
+    protocol_version=PROTOCOL_VERSION,  # "1.0"; required
     timestamp="2026-01-20T02:00:46Z",
     user_id="user123",
     username="John Doe",
@@ -146,7 +143,7 @@ Complete NATS message structure combining header with optional command or respon
 {
   "header": {
     "message_type": "response",
-    "version": "1.0",
+    "protocol_version": "1.0",
     "timestamp": "2026-01-20T02:00:46Z",
     "user_id": "user123",
     "username": "John Doe",
@@ -159,8 +156,7 @@ Complete NATS message structure combining header with optional command or respon
       "deck_slot": "A3",
       "well_name": "G8"
     },
-    "step_number": 2,
-    "version": "1.0"
+    "step_number": 2
   },
   "response": {
     "status": "success",
@@ -212,7 +208,7 @@ and use its `seal` and `open_payload` methods. There is no process-global
 keyring or automatic environment lookup.
 
 Basic default NATS client for generic machines. Handles commands, telemetry, and events following the `puda.{machine_id}.{category}.{sub_category}` pattern. Provides:
-- Subscribing to command streams (queue and immediate) via JetStream with exactly-once delivery
+- Pulling queued commands from JetStream (one at a time, acknowledged before the response) and answering immediate commands as core NATS request/reply
 - Processing incoming commands and sending command responses
 - Publishing telemetry (core NATS, no JetStream)
 - Publishing events (core NATS, fire-and-forget)
@@ -296,6 +292,8 @@ edge pong payload.
 ### 4. EdgeRunner (`edge_runner.py`)
 
 Dispatches incoming NATS commands onto the machine driver. Only methods marked with `@command` are advertised and executed.
+
+Lifecycle hooks (`pause`, `resume`, `reset`, `estop`, `abort`, `shutdown`) are plain, undecorated methods found by name. The edge calls them as part of the matching immediate action and publishes the implemented ones in the catalog's `hooks` field. They cannot be queued, and decorating one with `@command` makes `EdgeRunner` raise `LifecycleHookError` at startup.
 
 Optional `@safety` metadata is published with the command catalog so agents can prompt the operator before execution. It does not change dispatch.
 
@@ -398,7 +396,7 @@ runner = EdgeRunner(nats_client=nats_client, machine_driver=driver)
 Thread-safe state management for command execution. Provides:
 - Execution lock to prevent concurrent commands
 - Current task tracking for cancellation
-- Run ID matching for cancel operations
+- Running-command tracking for `complete` refusals and `complete --abort`
 - Thread-safe access to execution state
 
 ## Sending Commands
@@ -446,10 +444,10 @@ See [`tests/commands.py`](tests/commands.py) for complete examples.
 
 #### Immediate Commands
 
-Immediate commands are control commands that interrupt or modify execution. Use `send_immediate_command()` for:
-- `pause`: Pause the current execution
-- `resume`: Resume a paused execution
-- `cancel`: Cancel the current execution
+Immediate commands are control commands that interrupt or modify execution. They are core NATS request/reply on `puda.<id>.cmd.immediate`: an offline machine fails at once (no responders) and nothing is stored for later, so `None` after a timeout means the outcome is unknown and the command can be retried. Use `send_immediate_command()` for:
+- `pause`: Hold the queue; the running command finishes, later queued commands wait in the stream
+- `resume`: Run the held commands in order
+- `complete`: End the run; refused with `EXECUTION_LOCKED` while a command runs unless `params: {"abort": true}`, which calls the driver `abort` and answers the running command `COMMAND_CANCELLED`
 
 **Examples:**
 

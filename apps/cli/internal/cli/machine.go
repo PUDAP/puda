@@ -118,23 +118,25 @@ Use --human for a text summary.`,
 }
 
 type infoResultJSON struct {
-	MachineID     string                   `json:"machine_id"`
-	Status        string                   `json:"status"`
-	Timestamp     string                   `json:"timestamp,omitempty"`
-	SDKVersion    string                   `json:"sdk_version,omitempty"`
-	UptimeSeconds float64                  `json:"uptime_seconds,omitempty"`
-	RunStatus     string                   `json:"run_status,omitempty"`
-	Description   string                   `json:"description,omitempty"`
-	LocalIP       string                   `json:"local_ip,omitempty"`
-	TailscaleIP   string                   `json:"tailscale_ip,omitempty"`
-	MagicDNS      string                   `json:"magicdns,omitempty"`
-	LatencyMS     float64                  `json:"latency_ms,omitempty"`
-	Error         string                   `json:"error,omitempty"`
-	EncryptKID    string                   `json:"e2e_encrypt_kid,omitempty"`
-	DecryptKIDs   []string                 `json:"e2e_decrypt_kids,omitempty"`
-	Persist       *bool                    `json:"e2e_persist,omitempty"`
-	TlmStreams    []pudanats.TlmStream     `json:"tlm_streams"`
-	Livestreams   []pudanats.LivestreamRef `json:"livestreams"`
+	MachineID  string `json:"machine_id"`
+	Status     string `json:"status"`
+	Timestamp  string `json:"timestamp,omitempty"`
+	SDKVersion string `json:"sdk_version,omitempty"`
+	// ProtocolVersion is the edge's Edge Protocol version; empty if unreported.
+	ProtocolVersion string                   `json:"protocol_version,omitempty"`
+	UptimeSeconds   float64                  `json:"uptime_seconds,omitempty"`
+	RunStatus       string                   `json:"run_status,omitempty"`
+	Description     string                   `json:"description,omitempty"`
+	LocalIP         string                   `json:"local_ip,omitempty"`
+	TailscaleIP     string                   `json:"tailscale_ip,omitempty"`
+	MagicDNS        string                   `json:"magicdns,omitempty"`
+	LatencyMS       float64                  `json:"latency_ms,omitempty"`
+	Error           string                   `json:"error,omitempty"`
+	EncryptKID      string                   `json:"e2e_encrypt_kid,omitempty"`
+	DecryptKIDs     []string                 `json:"e2e_decrypt_kids,omitempty"`
+	Persist         *bool                    `json:"e2e_persist,omitempty"`
+	TlmStreams      []pudanats.TlmStream     `json:"tlm_streams"`
+	Livestreams     []pudanats.LivestreamRef `json:"livestreams"`
 }
 
 func infoResultWithLivestreams(result pudanats.PingResult, refs []pudanats.LivestreamRef) infoResultJSON {
@@ -146,23 +148,24 @@ func infoResultWithLivestreams(result pudanats.PingResult, refs []pudanats.Lives
 		tlmStreams = []pudanats.TlmStream{}
 	}
 	return infoResultJSON{
-		MachineID:     result.MachineID,
-		Status:        result.Status,
-		Timestamp:     result.Timestamp,
-		SDKVersion:    result.SDKVersion,
-		UptimeSeconds: result.UptimeSeconds,
-		RunStatus:     result.RunStatus,
-		Description:   result.Description,
-		LocalIP:       result.LocalIP,
-		TailscaleIP:   result.TailscaleIP,
-		MagicDNS:      result.MagicDNS,
-		LatencyMS:     result.LatencyMS,
-		Error:         result.Error,
-		EncryptKID:    result.EncryptKID,
-		DecryptKIDs:   result.DecryptKIDs,
-		Persist:       result.Persist,
-		TlmStreams:    tlmStreams,
-		Livestreams:   refs,
+		MachineID:       result.MachineID,
+		Status:          result.Status,
+		Timestamp:       result.Timestamp,
+		SDKVersion:      result.SDKVersion,
+		ProtocolVersion: result.ProtocolVersion,
+		UptimeSeconds:   result.UptimeSeconds,
+		RunStatus:       result.RunStatus,
+		Description:     result.Description,
+		LocalIP:         result.LocalIP,
+		TailscaleIP:     result.TailscaleIP,
+		MagicDNS:        result.MagicDNS,
+		LatencyMS:       result.LatencyMS,
+		Error:           result.Error,
+		EncryptKID:      result.EncryptKID,
+		DecryptKIDs:     result.DecryptKIDs,
+		Persist:         result.Persist,
+		TlmStreams:      tlmStreams,
+		Livestreams:     refs,
 	}
 }
 
@@ -202,11 +205,12 @@ func writeInfoResults(w io.Writer, results []pudanats.PingResult, byMachine map[
 		} else {
 			fmt.Fprintf(
 				w,
-				"%s: pong %.3fms status=%s sdk=%s uptime=%.3fs\n",
+				"%s: pong %.3fms status=%s sdk=%s protocol=%s uptime=%.3fs\n",
 				result.MachineID,
 				result.LatencyMS,
 				result.RunStatus,
 				result.SDKVersion,
+				pudanats.ProtocolLabel(result.ProtocolVersion),
 				result.UptimeSeconds,
 			)
 			if result.Description != "" {
@@ -430,6 +434,11 @@ var machineCommandsCmd = &cobra.Command{
 	Short: "Show available commands for a machine",
 	Long: `Show advertised commands for a machine.
 
+Lifecycle hooks (pause, resume, reset, estop, abort, shutdown) are not
+commands. The edge calls them as part of puda machine pause/resume/reset/estop
+and complete --abort; "hooks" lists the ones the driver implements, so an
+empty list or no "estop" means estop only halts the queue.
+
 Use --command to show one or more commands by name. Command names can be
 comma-separated, e.g. puda machine commands first --command home,move_to
 
@@ -457,12 +466,20 @@ Examples:
 		}
 		if machineHuman {
 			fmt.Fprintln(cmd.OutOrStdout(), commands)
+			if payload.Hooks != nil {
+				hooks := strings.Join(payload.Hooks, ", ")
+				if hooks == "" {
+					hooks = "(none)"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "\nLifecycle hooks: %s\n", hooks)
+			}
 			return nil
 		}
 		return writeJSON(cmd.OutOrStdout(), struct {
-			MachineID string `json:"machine_id"`
-			Commands  string `json:"commands"`
-		}{args[0], commands})
+			MachineID string   `json:"machine_id"`
+			Commands  string   `json:"commands"`
+			Hooks     []string `json:"hooks,omitempty"`
+		}{args[0], commands, payload.Hooks})
 	},
 }
 

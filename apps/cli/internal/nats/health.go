@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	compatibility "github.com/PUDAP/puda"
 	natsio "github.com/nats-io/nats.go"
 )
 
@@ -82,20 +81,21 @@ type GatewayHealth struct {
 
 // CompatibilityHealth is advisory and never determines NATS health.
 type CompatibilityHealth struct {
-	Status       string                       `json:"status"`
-	Reason       string                       `json:"reason,omitempty"`
-	Error        string                       `json:"error,omitempty"`
-	AdvisoryOnly bool                         `json:"advisory_only"`
-	CLIVersion   string                       `json:"cli_version"`
-	Machines     []MachineCompatibilityHealth `json:"machines"`
+	Status            string                       `json:"status"`
+	Reason            string                       `json:"reason,omitempty"`
+	Error             string                       `json:"error,omitempty"`
+	AdvisoryOnly      bool                         `json:"advisory_only"`
+	SupportedProtocol string                       `json:"supported_protocol"`
+	Machines          []MachineCompatibilityHealth `json:"machines"`
 }
 
-// MachineCompatibilityHealth evaluates one unique live pong, not stored inventory.
+// MachineCompatibilityHealth judges one unique live pong's protocol_version,
+// not stored inventory. Status is ProtocolSupported or ProtocolUnsupported.
 type MachineCompatibilityHealth struct {
-	MachineID       string                `json:"machine_id"`
-	SDKVersion      string                `json:"sdk_version"`
-	Status          compatibility.Status  `json:"status"`
-	SupportedRanges []compatibility.Range `json:"supported_ranges"`
+	MachineID       string `json:"machine_id"`
+	SDKVersion      string `json:"sdk_version"`
+	ProtocolVersion string `json:"protocol_version"`
+	Status          string `json:"status"`
 }
 
 // HealthReport is the full NATS server/cluster healthcheck result.

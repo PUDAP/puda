@@ -1,6 +1,8 @@
 """
 Execution State Management
-Provides thread-safe state tracking for command execution and cancellation.
+Tracks the queued command that is executing. Running commands are never
+cancelled: estop and complete --abort stop them through the driver, and the
+next command waits until the driver call returns.
 """
 import asyncio
 import logging
@@ -14,15 +16,14 @@ class ExecutionState:
     Shared state for tracking command execution and cancellation.
     
     This class provides thread-safe access to:
-    - Current executing task (for cancellation)
+    - Current executing task
     - Execution lock (to prevent concurrent commands)
-    - Current run_id (to match cancel with execute)
+    - Current run_id
     """
     def __init__(self):
         self._lock = asyncio.Lock()
         self._current_task: Optional[asyncio.Task] = None
         self._current_run_id: Optional[str] = None
-        self._cancelled = False
     
     async def acquire_lock(self, run_id: str) -> bool:
         """
@@ -32,12 +33,9 @@ class ExecutionState:
             run_id: Run ID of the command requesting execution
             
         Returns:
-            True if execution can proceed, False if cancelled or another command is running
+            True once the lock is held (commands run one at a time)
         """
         await self._lock.acquire()
-        if self._cancelled:
-            self._lock.release()
-            return False
         self._current_run_id = run_id
         return True
     
@@ -45,11 +43,10 @@ class ExecutionState:
         """Release the execution lock."""
         self._current_run_id = None
         self._current_task = None
-        self._cancelled = False
         self._lock.release()
     
     def set_current_task(self, task: asyncio.Task):
-        """Set the currently executing task (for cancellation)."""
+        """Set the currently executing task."""
         self._current_task = task
     
     def get_current_task(self) -> Optional[asyncio.Task]:
@@ -63,31 +60,3 @@ class ExecutionState:
     def get_runtime_status(self) -> str:
         """Return transient execution status without persisting it to KV."""
         return "busy" if self._lock.locked() else "idle"
-    
-    async def cancel_current_execution(self, run_id: Optional[str] = None) -> bool:
-        """
-        Cancel the currently executing command.
-        
-        Args:
-            run_id: Optional run_id to match. If provided, only cancels if it matches.
-            
-        Returns:
-            True if cancellation was successful, False if no execution to cancel
-        """
-        if self._current_task is None:
-            return False
-        
-        # If run_id provided, only cancel if it matches
-        if run_id is not None and self._current_run_id != run_id:
-            logger.warning("Cancel run_id %s doesn't match current run_id %s", 
-                         run_id, self._current_run_id)
-            return False
-        
-        if not self._current_task.done():
-            logger.info("Cancelling execution (run_id: %s)", self._current_run_id)
-            self._cancelled = True
-            self._current_task.cancel()
-            return True
-        
-        return False
-

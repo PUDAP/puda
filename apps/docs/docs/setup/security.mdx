@@ -65,7 +65,7 @@ Plan a maintenance window after upgrading every CLI and edge. Stop active runs a
 
 1. Generate the CA and server certificates with `generate-certs.sh` in the matching encrypted layout: [`single-node-e2e`](https://github.com/PUDAP/puda/tree/main/infra/nats/single-node-e2e) or [`three-node-r3-e2e`](https://github.com/PUDAP/puda/tree/main/infra/nats/three-node-r3-e2e). Generate the lab key separately and distribute it only to authorized clients.
 2. Configure the key file, CA, and `tls://` URLs on every CLI, edge, logger, and other participating client.
-3. Back up any required stream data and KV registrations. Purging is destructive: with producers stopped, clear old plaintext data from `COMMAND_QUEUE`, `COMMAND_IMMEDIATE`, `RESPONSE_QUEUE`, `RESPONSE_IMMEDIATE`, and the KV buckets `MACHINE_STATE`, `MACHINE_COMMANDS`, and `LIVESTREAMS`. Do not purge a running fleet or discard data you need to retain.
+3. Back up any required stream data and KV registrations. Purging is destructive: with producers stopped, clear old plaintext data from `COMMAND_QUEUE`, `RESPONSE_QUEUE`, `RESPONSE_IMMEDIATE`, and the KV buckets `MACHINE_STATE`, `MACHINE_COMMANDS`, and `LIVESTREAMS`. Do not purge a running fleet or discard data you need to retain.
 4. Start the encrypted NATS server layout and apply its JetStream setup as documented in that layout. Restart clients, let edges republish their state and command catalogs, and re-register required livestreams.
 5. Verify `puda machine info <machine_id>` and watch an advertised telemetry subject with `puda machine watch <subject> --timeout 15` to confirm end-to-end communication.
 

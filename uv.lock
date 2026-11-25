@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 
 [manifest]
@@ -297,7 +297,7 @@ wheels = [
 
 [[package]]
 name = "puda"
-version = "0.0.23"
+version = "0.1.0rc1"
 source = { editable = "libs/python-sdk" }
 dependencies = [
     { name = "cryptography" },

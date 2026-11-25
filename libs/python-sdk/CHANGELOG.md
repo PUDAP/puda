@@ -5,9 +5,125 @@ All notable changes to the PUDA Python SDK are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-SDK versions are independent of the PUDA CLI. CLI v0.1.3 expects this SDK.
+SDK versions are independent of the PUDA CLI. Edges report the PUDA Edge
+Protocol version they speak (`protocol_version` in every pong), and clients
+judge compatibility by that, not by package versions.
 
 ## [Unreleased]
+
+## [0.1.0rc1] - 2026-11-25
+
+Release candidate. First release speaking PUDA Edge Protocol 1.0
+(`docs/edge-protocol/`); fixes its deviations D-1 to D-8. Use CLI 0.2.0
+(`0.2.0-rc1`) or later. No compatibility with earlier SDKs, CLIs or brokers.
+
+### Added
+
+- Every pong carries `protocol_version: "1.0"` (exported as
+  `puda.PROTOCOL_VERSION`). The CLI accepts edges speaking protocol 1.x,
+  whatever their implementation (Python SDK, C SDK).
+- **Breaking:** the envelope's `header.version` (the protocol version, which
+  nothing read) is now `header.protocol_version` and required. The edge answers
+  a command without it, or with another major, `EXECUTION_ERROR` "Invalid
+  command envelope: header.protocol_version: ..." and never runs it.
+
+### Changed
+
+- **Breaking:** immediate commands (`start`, `complete`, `pause`, `resume`,
+  `reset`, `estop`) are core NATS request/reply on `puda.<id>.cmd.immediate`
+  instead of the `COMMAND_IMMEDIATE` JetStream stream. The edge answers on the
+  request's reply inbox and records a copy on `RESPONSE_IMMEDIATE`. Nothing is
+  stored, so a command sent while the edge is offline gets an instant "no
+  responders" and can never replay later; a reply that times out means the
+  outcome is unknown, and every immediate command is safe to retry (`start` of
+  the active run answers `data: {"already_started": true}`). Edges no longer
+  create `COMMAND_IMMEDIATE`. `CommandService.send_immediate_command` uses the
+  same request/reply.
+- **Breaking:** lifecycle hooks (`pause`, `resume`, `reset`, `estop`, `abort`,
+  `shutdown`) are plain methods found by name and must not carry `@command`.
+  `EdgeRunner` raises `LifecycleHookError` at startup naming any decorated hook.
+  Hooks are published in the catalog's new `hooks` list instead of as commands,
+  and queueing one is answered `EXECUTION_ERROR` pointing at the right CLI
+  command (previously only `estop` was refused; `pause` through the queue called
+  the driver without pausing). Exported: `LIFECYCLE_HOOKS`, `LifecycleHookError`.
+- Pause now holds the queue instead of rejecting queued commands. While paused the
+  edge stops pulling from `COMMAND_QUEUE`; commands sent meanwhile wait in the
+  stream, and `resume` runs them in order. A command delivered at the instant of
+  pausing is NAKed back to the stream (confirmed by the server, so it is
+  redelivered before newer commands) and runs first on resume. A running command
+  still finishes. `estop` discards held and backlogged commands
+  (`MACHINE_ESTOPPED`). Previously such commands got `MACHINE_PAUSED`, were left
+  unacknowledged and were redelivered 30 s later, so a command reported as failed
+  could still run after `resume`.
+- `complete` is refused with `EXECUTION_LOCKED` while a queued command of the run
+  is executing; `data` carries `running` (`name`, `step_number`, `elapsed_s`) and
+  `queued`. With `params: {"abort": true}` the edge ends the run and replies at
+  once, starting the driver's optional `abort` method on its own thread; `data`
+  reports `aborted`, `driver_abort` and `queued`. The running command is answered
+  `COMMAND_CANCELLED` when its driver call returns, and state stays `busy` (no
+  run) until then. Completing a run that already ended succeeds with
+  `data: {"already_completed": true}`.
+
+### Removed
+
+- **Breaking:** `command.version` (`CommandRequest.version`). It was a
+  per-command version nothing used.
+- **Breaking:** the `cancel` immediate command (`ImmediateCommand.CANCEL`). It did
+  not stop the running command. Edges now answer `cancel` with `UNKNOWN_COMMAND`;
+  use `complete` with `params: {"abort": true}`.
+
+### Fixed
+
+- A command stopped by `estop` or `complete --abort` keeps its driver thread
+  until the call returns, and the next queued command waits for it. Previously
+  the edge stopped waiting after 5 s (abort) or at once (estop) and started the
+  next command while the hardware call could still be running. The CLI no longer
+  raises its timeout for `--abort`.
+- `estop` is never delayed by another immediate command. Each request runs in its
+  own task, `estop` skips the line, and `estop` and `abort` use separate threads.
+  Previously an `estop` sent during `complete --abort` waited up to 5 s.
+- A queued command's result is no longer lost when the broker is unreachable
+  as the command finishes. The edge stores the result in `RESPONSE_QUEUE` first,
+  retrying until JetStream accepts it, and only then acks the command; it used
+  to ack first and drop a result it could not publish, so the client waited
+  forever. A command redelivered after its result was stored gets the same
+  result again (`Nats-Msg-Id` makes it a duplicate JetStream drops) and does not
+  run again. One redelivered with no result on record, because the edge
+  restarted while handling it, is answered `EXECUTION_ERROR` "Redelivered without
+  a result ... Outcome unknown; it was not run again" instead of
+  `RUN_ID_MISMATCH`. Keep-alives (`+WPI`) also continue after a disconnect.
+- After a reconnect the edge keeps one queue pull loop. Every broker reconnect
+  started another one.
+- Immediate commands sent while an edge was offline no longer act when it comes
+  back (see request/reply above). Previously a stale `start`, `reset` or `estop`
+  replayed on startup; a replayed `start` left an active run hidden behind
+  `run_id: null` that blocked every new `start` until `reset`.
+- Startup and reconnect state report the active run instead of `run_id: null`.
+- `pause` and `resume` write the active run to `MACHINE_STATE` instead of the
+  header's `run_id` (`""` from the CLI) and `null`. `resume` reports `busy` when a
+  command is still running.
+- `pause` and `resume` succeed when the driver has no `pause`/`resume` method,
+  like `reset` already did. The edge had applied the pause or resume but answered
+  `UNKNOWN_COMMAND`.
+- Malformed commands are answered when the client can still match the response:
+  a JSON object whose `header.machine_id`, `header.run_id` and
+  `command.step_number` are usable gets `EXECUTION_ERROR` "Invalid command
+  envelope: <field>: <problem>". Malformed queued commands are terminated without
+  ending the run; malformed immediate commands no longer set state `error`, and
+  every immediate request gets a reply on its inbox even when it cannot be
+  matched. Unmatched payloads are not recorded on the response streams.
+- After a broker restart the edge keeps a single NATS connection. The main loop
+  opened a second connection while nats-py was still reconnecting the first, so
+  the edge answered every ping twice and held duplicate subscriptions. It now
+  reconnects only when the connection is closed, and puts the catalog and state
+  again once the automatic reconnect has restored JetStream.
+- The edge never modifies provisioned JetStream objects. It previously called
+  `update_stream` with a minimal config when a command stream's subjects or
+  retention differed, which replaces replicas, limits and discard policy, and
+  tried `create_key_value` for every bucket before opening it. It now opens
+  buckets first and creates a stream or bucket only when it is missing, with a
+  warning to provision the broker with `setup_streams.sh`; a mismatched stream
+  is logged and left unchanged.
 
 ## [0.0.23] - 2026-11-19
 

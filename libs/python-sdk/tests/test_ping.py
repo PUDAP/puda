@@ -90,6 +90,7 @@ class PingTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["status"], "pong")
             self.assertEqual(payload["machine_id"], "test-1")
             self.assertEqual(payload["sdk_version"], "9.8.7")
+            self.assertEqual(payload["protocol_version"], "1.0")
             self.assertEqual(payload["uptime_seconds"], 12.5)
             self.assertIn("timestamp", payload)
             self.assertNotIn("description", payload)

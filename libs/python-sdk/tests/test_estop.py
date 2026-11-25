@@ -4,83 +4,24 @@ from __future__ import annotations
 import asyncio
 import threading
 import unittest
-from typing import Any
+
+from processor_fakes import FakeClient, FakeMsg
+from processor_fakes import failure as _failure
+from processor_fakes import message as _message
+from processor_fakes import success as _success
 
 from puda.command import command
 from puda.command_processor import CommandProcessor
 from puda.edge_nats_client import EdgeNatsClient
 from puda.edge_runner import EdgeRunner
 from puda.models import (
-    CommandRequest,
     CommandResponse,
     CommandResponseCode,
     CommandResponseStatus,
     ImmediateCommand,
     MachineState,
-    MessageHeader,
-    MessageType,
     NATSMessage,
 )
-
-
-def _message(name: str, run_id: str | None = "run-1") -> NATSMessage:
-    return NATSMessage(
-        header=MessageHeader(
-            message_type=MessageType.COMMAND,
-            user_id="user-1",
-            username="user",
-            machine_id="test-1",
-            run_id=run_id,
-        ),
-        command=CommandRequest(name=name, step_number=1, machine_id="test-1"),
-    )
-
-
-class PlainEncryption:
-    def open_payload(self, _subject: str, data: bytes) -> bytes:
-        return data
-
-
-class FakeClient:
-    def __init__(self) -> None:
-        self.machine_id = "test-1"
-        self.states: list[dict[str, Any]] = []
-        self.encryption = PlainEncryption()
-        self.js = None
-        self.response_queue = "puda.test-1.cmd.response.queue"
-        self.response_immediate = "puda.test-1.cmd.response.immediate"
-
-    async def publish_state(self, payload: dict[str, Any]) -> None:
-        self.states.append(payload)
-
-
-class FakeMsg:
-    def __init__(self, message: NATSMessage) -> None:
-        self.subject = "puda.test-1.cmd.queue"
-        self.data = message.model_dump_json().encode()
-        self.acked = False
-        self.termed = False
-
-    async def ack(self) -> None:
-        self.acked = True
-
-    async def term(self) -> None:
-        self.termed = True
-
-    async def in_progress(self) -> None:
-        return None
-
-
-async def _success(_message: NATSMessage) -> CommandResponse:
-    return CommandResponse(status=CommandResponseStatus.SUCCESS)
-
-
-async def _failure(_message: NATSMessage) -> CommandResponse:
-    return CommandResponse(
-        status=CommandResponseStatus.ERROR,
-        code=CommandResponseCode.EXECUTION_ERROR,
-        message="hardware fault",
-    )
 
 
 class ProcessorEstopTests(unittest.IsolatedAsyncioTestCase):
@@ -152,7 +93,6 @@ class EstopDriver:
         self.release.wait(5)
         return True
 
-    @command
     def estop(self) -> dict:
         self.estop_thread = threading.current_thread().name
         self.release.set()
@@ -170,7 +110,7 @@ async def _telemetry() -> None:
 
 
 class RunnerEstopTests(unittest.IsolatedAsyncioTestCase):
-    async def test_estop_runs_on_own_thread_and_cancels_running_command(self) -> None:
+    async def test_estop_runs_on_own_thread_and_running_command_returns(self) -> None:
         driver = EstopDriver()
         runner = EdgeRunner(EdgeNatsClient(["nats://localhost:4222"], "test-1"), driver, _telemetry)
 
@@ -183,7 +123,9 @@ class RunnerEstopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, CommandResponseStatus.SUCCESS)
         self.assertEqual(response.data, {"stopped": True})
         self.assertTrue(driver.estop_thread.startswith("puda-estop"))
-        self.assertEqual(queued.code, CommandResponseCode.COMMAND_CANCELLED)
+        # The runner waits for the driver call instead of cancelling it; the
+        # processor answers it COMMAND_CANCELLED (see test_it_baseline).
+        self.assertEqual(queued.status, CommandResponseStatus.SUCCESS)
 
     async def test_missing_estop_reports_no_hardware_stop(self) -> None:
         runner = EdgeRunner(

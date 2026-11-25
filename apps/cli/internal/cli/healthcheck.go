@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	compatibility "github.com/PUDAP/puda"
 	pudanats "github.com/PUDAP/puda/apps/cli/internal/nats"
 	natsio "github.com/nats-io/nats.go"
 	"github.com/spf13/cobra"
@@ -29,10 +28,10 @@ path holding its evidence (source) and a next_step. Advisory issues never
 change status. One cause affecting several resources is one issue.
 
 PUDA resources: the local cluster must have the PUDA streams (COMMAND_QUEUE,
-COMMAND_IMMEDIATE, RESPONSE_QUEUE, RESPONSE_IMMEDIATE) and KV buckets
-(MACHINE_STATE, MACHINE_COMMANDS). Missing, leaderless or below-quorum ones make
-the report unhealthy; one replica in a cluster, or a lagging replica, is
-degraded. LIVESTREAMS and E2E_* are created on demand and only advisory.
+RESPONSE_QUEUE, RESPONSE_IMMEDIATE) and KV buckets (MACHINE_STATE,
+MACHINE_COMMANDS). Missing, leaderless or below-quorum ones make the report
+unhealthy; one replica in a cluster, or a lagging replica, is degraded.
+LIVESTREAMS and E2E_* are created on demand and only advisory.
 
 Each configured URL is an endpoint. One broker reachable through several
 addresses (for example LAN and Tailscale) is several endpoints but one broker.
@@ -48,8 +47,12 @@ remote cluster expected through a NATS gateway. Those remotes are probed and
 reported separately; a different cluster name is expected and is not degraded.
 JetStream is reported per cluster, not blended.
 
-A fresh fleet ping checks all responding edges' advertised Python SDK versions
-against the bundled compatibility policy. The advisory-only compatibility result
+A fresh fleet ping checks the protocol_version every responding edge reports in
+its pong. compatibility.supported_protocol is the Edge Protocol this CLI speaks
+(1.x); each compatibility.machines entry is "supported" for a 1.x edge and
+"unsupported" otherwise, including edges that report no protocol_version (they
+predate Edge Protocol 1.0, i.e. Python SDK before 0.1.0). For an unsupported
+edge, update the PUDA SDK on that machine. The advisory-only compatibility result
 is included in the report and never changes NATS health or exit status. No replies
 or failed discovery means compatibility was not checked; offline edges cannot be evaluated.
 Transport errors appear once per affected server; dependent checks use status/reason.
@@ -101,7 +104,7 @@ func runHealthcheck(cmd *cobra.Command, args []string) error {
 func checkHealthCompatibility(report pudanats.HealthReport, timeout time.Duration) *pudanats.CompatibilityHealth {
 	result := &pudanats.CompatibilityHealth{
 		Status: "not_checked", Reason: "nats_unreachable", AdvisoryOnly: true,
-		CLIVersion: Version, Machines: []pudanats.MachineCompatibilityHealth{},
+		SupportedProtocol: pudanats.SupportedProtocol, Machines: []pudanats.MachineCompatibilityHealth{},
 	}
 	if report.Cluster.Reachable == 0 {
 		return result
@@ -155,7 +158,7 @@ func checkHealthCompatibility(report pudanats.HealthReport, timeout time.Duratio
 func evaluateHealthCompatibility(pongs []pudanats.PingResult, discoveryErr error) *pudanats.CompatibilityHealth {
 	result := &pudanats.CompatibilityHealth{
 		Status: "not_checked", AdvisoryOnly: true,
-		CLIVersion: Version, Machines: []pudanats.MachineCompatibilityHealth{},
+		SupportedProtocol: pudanats.SupportedProtocol, Machines: []pudanats.MachineCompatibilityHealth{},
 	}
 	if discoveryErr != nil {
 		result.Error = discoveryErr.Error()
@@ -167,24 +170,19 @@ func evaluateHealthCompatibility(pongs []pudanats.PingResult, discoveryErr error
 		}
 		return result
 	}
-	result.Status = "supported"
+	result.Status = pudanats.ProtocolSupported
 	if discoveryErr != nil {
 		result.Reason = "discovery_incomplete"
 	}
-	policy := compatibility.Bundled()
 	// ListMachinePongs already validates and deduplicates successful responders.
 	for _, pong := range pongs {
-		evaluation := policy.Evaluate(Version, pong.SDKVersion)
-		ranges := evaluation.Ranges
-		if ranges == nil {
-			ranges = []compatibility.Range{}
-		}
+		status := pudanats.ClassifyProtocol(pong.ProtocolVersion)
 		result.Machines = append(result.Machines, pudanats.MachineCompatibilityHealth{
 			MachineID: pong.MachineID, SDKVersion: pong.SDKVersion,
-			Status: evaluation.Status, SupportedRanges: ranges,
+			ProtocolVersion: pong.ProtocolVersion, Status: status,
 		})
-		if evaluation.Status == compatibility.Unsupported || (evaluation.Status == compatibility.Unknown && result.Status == "supported") {
-			result.Status = string(evaluation.Status)
+		if status == pudanats.ProtocolUnsupported {
+			result.Status = pudanats.ProtocolUnsupported
 		}
 	}
 	return result
@@ -258,7 +256,7 @@ func writeHealthReport(w io.Writer, report pudanats.HealthReport, human bool) er
 	}
 	writeHumanPUDA(w, report.PUDA)
 	if result := report.Compatibility; result != nil {
-		fmt.Fprintf(w, "compatibility: %s (advisory only) cli=%s", result.Status, result.CLIVersion)
+		fmt.Fprintf(w, "compatibility: %s (advisory only) supported_protocol=%s", result.Status, result.SupportedProtocol)
 		if result.Reason != "" {
 			fmt.Fprintf(w, " reason=%s", result.Reason)
 		}
@@ -267,11 +265,7 @@ func writeHealthReport(w io.Writer, report pudanats.HealthReport, human bool) er
 		}
 		fmt.Fprintln(w)
 		for _, edge := range result.Machines {
-			fmt.Fprintf(w, "  %s: sdk=%q %s", edge.MachineID, edge.SDKVersion, edge.Status)
-			for _, bounds := range edge.SupportedRanges {
-				fmt.Fprintf(w, " supported=%s..%s (inclusive)", bounds.Min, bounds.Max)
-			}
-			fmt.Fprintln(w)
+			fmt.Fprintf(w, "  %s: protocol=%s sdk=%q %s\n", edge.MachineID, pudanats.ProtocolLabel(edge.ProtocolVersion), edge.SDKVersion, edge.Status)
 		}
 	}
 	if len(report.Gateways) == 0 {

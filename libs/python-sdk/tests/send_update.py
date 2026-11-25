@@ -85,6 +85,7 @@ def build_message(
     
     return NATSMessage(
         header=MessageHeader(
+            protocol_version="1.0",
             message_type=MessageType.COMMAND,
             user_id=user_id,
             username=username,

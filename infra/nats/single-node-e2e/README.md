@@ -53,8 +53,8 @@ PUDA_E2E_KEY_FILE=/path/to/e2e.key
 
 Do not put the lab key in `puda.config`.
 
-After the switch, purge `COMMAND_QUEUE`, `COMMAND_IMMEDIATE`,
-`RESPONSE_QUEUE`, `RESPONSE_IMMEDIATE`, and the KV buckets
+After the switch, purge `COMMAND_QUEUE`, `RESPONSE_QUEUE`,
+`RESPONSE_IMMEDIATE`, and the KV buckets
 `MACHINE_STATE`, `MACHINE_COMMANDS`, and `LIVESTREAMS`. Clients that have
 the key reject leftover plaintext.
 

@@ -69,12 +69,11 @@ func homeMachines(w io.Writer, machineIDs []string) error {
 			Name:       "home",
 			Params:     make(map[string]interface{}),
 			StepNumber: i + 1,
-			Version:    "1.0",
 			MachineID:  machineID,
 		})
 	}
 
-	if err := pudanats.SendQueueCommands(js, dispatcher, requests, runID, userID, username, store, nil); err != nil {
+	if err := pudanats.SendQueueCommands(nc, js, dispatcher, requests, runID, userID, username, store, nil); err != nil {
 		return fmt.Errorf("home command failed: %w", err)
 	}
 

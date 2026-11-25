@@ -62,7 +62,6 @@ type validatedProtocolCommand struct {
 	Params      map[string]interface{} `json:"params"`
 	Kwargs      map[string]interface{} `json:"kwargs,omitempty"`
 	StepNumber  int                    `json:"step_number"`
-	Version     string                 `json:"version,omitempty"`
 	MachineID   string                 `json:"machine_id"`
 	Description string                 `json:"description"`
 	Safety      *puda.CommandSafety    `json:"safety,omitempty"`
@@ -158,7 +157,7 @@ func validateAndEnrichProtocol(protocol *puda.ProtocolFile, fetchCatalog func(st
 			}
 			enrichedCommands = append(enrichedCommands, validatedProtocolCommand{
 				Name: command.Name, Params: params, Kwargs: command.Kwargs,
-				StepNumber: command.StepNumber, Version: command.Version, MachineID: command.MachineID,
+				StepNumber: command.StepNumber, MachineID: command.MachineID,
 				Description: "Wait locally in the CLI without sending a machine command.", Valid: true, Errors: []string{},
 			})
 			continue
@@ -175,6 +174,10 @@ func validateAndEnrichProtocol(protocol *puda.ProtocolFile, fetchCatalog func(st
 		}
 		if commandErr := commandCatalogErrors[command.MachineID][command.Name]; commandErr != nil {
 			liveErrors = append(liveErrors, puda.ValidationError{CommandIndex: index, Field: "name", Message: fmt.Sprintf("failed to parse advertised command %q: %v", command.Name, commandErr)})
+			continue
+		}
+		if message, reserved := reservedProtocolStepMessage(command.Name); reserved {
+			liveErrors = append(liveErrors, puda.ValidationError{CommandIndex: index, Field: "name", Message: message})
 			continue
 		}
 		parsed, ok := parsedCatalogs[command.MachineID][command.Name]
@@ -197,7 +200,7 @@ func validateAndEnrichProtocol(protocol *puda.ProtocolFile, fetchCatalog func(st
 		}
 		enrichedCommands = append(enrichedCommands, validatedProtocolCommand{
 			Name: command.Name, Params: params, Kwargs: command.Kwargs,
-			StepNumber: command.StepNumber, Version: command.Version, MachineID: command.MachineID,
+			StepNumber: command.StepNumber, MachineID: command.MachineID,
 			Description: parsed.Description, Safety: parsed.Safety, Valid: true, Errors: []string{},
 		})
 	}
@@ -625,4 +628,16 @@ func formatProtocolValidationErrors(validationErrors []puda.ValidationError) err
 		fmt.Fprintf(&builder, "\ncommands[%d] %s: %s", validationError.CommandIndex, validationError.Field, validationError.Message)
 	}
 	return fmt.Errorf("%s", builder.String())
+}
+
+// reservedProtocolStepMessage explains names that are protocol lifecycle
+// actions or driver lifecycle hooks rather than machine commands.
+func reservedProtocolStepMessage(name string) (string, bool) {
+	switch strings.ToLower(name) {
+	case puda.ImmediateCommandStart, puda.ImmediateCommandComplete:
+		return fmt.Sprintf("%q is not a protocol step: puda protocol run starts and completes every machine itself", name), true
+	case puda.ImmediateCommandPause, puda.ImmediateCommandResume, puda.ImmediateCommandReset, puda.ImmediateCommandEstop, "abort", "shutdown":
+		return fmt.Sprintf("%q is a lifecycle hook, not a protocol step; use puda machine pause/resume/reset/estop or complete --abort", name), true
+	}
+	return "", false
 }

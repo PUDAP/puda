@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## 0.2.0-rc1 — 2026-11-25 (prerelease)
+
+CLI 0.2.0 speaks Edge Protocol 1.0 and pairs with Python SDK 0.1.0, the first SDK release that speaks it. The CLI judges edges by the `protocol_version` in their pong, not by SDK version: edges on Python SDK older than 0.1.0 report none and are flagged as unsupported.
+
+### Added
+
+- `puda machine commands` reports the lifecycle hooks the driver implements (`hooks` in JSON, a "Lifecycle hooks" line with `--human`), so agents can tell whether `estop` or `abort` reaches the hardware. `puda protocol validate` and `run` reject `start`, `complete` and hook names as steps with an explanation instead of "not found".
+- `puda machine complete --abort` stops the running command instead of being refused, then ends the run (requires Python SDK 0.1.0 edges). Results now include the edge's `code` and `data` for every immediate command, so a refused `complete` reports `code: EXECUTION_LOCKED` with `data.running` (name, step, elapsed) and `data.queued`, and an abort reports `data.aborted`, `driver_abort` and `queued`. An abort returns at once; the running command is answered `COMMAND_CANCELLED` when its driver call returns, and the machine runs nothing else until then.
+
+### Changed
+
+- **Breaking:** the envelope header field `version` is renamed `protocol_version` and is required: edges refuse a command whose `header.protocol_version` is missing or not `1.x`. `command.version` is removed from command envelopes and from protocol files (a leftover `"version"` key in a protocol step is ignored).
+- Edge compatibility is judged by the pong's `protocol_version` (`"MAJOR.MINOR"`) instead of CLI/SDK version ranges. This CLI supports Edge Protocol 1.x; a missing value (Python SDK before 0.1.0), another major or a malformed value is unsupported. `machine list`/`info` warn on stderr with `warning: machine <id> speaks edge protocol <v|none>; this CLI supports 1.x (update the edge's PUDA SDK)`, and `machine info` reports `protocol_version`. The `healthcheck` `compatibility` section reports `supported_protocol: "1.x"` and per machine `machine_id`, `sdk_version`, `protocol_version` and `status` (`supported`/`unsupported`); the `unknown` state, `cli_version` and `supported_ranges` are gone. See `apps/cli/docs/compatibility.md`.
+- Interrupting `puda protocol run` (Ctrl+C, SIGTERM) now sends `complete --abort` to every started machine, so commands still running on the edges are stopped instead of continuing unobserved. A normal finish or a failed step still sends plain `complete`.
+- Immediate commands (`start`, `complete`, `pause`, `resume`, `reset`, `estop`) use core NATS request/reply on `puda.<id>.cmd.immediate` instead of the `COMMAND_IMMEDIATE` stream (edges need the matching Python SDK). An offline machine fails at once with `no responders: machine offline`; a missing reply fails with `no reply within Ns; outcome unknown`, and immediate commands are safe to retry.
+
+### Removed
+
+- The unused `cancel` immediate command constant. Use `puda machine complete --abort`.
+- `compatibility.json`, the root Go module that embedded it and the version-range checks, replaced by `protocol_version`. Source builds no longer need the repository root.
+- `puda update` no longer runs a Python SDK preflight against edges before replacing the binary; run `puda healthcheck` afterwards.
+
 ### Fixed
 
 - `puda machine info` and the immediate lifecycle commands that ping first (`start`, `complete`, `reset`, ...) no longer report online machines as `invalid pong response`. A direct ping now reads every reply until a valid pong arrives or the timeout expires, so another subscriber on `puda.<id>.cmd.*` (such as a service answering `-NAK`) answering first is ignored. Remote edges (for example over Tailscale) were affected most because they always lose that race. If only non-pong replies arrive, the error reads `invalid pong response: no valid pong before timeout (ignored N non-pong replies)`.

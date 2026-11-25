@@ -22,7 +22,6 @@ import nats
 from nats.aio.msg import Msg
 from nats.js.api import ConsumerConfig, StreamConfig
 from nats.js.client import JetStreamContext
-from nats.js.errors import Error as NATSError
 from nats.errors import TimeoutError as NATSTimeoutError
 from nats.js.errors import NotFoundError
 from nats.js.kv import KeyValue
@@ -32,7 +31,7 @@ from .constants import (
     KV_BUCKET_COMMANDS,
     KV_BUCKET_STATE,
     NAMESPACE,
-    STREAM_COMMAND_IMMEDIATE,
+    PROTOCOL_VERSION,
     STREAM_COMMAND_QUEUE,
     STREAM_RESPONSE_IMMEDIATE,
     STREAM_RESPONSE_QUEUE,
@@ -46,7 +45,6 @@ logger = logging.getLogger(__name__)
 
 _REQUIRED_STREAMS = (
     (STREAM_COMMAND_QUEUE, f"{NAMESPACE}.*.cmd.queue", "workqueue"),
-    (STREAM_COMMAND_IMMEDIATE, f"{NAMESPACE}.*.cmd.immediate", "workqueue"),
     (STREAM_RESPONSE_QUEUE, f"{NAMESPACE}.*.cmd.response.queue", "interest"),
     (STREAM_RESPONSE_IMMEDIATE, f"{NAMESPACE}.*.cmd.response.immediate", "interest"),
 )
@@ -90,7 +88,8 @@ class EdgeNatsClient:
     NATS client used by the machine edge.
 
     - Telemetry / events: core NATS (fire-and-forget)
-    - Commands: JetStream WorkQueue (COMMAND_QUEUE pull, COMMAND_IMMEDIATE push)
+    - Commands: JetStream WorkQueue (COMMAND_QUEUE pull); immediate commands as
+      core NATS request/reply on puda.<id>.cmd.immediate
     - Command responses: JetStream Interest (RESPONSE_QUEUE, RESPONSE_IMMEDIATE)
     """
 
@@ -135,6 +134,7 @@ class EdgeNatsClient:
 
         self._cmd_queue_sub = None
         self._cmd_queue_task = None
+        self._immediate_tasks: set[asyncio.Task] = set()
         self._cmd_immediate_sub = None
         self._ping_sub: Any = None
         self._ping_broadcast_sub: Any = None
@@ -227,29 +227,34 @@ class EdgeNatsClient:
             return published, now if published else last_at
 
     async def _ensure_stream(self, stream_name: str, subject_pattern: str, retention: str) -> None:
-        """Create or update a stream so its subject pattern and retention match."""
+        """Create the stream if it is missing; never modify an existing one.
+
+        Streams are provisioned by infra/nats/jetstream/setup_streams.sh (replicas,
+        limits, discard policy). Creating a missing one keeps local brokers usable
+        without provisioning; updating one could overwrite those settings, so a
+        mismatch is only logged.
+        """
         if not self.js:
             return
-        config = StreamConfig(
-            name=stream_name,
-            subjects=[subject_pattern],
-            retention=retention,
-        )
         try:
-            stream_info = await self.js.stream_info(stream_name)
-            existing = stream_info.config
-            if subject_pattern in existing.subjects and getattr(existing, "retention", None) == retention:
-                return
-            logger.info("Updating %s stream: subject=%s, retention=%s", stream_name, subject_pattern, retention)
-            await self.js.update_stream(config=config)
-            logger.info("Successfully updated %s stream", stream_name)
+            existing = (await self.js.stream_info(stream_name)).config
         except NotFoundError:
-            logger.info("Creating %s stream: subject=%s, retention=%s", stream_name, subject_pattern, retention)
-            await self.js.add_stream(config)
-            logger.info("Successfully created %s stream", stream_name)
-        except Exception as e:
-            logger.error("Error ensuring %s stream: %s", stream_name, e, exc_info=True)
-            raise
+            logger.warning(
+                "Stream %s is missing; creating a minimal one (subject=%s, retention=%s). "
+                "Provision the broker with infra/nats/jetstream/setup_streams.sh for production.",
+                stream_name, subject_pattern, retention,
+            )
+            await self.js.add_stream(
+                StreamConfig(name=stream_name, subjects=[subject_pattern], retention=retention)
+            )
+            return
+        retention_value = getattr(getattr(existing, "retention", None), "value", getattr(existing, "retention", None))
+        if subject_pattern not in (existing.subjects or []) or retention_value != retention:
+            logger.error(
+                "Stream %s does not match the protocol (subjects=%s, retention=%s; expected %s, %s). "
+                "Leaving it unchanged; fix the provisioning.",
+                stream_name, existing.subjects, retention_value, subject_pattern, retention,
+            )
 
     async def _ensure_all_streams(self) -> None:
         """Ensure streams exist with the subject patterns and retention in infra/nats."""
@@ -260,9 +265,14 @@ class EdgeNatsClient:
         if not self.js:
             raise RuntimeError("JetStream not available")
         try:
-            return await self.js.create_key_value(bucket=bucket)
-        except Exception:
             return await self.js.key_value(bucket)
+        except NotFoundError:
+            logger.warning(
+                "KV bucket %s is missing; creating it (history 1). Provision the broker "
+                "with infra/nats/jetstream/setup_streams.sh for production.",
+                bucket,
+            )
+            return await self.js.create_key_value(bucket=bucket, history=1)
 
     async def _safe_unsubscribe(self, sub) -> None:
         if sub is None:
@@ -298,11 +308,11 @@ class EdgeNatsClient:
         self.js = None
         self.kv_state = None
         self.kv_commands = None
+        # The pull loop keeps running (a command may be executing); it idles
+        # until subscribe_queue rebinds _cmd_queue_sub on the new connection.
         self._cmd_queue_sub = None
-        self._cmd_queue_task = None
-        self._cmd_immediate_sub = None
-        self._ping_sub = None
-        self._ping_broadcast_sub = None
+        # Core subscriptions (immediate, ping) survive reconnects inside nats-py;
+        # their handles are kept so they are not subscribed twice.
         self._last_heartbeat_at = None
         for stream in self._tlm_streams.values():
             stream.last_at = None
@@ -359,8 +369,6 @@ class EdgeNatsClient:
     async def _resubscribe_handlers(self) -> None:
         if self._queue_handler:
             await self.subscribe_queue(self._queue_handler)
-        if self._immediate_handler:
-            await self.subscribe_immediate(self._immediate_handler)
 
     def set_keyring_listener(self, listener: Callable[[], Awaitable[None]]) -> None:
         """Run after the shared keyring record changes the local keys."""
@@ -475,6 +483,7 @@ class EdgeNatsClient:
             "status": "pong",
             "machine_id": self.machine_id,
             "timestamp": self._format_timestamp(),
+            "protocol_version": PROTOCOL_VERSION,
             "sdk_version": self.sdk_version,
             "uptime_seconds": round(max(0.0, time.monotonic() - self._started_at), 3),
             "run_status": self.runtime_status_handler(),
@@ -677,8 +686,14 @@ class EdgeNatsClient:
     async def _pull_queue_loop(self, handler: Callable[[NATSMessage], Awaitable[CommandResponse]]) -> None:
         try:
             while True:
+                # Pause holds the queue: stop pulling until resume (or estop).
+                await self.commands.wait_until_runnable()
+                sub = self._cmd_queue_sub
+                if sub is None:  # reconnecting; subscribe_queue rebinds it
+                    await asyncio.sleep(0.5)
+                    continue
                 try:
-                    msgs = await self._cmd_queue_sub.fetch(batch=1, timeout=1.0)
+                    msgs = await sub.fetch(batch=1, timeout=1.0)
                     if msgs:
                         logger.debug("Pulled message from queue")
                         await self.commands.process_queue(msgs[0], handler)
@@ -690,6 +705,11 @@ class EdgeNatsClient:
         except asyncio.CancelledError:
             logger.debug("Queue pull task cancelled")
             raise
+
+    async def pending_queue_count(self) -> int:
+        """Queued commands not yet answered (in the stream or delivered, unacked)."""
+        info = await self.js.consumer_info(STREAM_COMMAND_QUEUE, f"cmd_queue_{self.machine_id}")
+        return int(info.num_pending or 0) + int(info.num_ack_pending or 0)
 
     async def subscribe_queue(self, handler: Callable[[NATSMessage], Awaitable[CommandResponse]]) -> None:
         """Subscribe to queue commands with a durable pull consumer."""
@@ -723,8 +743,11 @@ class EdgeNatsClient:
             except Exception as e:
                 logger.warning("Could not get consumer info after subscription: %s", e)
 
-            self._cmd_queue_task = asyncio.create_task(self._pull_queue_loop(handler))
-            logger.info("Started background task for pulling queue messages")
+            # One pull loop for the life of the client: after a reconnect only the
+            # subscription is rebound, which the loop reads on every fetch.
+            if self._cmd_queue_task is None or self._cmd_queue_task.done():
+                self._cmd_queue_task = asyncio.create_task(self._pull_queue_loop(handler))
+                logger.info("Started background task for pulling queue messages")
         except NotFoundError:
             logger.error(
                 "Stream %s not found when subscribing to %s (pattern %s.*.cmd.queue)",
@@ -738,50 +761,22 @@ class EdgeNatsClient:
         )
 
     async def subscribe_immediate(self, handler: Callable[[NATSMessage], Awaitable[CommandResponse]]) -> None:
-        """Subscribe to immediate commands with a durable push consumer."""
-        if not self.js:
-            logger.error("JetStream not available for immediate subscription")
-            return
-
+        """Answer immediate commands as core NATS request/reply on cmd.immediate."""
+        if self.nc is None:
+            raise RuntimeError("NATS not connected")
         self._immediate_handler = handler
-        await self._ensure_all_streams()
-        durable_name = f"cmd_immed_{self.machine_id}"
 
         async def message_handler(msg: Msg) -> None:
-            await self.commands.process_immediate(msg, self._immediate_handler)
+            # nats-py runs one subscription's callbacks one at a time; a task per
+            # request lets estop overtake a slow driver hook (see process_immediate).
+            task = asyncio.create_task(self.commands.process_immediate(msg, self._immediate_handler))
+            self._immediate_tasks.add(task)
+            task.add_done_callback(self._immediate_tasks.discard)
 
         await self._safe_unsubscribe(self._cmd_immediate_sub)
-        self._cmd_immediate_sub = None
-        await self._delete_consumer(STREAM_COMMAND_IMMEDIATE, durable_name, retry_if_bound=True)
-
-        try:
-            self._cmd_immediate_sub = await self.js.subscribe(
-                subject=self.cmd_immediate,
-                stream=STREAM_COMMAND_IMMEDIATE,
-                durable=durable_name,
-                cb=message_handler,
-            )
-        except NATSError as e:
-            error_msg = str(e).lower()
-            if "bound" not in error_msg and "already bound" not in error_msg:
-                raise
-            logger.warning("Consumer %s still bound. Deleting and retrying...", durable_name)
-            await self._delete_consumer(STREAM_COMMAND_IMMEDIATE, durable_name)
-            await asyncio.sleep(0.5)
-            self._cmd_immediate_sub = await self.js.subscribe(
-                subject=self.cmd_immediate,
-                stream=STREAM_COMMAND_IMMEDIATE,
-                durable=durable_name,
-                cb=message_handler,
-            )
-        except NotFoundError:
-            logger.error("Stream %s not found even after creation attempt.", STREAM_COMMAND_IMMEDIATE)
-            raise
-
-        logger.info(
-            "Subscribed to immediate commands: %s (durable: %s, push consumer)",
-            self.cmd_immediate, durable_name,
-        )
+        self._cmd_immediate_sub = await self.nc.subscribe(subject=self.cmd_immediate, cb=message_handler)
+        await self.nc.flush()
+        logger.info("Subscribed to immediate commands: %s (core request/reply)", self.cmd_immediate)
 
     async def publish_log(self, log_level: str, msg: str, **kwargs) -> None:
         """Publish a log event (core NATS, fire-and-forget)."""

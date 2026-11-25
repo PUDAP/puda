@@ -106,7 +106,6 @@ Core flags:
   --position-interval DURATION
   --health-interval DURATION
   --queue-stream NAME          default COMMAND_QUEUE
-  --immediate-stream NAME      default COMMAND_IMMEDIATE
   --setup-concurrency N        consumer setup workers (default 64)
   --queue-fetch-wait DURATION  default 30s
   --command-interval DURATION  queue + immediate command interval; zero disables

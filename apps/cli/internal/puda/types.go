@@ -8,7 +8,6 @@ type CommandRequest struct {
 	Params     map[string]interface{} `json:"params"`
 	Kwargs     map[string]interface{} `json:"kwargs,omitempty"`
 	StepNumber int                    `json:"step_number"`
-	Version    string                 `json:"version,omitempty"`
 	MachineID  string                 `json:"machine_id"`
 	Safety     *CommandSafety         `json:"safety,omitempty"`
 }
@@ -29,7 +28,6 @@ const (
 	ImmediateCommandComplete = "complete"
 	ImmediateCommandPause    = "pause"
 	ImmediateCommandResume   = "resume"
-	ImmediateCommandCancel   = "cancel"
 	ImmediateCommandReset    = "reset"
 	ImmediateCommandEstop    = "estop"
 )
@@ -68,13 +66,13 @@ const (
 
 // MessageHeader represents the header of a NATS message
 type MessageHeader struct {
-	Version     string      `json:"version"`
-	MessageType MessageType `json:"message_type"`
-	UserID      string      `json:"user_id"`
-	Username    string      `json:"username"`
-	MachineID   string      `json:"machine_id"`
-	RunID       *string     `json:"run_id,omitempty"`
-	Timestamp   string      `json:"timestamp"`
+	ProtocolVersion string      `json:"protocol_version"`
+	MessageType     MessageType `json:"message_type"`
+	UserID          string      `json:"user_id"`
+	Username        string      `json:"username"`
+	MachineID       string      `json:"machine_id"`
+	RunID           *string     `json:"run_id,omitempty"`
+	Timestamp       string      `json:"timestamp"`
 }
 
 // NATSMessage represents a complete NATS message

@@ -21,7 +21,7 @@ Before operating machines, follow the execution policy in **puda-protocol** (pro
 
 Use `puda machine --help` and `puda healthcheck --help` for commands and flags.
 
-- Start with `puda healthcheck` when connectivity is in doubt. `compatibility` is advisory; to diagnose a failing report, use **puda-deployment** skill.
+- Start with `puda healthcheck` when connectivity is in doubt. `compatibility` is advisory: an `unsupported` machine reports a `protocol_version` this CLI does not support (missing means its PUDA SDK predates Edge Protocol 1.0); follow the issue's `next_step`. To diagnose a failing report, use **puda-deployment** skill.
 - Run only the inspections the task needs, typically `machine info <id>` and `machine commands <id>` before authoring or running a protocol.
 - Listed machines and stored state can be stale: check timestamps and responsiveness before assuming a machine is ready.
 - Always give `machine watch` a bounded `--timeout`, and quote wildcard subjects.
@@ -29,6 +29,10 @@ Use `puda machine --help` and `puda healthcheck --help` for commands and flags.
 ## Emergency stop
 
 When the operator asks to stop a machine urgently, or you observe a hazard during operation, run `puda machine estop <machine_ids>` immediately: no plan, no confirmation, no other command first. Then report each machine's result: `ok` means the driver estop ran; any error (`ESTOP_NOT_SUPPORTED`, unknown immediate command, timeout) means the hardware may still be running, so tell the operator to use the physical stop. The machine stays `estopped` and rejects commands until `puda machine reset`; reset only when the operator confirms it is safe.
+
+## Ending a run
+
+`puda machine complete <machine_ids> --run-id <run_id>` ends a run. While a queued command of that run is still executing it is refused with `EXECUTION_LOCKED`; the result's `data.running` names the command and its elapsed time, and `data.queued` counts the commands behind it. Either wait and complete again, or, when the operator wants the work stopped, rerun with `--abort`: the run ends at once, `data.driver_abort` says whether the driver's `abort` was started, and the command is answered `COMMAND_CANCELLED` when its hardware call returns. Until then `puda machine state` shows `busy` with no run, and the machine runs nothing else. `--abort` is a soft stop, not a safety action; use `estop` for hazards. Completing a run that already ended succeeds with `data.already_completed: true`, so repeating it is safe. Interrupting `puda protocol run` (Ctrl+C, SIGTERM) sends `complete --abort` to every machine in the run.
 
 ## Task-specific references
 

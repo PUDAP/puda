@@ -5,7 +5,9 @@ Models for Puda Comms.
 from enum import Enum
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from .constants import PROTOCOL_VERSION
 
 
 class CommandResponseStatus(str, Enum):
@@ -47,7 +49,6 @@ class ImmediateCommand(str, Enum):
     COMPLETE = 'complete'
     PAUSE = 'pause'
     RESUME = 'resume'
-    CANCEL = 'cancel'
     RESET = 'reset'
     ESTOP = 'estop'
 
@@ -79,7 +80,6 @@ class CommandRequest(BaseModel):
     params: Dict[str, Any] = Field(default_factory=dict, description="The parameters to send to the machine.")
     kwargs: Dict[str, Any] = Field(default_factory=dict, description="Additional keyword arguments (e.g., channels in Biologic).")
     step_number: int = Field(description="Execution step number (integer). Used to track the progress of a command.")
-    version: str = Field(default="1.0", description="Command version.")
     machine_id: str = Field(description="Machine ID to send the command to.")
 
 
@@ -93,7 +93,7 @@ class CommandResponse(BaseModel):
 
 class MessageHeader(BaseModel):
     """Header for NATS messages."""
-    version: str = Field(default="1.0", description="Message version")
+    protocol_version: str = Field(description="PUDA Edge Protocol version (MAJOR.MINOR); required")
     message_type: MessageType = Field(description="Type of message")
     user_id: str = Field(description="User ID")
     username: str = Field(description="User name")
@@ -101,12 +101,21 @@ class MessageHeader(BaseModel):
     run_id: Optional[str] = Field(default=None, description="Unique identifier (uuid) for the run/workflow")
     timestamp: str = Field(default_factory=_get_current_timestamp, description="ISO format timestamp (auto-set on creation)")
 
+    @field_validator("protocol_version")
+    @classmethod
+    def _same_protocol_major(cls, value: str) -> str:
+        """Accept MAJOR.MINOR with this SDK's major; a new major is breaking."""
+        major, _, minor = value.partition(".")
+        if not (major.isdecimal() and minor.isdecimal()) or major != PROTOCOL_VERSION.partition(".")[0]:
+            raise ValueError(f"unsupported protocol version {value!r}; this SDK speaks {PROTOCOL_VERSION}")
+        return value
+
 class NATSMessage(BaseModel):
     """
     Complete NATS message structure.
     
     Structure:
-    - header: MessageHeader with message_type, version, timestamp, user_id, username, machine_id, run_id
+    - header: MessageHeader with protocol_version, message_type, timestamp, user_id, username, machine_id, run_id
     - command: Optional CommandRequest (for command messages)
     - response: Optional CommandResponse data (for response messages)
     """

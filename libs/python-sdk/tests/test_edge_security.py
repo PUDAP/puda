@@ -153,6 +153,7 @@ def test_response_handler_shares_service_context(tmp_path):
         event = handler.register_pending("run", 1)
         message = NATSMessage(
             header=MessageHeader(
+                protocol_version="1.0",
                 message_type=MessageType.RESPONSE, machine_id="test",
                 user_id="test", username="test", run_id="run",
             ),
@@ -204,6 +205,7 @@ def test_telemetry_and_ping_use_client_context(tmp_path):
         from puda.edge_updater import EdgeUpdater
 
         original = NATSMessage(header=MessageHeader(
+            protocol_version="1.0",
             message_type=MessageType.COMMAND, machine_id="test",
             user_id="test", username="test", run_id="test",
         ))

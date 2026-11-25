@@ -13,22 +13,19 @@ func GetCurrentTimestamp() string {
 
 // BuildCommandPayload builds a NATS message payload from a command request
 func BuildCommandPayload(request puda.CommandRequest, machineID, runID, userID, username string) puda.NATSMessage {
-	if request.Version == "" {
-		request.Version = "1.0"
-	}
 	// Safety is protocol orchestration metadata. Edge command payloads retain
 	// their existing wire schema and receive only executable command fields.
 	request.Safety = nil
 	runIDPtr := &runID
 	return puda.NATSMessage{
 		Header: puda.MessageHeader{
-			Version:     "1.0",
-			MessageType: puda.MessageTypeCommand,
-			UserID:      userID,
-			Username:    username,
-			MachineID:   machineID,
-			RunID:       runIDPtr,
-			Timestamp:   GetCurrentTimestamp(),
+			ProtocolVersion: ProtocolVersion,
+			MessageType:     puda.MessageTypeCommand,
+			UserID:          userID,
+			Username:        username,
+			MachineID:       machineID,
+			RunID:           runIDPtr,
+			Timestamp:       GetCurrentTimestamp(),
 		},
 		Command: &request,
 	}

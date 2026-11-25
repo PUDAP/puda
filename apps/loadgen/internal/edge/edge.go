@@ -34,13 +34,13 @@ func CommandPayload(machineID, runID string, stepNumber int, name string) ([]byt
 	now := time.Now().UTC().Format(time.RFC3339)
 	return json.Marshal(map[string]any{
 		"header": map[string]any{
-			"version": "1.0", "message_type": "command",
+			"protocol_version": "1.0", "message_type": "command",
 			"user_id": "puda-loadgen", "username": "puda-loadgen",
 			"machine_id": safeID(machineID), "run_id": runID, "timestamp": now,
 		},
 		"command": map[string]any{
 			"name": name, "params": map[string]any{}, "step_number": stepNumber,
-			"version": "1.0", "machine_id": safeID(machineID),
+			"machine_id": safeID(machineID),
 		},
 	})
 }

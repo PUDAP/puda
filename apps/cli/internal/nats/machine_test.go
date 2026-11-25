@@ -10,11 +10,11 @@ import (
 )
 
 func TestParsePong(t *testing.T) {
-	pong, ok := parsePong([]byte(`{"status":"pong","machine_id":"test-1","timestamp":"2026-08-27T07:23:56Z","sdk_version":"0.0.17","uptime_seconds":12.5,"run_status":"busy","description":"Software-only test machine.","local_ip":"192.168.1.10","tailscale_ip":"100.99.243.61","magicdns":"host.tailnet.ts.net"}`))
+	pong, ok := parsePong([]byte(`{"status":"pong","machine_id":"test-1","timestamp":"2026-08-27T07:23:56Z","sdk_version":"0.1.0","protocol_version":"1.0","uptime_seconds":12.5,"run_status":"busy","description":"Software-only test machine.","local_ip":"192.168.1.10","tailscale_ip":"100.99.243.61","magicdns":"host.tailnet.ts.net"}`))
 	if !ok {
 		t.Fatal("valid pong rejected")
 	}
-	if pong.MachineID != "test-1" || pong.SDKVersion != "0.0.17" || pong.UptimeSeconds != 12.5 || pong.RunStatus != "busy" || pong.Description != "Software-only test machine." || pong.LocalIP != "192.168.1.10" || pong.TailscaleIP != "100.99.243.61" || pong.MagicDNS != "host.tailnet.ts.net" {
+	if pong.MachineID != "test-1" || pong.SDKVersion != "0.1.0" || pong.ProtocolVersion != "1.0" || pong.UptimeSeconds != 12.5 || pong.RunStatus != "busy" || pong.Description != "Software-only test machine." || pong.LocalIP != "192.168.1.10" || pong.TailscaleIP != "100.99.243.61" || pong.MagicDNS != "host.tailnet.ts.net" {
 		t.Fatalf("pong=%+v", pong)
 	}
 }
@@ -183,5 +183,16 @@ func TestAwaitPongErrors(t *testing.T) {
 	noResponders := &natsio.Msg{Header: natsio.Header{"Status": []string{"503"}}}
 	if _, err := awaitPong(replies(noResponders), deadline); !errors.Is(err, natsio.ErrNoResponders) {
 		t.Fatalf("503: err=%v", err)
+	}
+}
+
+func TestParseMachineCommandsReadsHooks(t *testing.T) {
+	commands, err := parseMachineCommands([]byte(`{"commands":"","catalog":[],"hooks":["abort","estop"]}`))
+	if err != nil || len(commands.Hooks) != 2 || commands.Hooks[1] != "estop" {
+		t.Fatalf("commands = %+v, err = %v", commands, err)
+	}
+	old, err := parseMachineCommands([]byte(`{"commands":"","catalog":[]}`))
+	if err != nil || old.Hooks != nil {
+		t.Fatalf("pre-0.1.0 edge: commands = %+v, err = %v", old, err)
 	}
 }

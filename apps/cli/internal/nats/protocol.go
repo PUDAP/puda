@@ -49,10 +49,14 @@ func completeMachines(machineIDs []string, completeFn func(string) error) error 
 
 // completeAllMachines sends COMPLETE commands to all started machines and
 // returns every failure as one joined error.
-func completeAllMachines(js nats.JetStreamContext, dispatcher *ResponseDispatcher, startedMachines []string, runID, userID, username string, timeoutSeconds int, stepNumber int, store *db.Store) error {
-	log.Printf("Completing runs on all machines")
+func completeAllMachines(nc *nats.Conn, startedMachines []string, runID, userID, username string, timeoutSeconds int, stepNumber int, abort bool, store *db.Store) error {
+	if abort {
+		log.Printf("Aborting runs on all machines")
+	} else {
+		log.Printf("Completing runs on all machines")
+	}
 	return completeMachines(startedMachines, func(machineID string) error {
-		response, err := SendCompleteCommand(js, dispatcher, machineID, runID, userID, username, timeoutSeconds, stepNumber, store)
+		response, err := SendCompleteCommand(nc, machineID, runID, userID, username, timeoutSeconds, stepNumber, abort, store)
 		if err != nil {
 			return err
 		}
@@ -230,7 +234,7 @@ func executeWaitCommand(ctx context.Context, request puda.CommandRequest) error 
 
 // SendQueueCommands sends queued protocol commands. Pass nil confirmation to
 // dispatch every step without an interactive gate.
-func SendQueueCommands(js nats.JetStreamContext, dispatcher *ResponseDispatcher, requests []puda.CommandRequest, runID, userID, username string, store *db.Store, confirmation StepConfirmationFunc) (returnErr error) {
+func SendQueueCommands(nc *nats.Conn, js nats.JetStreamContext, dispatcher *ResponseDispatcher, requests []puda.CommandRequest, runID, userID, username string, store *db.Store, confirmation StepConfirmationFunc) (returnErr error) {
 	const defaultTimeout = 30 // for immediate commands which should complete pretty much instantly
 
 	if len(requests) == 0 {
@@ -272,7 +276,9 @@ func SendQueueCommands(js nats.JetStreamContext, dispatcher *ResponseDispatcher,
 	defer close(signalDone)
 
 	cleanup := newStartedMachineCleanup(func(machineIDs []string) error {
-		return completeAllMachines(js, dispatcher, machineIDs, runID, userID, username, defaultTimeout, completeStepNumber, store)
+		// Interrupted (SIGINT/SIGTERM): stop whatever is still running on the
+		// edges; the CLI stopped waiting for it, so nothing would report it.
+		return completeAllMachines(nc, machineIDs, runID, userID, username, defaultTimeout, completeStepNumber, ctx.Err() != nil, store)
 	})
 	defer func() {
 		returnErr = joinProtocolAndCleanupErrors(returnErr, cleanup.complete())
@@ -308,7 +314,7 @@ func SendQueueCommands(js nats.JetStreamContext, dispatcher *ResponseDispatcher,
 			return fmt.Errorf("interrupted before starting machines")
 		}
 
-		response, err := SendStartCommandWithContext(ctx, &publishInterlock, js, dispatcher, machineID, runID, userID, username, defaultTimeout, store, func() {
+		response, err := SendStartCommandWithContext(ctx, &publishInterlock, nc, machineID, runID, userID, username, defaultTimeout, store, func() {
 			cleanup.markStarted(machineID)
 		})
 		if err != nil {
@@ -466,7 +472,7 @@ func RunProtocol(protocolFile *puda.ProtocolFile, stepsExpr *string, confirmatio
 	log.Printf("Loaded %d commands from protocol, executing %d command(s)\n", len(protocolFile.Commands), len(commands))
 
 	// Send protocol commands
-	if err := SendQueueCommands(js, dispatcher, commands, runID, finalUserID, finalUsername, store, confirmation); err != nil {
+	if err := SendQueueCommands(nc, js, dispatcher, commands, runID, finalUserID, finalUsername, store, confirmation); err != nil {
 		log.Printf("Protocol commands failed: %v", err)
 		return err
 	}
