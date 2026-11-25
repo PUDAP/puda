@@ -143,6 +143,14 @@ class Edge:
             self.proc.wait(5)
         self.proc = None
 
+    def kill(self) -> None:
+        """SIGKILL: the edge dies without any cleanup, as on a crash or power loss."""
+        if self.proc is None:
+            return
+        self.proc.kill()
+        self.proc.wait(5)
+        self.proc = None
+
     def output(self) -> str:
         return self.log.read_text(errors="replace") if self.log.exists() else ""
 

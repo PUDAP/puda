@@ -21,16 +21,11 @@ class CompleteTests(unittest.IsolatedAsyncioTestCase):
         self.processor = CommandProcessor(FakeClient(queued=3))
         await self.processor.run_manager.start_run("run-1")
         self.release = asyncio.Event()
-        self.responses: list[CommandResponse] = []
 
         async def slow(_m: NATSMessage) -> CommandResponse:
             await self.release.wait()
             return CommandResponse(status=CommandResponseStatus.SUCCESS)
 
-        async def capture(_msg, response, _subject) -> None:
-            self.responses.append(response)
-
-        self.processor._publish_command_response = capture  # type: ignore[method-assign]
         self.queued = asyncio.create_task(self.processor.process_queue(FakeMsg(_message("move")), slow))
         await asyncio.sleep(0.05)
 
@@ -59,11 +54,12 @@ class CompleteTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("finished", response.data)
         self.assertIsNone(self.processor.run_manager.get_active_run_id())
         self.assertFalse(self.queued.done())
-        self.assertEqual(self.responses, [])
+        self.assertEqual(self.processor._client.js.responses(), [])
         self.release.set()
         await asyncio.wait_for(self.queued, 1)
-        self.assertEqual(self.responses[-1].code, CommandResponseCode.COMMAND_CANCELLED)
-        self.assertEqual(self.responses[-1].message, "Stopped by complete --abort")
+        answered = self.processor._client.js.responses()[-1]
+        self.assertEqual(answered["code"], CommandResponseCode.COMMAND_CANCELLED)
+        self.assertEqual(answered["message"], "Stopped by complete --abort")
 
     async def test_repeat_complete_reports_already_completed(self) -> None:
         self.release.set()

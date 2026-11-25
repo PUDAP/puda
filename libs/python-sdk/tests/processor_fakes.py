@@ -1,7 +1,7 @@
 """Shared fakes for CommandProcessor unit tests (no broker)."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import json
 from types import SimpleNamespace
 from typing import Any
 
@@ -38,15 +38,38 @@ class PlainEncryption:
     def open_payload(self, _subject: str, data: bytes) -> bytes:
         return data
 
+    def seal(self, _subject: str, data: bytes) -> bytes:
+        return data
+
+
+class FakeJetStream:
+    """Records JetStream publishes (response streams)."""
+
+    def __init__(self, events: list[str] | None = None, failures: int = 0) -> None:
+        self.published: list[tuple[str, bytes, dict | None]] = []
+        self.events = events if events is not None else []
+        self.failures = failures  # the first N publishes raise (broker unreachable)
+
+    async def publish(self, subject: str, payload: bytes, headers: dict | None = None, **_kw) -> None:
+        if self.failures:
+            self.failures -= 1
+            raise ConnectionError("no broker")
+        self.published.append((subject, payload, headers))
+        self.events.append("publish")
+
+    def responses(self, kind: str = "queue") -> list[dict]:
+        """Response payloads published to cmd.response.<kind>, decoded."""
+        return [json.loads(p)["response"] for s, p, _ in self.published if s.endswith(f".cmd.response.{kind}")]
+
 
 class FakeClient:
-    """Stands in for EdgeNatsClient: records state, no JetStream."""
+    """Stands in for EdgeNatsClient: records state and JetStream publishes."""
 
     def __init__(self, *, queued: int | None = None) -> None:
         self.machine_id = MACHINE_ID
         self.states: list[dict[str, Any]] = []
         self.encryption = PlainEncryption()
-        self.js = None
+        self.js = FakeJetStream()
         self.response_queue = f"puda.{MACHINE_ID}.cmd.response.queue"
         self.response_immediate = f"puda.{MACHINE_ID}.cmd.response.immediate"
         if queued is not None:
@@ -59,22 +82,31 @@ class FakeClient:
 
 
 class FakeMsg:
-    """A delivered JetStream message; *age* sets the stored timestamp."""
+    """A delivered JetStream message.
 
-    def __init__(self, msg: NATSMessage, kind: str = "queue", age: float | None = None) -> None:
+    *seq* and *delivered* set the stream sequence and delivery count; *events*
+    collects "ack"/"term" in order, shared with a FakeJetStream to check that
+    results are stored before the ack.
+    """
+
+    def __init__(self, msg: NATSMessage, kind: str = "queue", seq: int | None = None,
+                 delivered: int = 1, events: list[str] | None = None) -> None:
         self.subject = f"puda.{MACHINE_ID}.cmd.{kind}"
         self.data = msg.model_dump_json().encode()
         self.acked = False
         self.termed = False
         self.nakked = False
-        if age is not None:
-            self.metadata = SimpleNamespace(timestamp=datetime.now(timezone.utc) - timedelta(seconds=age))
+        self.events = events if events is not None else []
+        if seq is not None:
+            self.metadata = SimpleNamespace(sequence=SimpleNamespace(stream=seq), num_delivered=delivered)
 
     async def ack(self) -> None:
         self.acked = True
+        self.events.append("ack")
 
     async def term(self) -> None:
         self.termed = True
+        self.events.append("term")
 
     async def nak(self, delay: float | None = None) -> None:
         self.nakked = True

@@ -76,6 +76,16 @@ judge compatibility by that, not by package versions.
 - `estop` is never delayed by another immediate command. Each request runs in its
   own task, `estop` skips the line, and `estop` and `abort` use separate threads.
   Previously an `estop` sent during `complete --abort` waited up to 5 s.
+- A queued command's result is no longer lost when the broker is unreachable
+  as the command finishes. The edge stores the result in `RESPONSE_QUEUE` first,
+  retrying until JetStream accepts it, and only then acks the command; it used
+  to ack first and drop a result it could not publish, so the client waited
+  forever. A command redelivered after its result was stored gets the same
+  result again (`Nats-Msg-Id` makes it a duplicate JetStream drops) and does not
+  run again. One redelivered with no result on record, because the edge
+  restarted while handling it, is answered `EXECUTION_ERROR` "Redelivered without
+  a result ... Outcome unknown; it was not run again" instead of
+  `RUN_ID_MISMATCH`. Keep-alives (`+WPI`) also continue after a disconnect.
 - After a reconnect the edge keeps one queue pull loop. Every broker reconnect
   started another one.
 - Immediate commands sent while an edge was offline no longer act when it comes

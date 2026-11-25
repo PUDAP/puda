@@ -29,6 +29,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 KEEP_ALIVE_INTERVAL = 25  # seconds
+RESULT_MEMORY = 64  # queued results remembered by stream sequence
+
+
+def _stream_seq(msg: Msg) -> int | None:
+    """JetStream stream sequence of a delivered message, if known."""
+    try:
+        return int(msg.metadata.sequence.stream)
+    except Exception:
+        return None
+
+
+def _num_delivered(msg: Msg) -> int:
+    """How many times JetStream has delivered this message (1 if unknown)."""
+    try:
+        return int(msg.metadata.num_delivered)
+    except Exception:
+        return 1
 
 CommandHandler = Callable[[NATSMessage], Awaitable[CommandResponse]]
 
@@ -58,6 +75,11 @@ class CommandProcessor:
         self._pause_lock = asyncio.Lock()
         # Immediate verbs other than estop run one at a time, in arrival order.
         self._immediate_lock = asyncio.Lock()
+        # Results of recent queued commands by stream sequence, so a
+        # redelivery is answered again instead of run again.
+        self._results: dict[int, tuple[str | None, bool]] = {}
+        # Stream sequences this edge NAKed on pause; their redelivery may run.
+        self._nacked: set[int] = set()
         self._is_paused = False
         # Set by ESTOP, cleared only by a successful RESET.
         self._is_estopped = False
@@ -96,8 +118,9 @@ class CommandProcessor:
                 try:
                     await msg.in_progress()
                     logger.debug("Reset redelivery timer via keep-alive")
-                except Exception:
-                    break
+                except Exception as e:
+                    # Disconnected: keep trying, the connection may come back.
+                    logger.debug("Keep-alive failed (%s); retrying", e)
 
         task = asyncio.create_task(_heartbeat())
         try:
@@ -152,6 +175,32 @@ class CommandProcessor:
             logger.info("Published command response to JetStream: %s", text)
         except Exception as e:
             logger.error("Error publishing command response: %s", e)
+
+    async def _publish_queue_result(self, msg: Msg, text: str) -> None:
+        """Publish a queued command's response and wait until JetStream stores it.
+
+        Called before the message is acked, so a result is never lost: while
+        the broker is unreachable this retries, keeping the message alive, until
+        it succeeds. Nats-Msg-Id makes a republished result a duplicate that
+        JetStream drops.
+        """
+        subject = self._client.response_queue
+        seq = _stream_seq(msg)
+        headers = {"Nats-Msg-Id": f"{self._client.machine_id}:{seq}"} if seq is not None else None
+        payload = self._client.encryption.seal(subject, text.encode())
+        delay = 0.5
+        async with self._keep_message_alive(msg):
+            while True:
+                js = self._client.js  # None while reconnecting
+                if js is not None:
+                    try:
+                        await js.publish(subject=subject, payload=payload, headers=headers)
+                        logger.info("Published command response to JetStream: %s", text)
+                        return
+                    except Exception as e:
+                        logger.warning("Response not stored yet (%s); retrying in %.1fs", e, delay)
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 5.0)
 
     async def _reply_immediate(self, msg: Msg, response: CommandResponse) -> None:
         """Answer an immediate request on its reply inbox, then record a copy.
@@ -243,19 +292,46 @@ class CommandProcessor:
         term: bool = False,
         complete_run_id: str | None = None,
     ) -> None:
+        """Answer a queued command: store the result first, then ack or term.
+
+        If the edge dies in between, the message is redelivered; the result
+        record, or the redelivery rule in process_queue, stops it running again.
+        """
+        if complete_run_id is not None:
+            await self.run_manager.complete_run(complete_run_id)
+        text = self._response_text(msg, response)
+        if text is not None:
+            await self._publish_queue_result(msg, text)
+        self._remember_result(msg, text, term)
         if term:
             await msg.term()
         elif ack:
             await msg.ack()
-        if complete_run_id is not None:
-            await self.run_manager.complete_run(complete_run_id)
-        await self._publish_command_response(msg, response, self._client.response_queue)
+
+    def _remember_result(self, msg: Msg, text: str | None, term: bool) -> None:
+        seq = _stream_seq(msg)
+        if seq is None:
+            return
+        self._results[seq] = (text, term)
+        while len(self._results) > RESULT_MEMORY:
+            self._results.pop(next(iter(self._results)))
 
     async def process_queue(self, msg: Msg, handler: CommandHandler) -> None:
         """Parse -> validate -> handle -> ack/nak/term a queued command."""
         run_id = None
         step_number = None
         command = None
+        seq = _stream_seq(msg)
+        if seq is not None and seq in self._results:
+            # Redelivered after its result was stored but before the ack took
+            # effect: send the same result again (a duplicate JetStream drops)
+            # and settle it. It never runs twice.
+            text, term = self._results[seq]
+            logger.info("Redelivered command (stream seq %s) already answered; not running it again", seq)
+            if text is not None:
+                await self._publish_queue_result(msg, text)
+            await (msg.term() if term else msg.ack())
+            return
         try:
             try:
                 message = NATSMessage.model_validate_json(
@@ -283,11 +359,31 @@ class CommandProcessor:
                     term=True,
                 )
                 return
+            if _num_delivered(msg) > 1 and seq not in self._nacked:
+                # Delivered before, with no result on record: this edge lost
+                # track of it (it restarted while handling it). The hardware
+                # may have acted, so it must not run again.
+                logger.error("Redelivered command %s (step %s) has no result; not running it again",
+                             command, step_number)
+                await self._respond_queue(
+                    msg,
+                    _error(
+                        CommandResponseCode.EXECUTION_ERROR,
+                        "Redelivered without a result: the edge restarted while handling this "
+                        "command. Outcome unknown; it was not run again",
+                    ),
+                    term=True,
+                    complete_run_id=run_id if self.run_manager.get_active_run_id() == run_id else None,
+                )
+                return
+            self._nacked.discard(seq)
             if self._is_paused:
                 # Delivered just as the queue was paused: give it back to the
                 # stream unanswered. The pull loop waits for resume, and
                 # JetStream redelivers it before newer commands.
                 logger.info("Queue paused: returning %s (step %s) to the stream", command, step_number)
+                if seq is not None:
+                    self._nacked.add(seq)
                 await self._nak_confirmed(msg)
                 return
 
@@ -330,24 +426,30 @@ class CommandProcessor:
                     response.data,
                 )
 
-            if response.status == CommandResponseStatus.SUCCESS:
-                await msg.ack()
-            elif response.status == CommandResponseStatus.ERROR:
-                await self.run_manager.complete_run(run_id)
-                await msg.term()
-            await self._publish_command_response(msg, response, self._client.response_queue)
+            failed = response.status == CommandResponseStatus.ERROR
+            await self._respond_queue(
+                msg, response, ack=not failed, term=failed, complete_run_id=run_id if failed else None
+            )
 
         except asyncio.CancelledError:
             logger.info(
                 "Handler execution cancelled: run_id=%s, step_number=%s, command=%s",
                 run_id, step_number, command,
             )
-            await self._respond_queue(
-                msg,
-                _error(CommandResponseCode.COMMAND_CANCELLED, "Command cancelled"),
-                ack=True,
-                complete_run_id=run_id,
-            )
+            # Edge shutting down: try briefly to store the result, then stop.
+            try:
+                await asyncio.wait_for(
+                    self._respond_queue(
+                        msg,
+                        _error(CommandResponseCode.COMMAND_CANCELLED, "Command cancelled"),
+                        ack=True,
+                        complete_run_id=run_id,
+                    ),
+                    timeout=5,
+                )
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                logger.warning("Shutdown: result of %s (step %s) not stored", command, step_number)
+            raise
         except Exception as e:
             logger.error("Handler failed (terminating message): %s", e)
             await self._respond_queue(
