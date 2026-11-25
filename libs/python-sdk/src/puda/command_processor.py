@@ -215,6 +215,23 @@ class CommandProcessor:
         )
         return _error(CommandResponseCode.EXECUTION_ERROR, f"Invalid command envelope: {problems}")
 
+    @staticmethod
+    async def _nak_confirmed(msg: Msg) -> None:
+        """NAK and wait for the server to confirm it.
+
+        A plain (fire-and-forget) NAK can reach the server after the next pull,
+        which then gets a newer command first. A confirmed NAK puts the message
+        back at the head of the redelivery queue before anything else is pulled.
+        """
+        client = getattr(msg, "_client", None)
+        if client is not None and msg.reply:
+            try:
+                await client.request(msg.reply, b"-NAK", timeout=5)
+                return
+            except Exception as e:
+                logger.warning("Confirmed NAK failed (%s); sending a plain NAK", e)
+        await msg.nak()
+
     async def _respond_queue(
         self,
         msg: Msg,
@@ -252,26 +269,25 @@ class CommandProcessor:
             step_number = message.command.step_number if message.command else None
             command = message.command.name if message.command else None
 
-            while True:
-                if self._is_estopped:
-                    # Discard, do not redeliver: work queued before an estop must
-                    # not run after the reset.
-                    await self._respond_queue(
-                        msg,
-                        _error(
-                            CommandResponseCode.MACHINE_ESTOPPED,
-                            "Machine emergency stopped; send reset before queuing commands",
-                        ),
-                        term=True,
-                    )
-                    return
-                if not self._is_paused:
-                    break
-                # Delivered just as the queue was paused: hold it (kept alive so
-                # JetStream does not redeliver) and run it first on resume.
-                logger.info("Holding queued command %s (step %s) until resume", command, step_number)
-                async with self._keep_message_alive(msg):
-                    await self._runnable.wait()
+            if self._is_estopped:
+                # Discard, do not redeliver: work queued before an estop must
+                # not run after the reset.
+                await self._respond_queue(
+                    msg,
+                    _error(
+                        CommandResponseCode.MACHINE_ESTOPPED,
+                        "Machine emergency stopped; send reset before queuing commands",
+                    ),
+                    term=True,
+                )
+                return
+            if self._is_paused:
+                # Delivered just as the queue was paused: give it back to the
+                # stream unanswered. The pull loop waits for resume, and
+                # JetStream redelivers it before newer commands.
+                logger.info("Queue paused: returning %s (step %s) to the stream", command, step_number)
+                await self._nak_confirmed(msg)
+                return
 
             if run_id is None:
                 await self._respond_queue(

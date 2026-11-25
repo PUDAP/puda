@@ -3,6 +3,11 @@ from __future__ import annotations
 
 import asyncio
 
+import nats
+from nats.js.api import ConsumerConfig
+
+from puda.command_processor import CommandProcessor
+
 from nats_harness import EdgeTestCase, new_run
 
 
@@ -64,3 +69,31 @@ class PauseTests(EdgeTestCase):
         await self.wire.call("resume", "")
         state = await self.wire.state()
         self.assertEqual((state["state"], state["run_id"]), ("idle", run))
+
+
+class NakOrderTests(EdgeTestCase):
+    async def test_confirmed_nak_is_redelivered_before_newer_commands(self) -> None:
+        """A command NAKed at the instant of pausing runs first on resume."""
+        self.edge.stop()
+        nc = await nats.connect(self.broker.url)
+        try:
+            js = nc.jetstream()
+            subject = "puda.nak-order.cmd.queue"
+            for body in (b"first", b"second", b"third"):
+                await js.publish(subject, body)
+            sub = await js.pull_subscribe(subject, durable="cmd_queue_nak-order", stream="COMMAND_QUEUE",
+                                          config=ConsumerConfig(durable_name="cmd_queue_nak-order",
+                                                                filter_subject=subject, ack_policy="explicit",
+                                                                deliver_policy="all"))
+            first = (await sub.fetch(1, timeout=2))[0]
+            await CommandProcessor._nak_confirmed(first)
+            order = []
+            for _ in range(3):
+                msg = (await sub.fetch(1, timeout=2))[0]
+                order.append(msg.data)
+                await msg.ack()
+            self.assertEqual(order, [b"first", b"second", b"third"])
+        finally:
+            await nc.close()
+            self.edge.start()
+            await self.wire.wait_online()

@@ -1,4 +1,5 @@
-"""Pause holds the queue; resume runs held commands in order."""
+"""Pause holds the queue: nothing is pulled, and a command delivered at the
+instant of pausing is NAKed back to the stream."""
 from __future__ import annotations
 
 import asyncio
@@ -32,7 +33,7 @@ class PauseHoldsQueueTests(unittest.IsolatedAsyncioTestCase):
         await processor._immediate_resume(_success, _message("resume"))
         await asyncio.wait_for(waiter, 1)
 
-    async def test_delivered_command_is_held_then_runs_on_resume(self) -> None:
+    async def test_delivered_command_goes_back_to_the_stream_unanswered(self) -> None:
         processor = await self._paused_processor()
         executed: list[str] = []
 
@@ -41,18 +42,19 @@ class PauseHoldsQueueTests(unittest.IsolatedAsyncioTestCase):
             return CommandResponse(status=CommandResponseStatus.SUCCESS)
 
         msg = FakeMsg(_message("move"))
-        task = asyncio.create_task(processor.process_queue(msg, handler))
-        await asyncio.sleep(0.05)
+        await asyncio.wait_for(processor.process_queue(msg, handler), 1)
         self.assertEqual(executed, [])
+        self.assertTrue(msg.nakked)
         self.assertFalse(msg.acked or msg.termed)
 
+        # Redelivered after resume, it runs normally.
         await processor._immediate_resume(_success, _message("resume"))
-        await asyncio.wait_for(task, 1)
+        again = FakeMsg(_message("move"))
+        await asyncio.wait_for(processor.process_queue(again, handler), 1)
         self.assertEqual(executed, ["move"])
-        self.assertTrue(msg.acked)
-        self.assertFalse(msg.termed)
+        self.assertTrue(again.acked)
 
-    async def test_estop_discards_held_command(self) -> None:
+    async def test_redelivery_after_estop_is_discarded(self) -> None:
         processor = await self._paused_processor()
         called = False
 
@@ -61,13 +63,12 @@ class PauseHoldsQueueTests(unittest.IsolatedAsyncioTestCase):
             called = True
             return CommandResponse(status=CommandResponseStatus.SUCCESS)
 
-        msg = FakeMsg(_message("move"))
-        task = asyncio.create_task(processor.process_queue(msg, handler))
-        await asyncio.sleep(0.05)
+        await processor.process_queue(FakeMsg(_message("move")), handler)
         await processor._immediate_estop(_success, _message("estop"))
-        await asyncio.wait_for(task, 1)
+        again = FakeMsg(_message("move"))
+        await asyncio.wait_for(processor.process_queue(again, handler), 1)
         self.assertFalse(called)
-        self.assertTrue(msg.termed)
+        self.assertTrue(again.termed)
 
     async def test_estop_releases_pull_loop_so_backlog_is_discarded(self) -> None:
         processor = await self._paused_processor()

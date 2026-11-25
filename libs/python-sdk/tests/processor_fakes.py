@@ -66,6 +66,7 @@ class FakeMsg:
         self.data = msg.model_dump_json().encode()
         self.acked = False
         self.termed = False
+        self.nakked = False
         if age is not None:
             self.metadata = SimpleNamespace(timestamp=datetime.now(timezone.utc) - timedelta(seconds=age))
 
@@ -74,6 +75,9 @@ class FakeMsg:
 
     async def term(self) -> None:
         self.termed = True
+
+    async def nak(self, delay: float | None = None) -> None:
+        self.nakked = True
 
     async def in_progress(self) -> None:
         return None

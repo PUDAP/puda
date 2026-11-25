@@ -43,8 +43,9 @@ judge compatibility by that, not by package versions.
 - Pause now holds the queue instead of rejecting queued commands. While paused the
   edge stops pulling from `COMMAND_QUEUE`; commands sent meanwhile wait in the
   stream, and `resume` runs them in order. A command delivered at the instant of
-  pausing is held in memory (kept alive with `+WPI`) and runs first on resume. A
-  running command still finishes. `estop` discards held and backlogged commands
+  pausing is NAKed back to the stream (confirmed by the server, so it is
+  redelivered before newer commands) and runs first on resume. A running command
+  still finishes. `estop` discards held and backlogged commands
   (`MACHINE_ESTOPPED`). Previously such commands got `MACHINE_PAUSED`, were left
   unacknowledged and were redelivered 30 s later, so a command reported as failed
   could still run after `resume`.
