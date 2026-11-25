@@ -76,6 +76,8 @@ judge compatibility by that, not by package versions.
 - `estop` is never delayed by another immediate command. Each request runs in its
   own task, `estop` skips the line, and `estop` and `abort` use separate threads.
   Previously an `estop` sent during `complete --abort` waited up to 5 s.
+- After a reconnect the edge keeps one queue pull loop. Every broker reconnect
+  started another one.
 - Immediate commands sent while an edge was offline no longer act when it comes
   back (see request/reply above). Previously a stale `start`, `reset` or `estop`
   replayed on startup; a replayed `start` left an active run hidden behind

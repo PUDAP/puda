@@ -308,8 +308,9 @@ class EdgeNatsClient:
         self.js = None
         self.kv_state = None
         self.kv_commands = None
+        # The pull loop keeps running (a command may be executing); it idles
+        # until subscribe_queue rebinds _cmd_queue_sub on the new connection.
         self._cmd_queue_sub = None
-        self._cmd_queue_task = None
         # Core subscriptions (immediate, ping) survive reconnects inside nats-py;
         # their handles are kept so they are not subscribed twice.
         self._last_heartbeat_at = None
@@ -687,8 +688,12 @@ class EdgeNatsClient:
             while True:
                 # Pause holds the queue: stop pulling until resume (or estop).
                 await self.commands.wait_until_runnable()
+                sub = self._cmd_queue_sub
+                if sub is None:  # reconnecting; subscribe_queue rebinds it
+                    await asyncio.sleep(0.5)
+                    continue
                 try:
-                    msgs = await self._cmd_queue_sub.fetch(batch=1, timeout=1.0)
+                    msgs = await sub.fetch(batch=1, timeout=1.0)
                     if msgs:
                         logger.debug("Pulled message from queue")
                         await self.commands.process_queue(msgs[0], handler)
@@ -738,8 +743,11 @@ class EdgeNatsClient:
             except Exception as e:
                 logger.warning("Could not get consumer info after subscription: %s", e)
 
-            self._cmd_queue_task = asyncio.create_task(self._pull_queue_loop(handler))
-            logger.info("Started background task for pulling queue messages")
+            # One pull loop for the life of the client: after a reconnect only the
+            # subscription is rebound, which the loop reads on every fetch.
+            if self._cmd_queue_task is None or self._cmd_queue_task.done():
+                self._cmd_queue_task = asyncio.create_task(self._pull_queue_loop(handler))
+                logger.info("Started background task for pulling queue messages")
         except NotFoundError:
             logger.error(
                 "Stream %s not found when subscribing to %s (pattern %s.*.cmd.queue)",
