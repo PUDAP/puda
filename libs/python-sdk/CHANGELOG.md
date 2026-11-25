@@ -11,6 +11,10 @@ judge compatibility by that, not by package versions.
 
 ## [Unreleased]
 
+### Changed
+
+- An edge on an unprovisioned broker creates the command and response streams with the provisioned settings instead of a minimal config: `COMMAND_QUEUE` holds at most 10 commands per machine and refuses more (`discard_new_per_subject`), and the response streams use file storage with a 24 h `max_age`. Provisioned brokers are unchanged by the edge, as before; `infra/nats/jetstream/streams/COMMAND_QUEUE.json` carries the same limit.
+
 ## [0.1.0rc1] - 2026-11-25
 
 Release candidate. First release speaking PUDA Edge Protocol 1.0

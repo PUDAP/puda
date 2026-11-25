@@ -24,6 +24,11 @@ class UnprovisionedBrokerTests(EdgeTestCase):
                          "KV_MACHINE_STATE", "KV_MACHINE_COMMANDS"} <= names)
         self.assertNotIn("COMMAND_IMMEDIATE", names)
         self.assertIn("is missing; creating", self.edge_log())
+        created = {info.config.name: info.config.as_dict() for info in await self.wire.js.streams_info()}
+        for name in ("COMMAND_QUEUE", "RESPONSE_QUEUE", "RESPONSE_IMMEDIATE"):
+            provisioned = json.loads((STREAMS_DIR / f"{name}.json").read_text())
+            provisioned.pop("description", None)
+            self.assertEqual({k: created[name].get(k) for k in provisioned}, provisioned, name)
 
 
 class ProvisionedStreamsAreNotModifiedTests(unittest.IsolatedAsyncioTestCase):
@@ -55,5 +60,6 @@ class ProvisionedStreamsAreNotModifiedTests(unittest.IsolatedAsyncioTestCase):
 
         after = {i.config.name: i.config.as_dict() for i in await js.streams_info()}
         self.assertEqual(after, before)
-        self.assertEqual(after["COMMAND_QUEUE"]["max_msgs_per_subject"], 100)
+        self.assertEqual(after["COMMAND_QUEUE"]["max_msgs_per_subject"], 10)
+        self.assertTrue(after["COMMAND_QUEUE"]["discard_new_per_subject"])
         self.assertIn("Stream RESPONSE_QUEUE does not match the protocol", edge.output())

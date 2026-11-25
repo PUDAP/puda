@@ -8,7 +8,9 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -159,4 +161,60 @@ func TestSendImmediateCommandOverRequestReply(t *testing.T) {
 		t.Fatalf("response=%+v err=%v", response, err)
 	}
 	_ = sub.Unsubscribe()
+}
+
+func TestQueueFullIsRefusedWithoutRetryAndNothingIsDeleted(t *testing.T) {
+	nc := immediateTestBroker(t)
+	js, err := nc.JetStream()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "infra", "nats", "jetstream", "streams", "COMMAND_QUEUE.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg natsio.StreamConfig
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := js.AddStream(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MaxMsgsPerSubject != 10 || !cfg.DiscardNewPerSubject {
+		t.Fatalf("COMMAND_QUEUE: max_msgs_per_subject=%d discard_new_per_subject=%v, want 10/true", cfg.MaxMsgsPerSubject, cfg.DiscardNewPerSubject)
+	}
+	for i := 1; i <= 10; i++ {
+		if _, err := js.Publish("puda.capped.cmd.queue", []byte(fmt.Sprintf("cmd%d", i))); err != nil {
+			t.Fatalf("publish %d: %v", i, err)
+		}
+	}
+
+	dispatcher := NewResponseDispatcher(js, "test-user")
+	request := puda.CommandRequest{Name: "echo", StepNumber: 11, MachineID: "capped"}
+	started := time.Now()
+	_, err = SendQueueCommandWithContext(context.Background(), &sync.Mutex{}, js, dispatcher, request, "run-1", "test-user", "tester", nil)
+	if !errors.Is(err, ErrQueueFull) {
+		t.Fatalf("err = %v, want ErrQueueFull", err)
+	}
+	if !strings.Contains(err.Error(), "machine capped already has the maximum number of commands waiting") {
+		t.Fatalf("message = %q", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("took %s; a refused publish must not be retried", elapsed)
+	}
+	info, err := js.StreamInfo("COMMAND_QUEUE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.State.Msgs != 10 || info.State.FirstSeq != 1 {
+		t.Fatalf("stream has %d messages from seq %d; want the original 10 from seq 1", info.State.Msgs, info.State.FirstSeq)
+	}
+}
+
+func TestIsQueueFull(t *testing.T) {
+	full := &natsio.APIError{Code: 503, ErrorCode: 10077, Description: "maximum messages per subject exceeded"}
+	other := &natsio.APIError{Code: 503, ErrorCode: 10077, Description: "insufficient resources"}
+	if !isQueueFull(fmt.Errorf("publish: %w", full)) || isQueueFull(other) || isQueueFull(errors.New("timeout")) {
+		t.Fatal("isQueueFull misclassifies")
+	}
 }

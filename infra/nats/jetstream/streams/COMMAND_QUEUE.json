@@ -6,6 +6,7 @@
   "retention": "workqueue",
   "storage": "file",
   "discard": "new",
-  "max_msgs_per_subject": 100,
+  "max_msgs_per_subject": 10,
+  "discard_new_per_subject": true,
   "description": "Queued machine commands (WorkQueue, pull consumer)"
 }
