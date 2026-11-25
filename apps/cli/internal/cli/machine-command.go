@@ -60,9 +60,10 @@ var machineCompleteCmd = newImmediateMachineCommand(immediateMachineCommandConfi
 	short: "Complete a run on machine(s)",
 	long: `complete is refused with EXECUTION_LOCKED while a queued command of the run
 is running; data.running names it and data.queued counts the commands behind
-it. --abort stops it instead (driver abort, command answered
-COMMAND_CANCELLED) and ends the run. Completing a run that already ended
-succeeds with data.already_completed.`,
+it. --abort ends the run at once instead: the edge starts the driver abort
+(data.driver_abort) and answers the running command COMMAND_CANCELLED when its
+driver call returns; until then the machine stays busy and runs nothing else.
+Completing a run that already ended succeeds with data.already_completed.`,
 	label:     "Complete",
 	sender:    sendCompleteCommand,
 	runIDFlag: &machineCompleteRunID,

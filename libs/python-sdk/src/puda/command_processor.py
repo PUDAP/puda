@@ -296,17 +296,19 @@ class CommandProcessor:
                 return
 
             running = {"name": command, "step_number": step_number, "run_id": run_id,
-                       "started": time.monotonic(), "aborted": False}
+                       "started": time.monotonic(), "stopped_by": None}
             self._running = running
             try:
                 async with self._keep_message_alive(msg):
                     response = await handler(message)
             finally:
                 self._running = None
-            if running["aborted"]:
+            if running["stopped_by"] is not None:
+                # Answered only now that the driver call has returned, so the
+                # next queued command can never overlap it.
                 response = _error(
                     CommandResponseCode.COMMAND_CANCELLED,
-                    "Aborted by complete --abort",
+                    f"Stopped by {running['stopped_by']}",
                     response.data,
                 )
 
@@ -441,9 +443,11 @@ class CommandProcessor:
     ) -> CommandResponse:
         """End the run. Refused while one of its commands runs unless params.abort.
 
-        With ``abort`` the running command is stopped through *handler* (driver
-        ``abort`` plus a bounded wait) and answered ``COMMAND_CANCELLED``. Repeating
-        COMPLETE for a run that already ended succeeds with ``already_completed``.
+        With ``abort`` the run ends at once: the running command is marked
+        stopped, *handler* starts the driver ``abort`` without waiting for it, and
+        the command is answered ``COMMAND_CANCELLED`` when its driver call
+        returns. Repeating COMPLETE for a run that already ended succeeds with
+        ``already_completed``.
         """
         if not run_id:
             return _error(CommandResponseCode.MISSING_RUN_ID, "COMPLETE command requires RUN_ID")
@@ -469,19 +473,19 @@ class CommandProcessor:
 
         data: dict | None = None
         if abort:
-            data = {"aborted": None, "driver_abort": False, "finished": True,
-                    "queued": await self._queued_count()}
+            data = {"aborted": None, "driver_abort": False, "queued": await self._queued_count()}
             if running is not None:
-                running["aborted"] = True
+                running["stopped_by"] = "complete --abort"
                 data["aborted"] = self._describe_running(running)
                 stop = await handler(message)
-                data.update({k: v for k, v in (stop.data or {}).items() if k in
-                             ("driver_abort", "finished", "driver_error")})
+                data["driver_abort"] = bool((stop.data or {}).get("driver_abort"))
 
-        # An aborted command's error response may already have ended the run.
+        # An estop handled meanwhile may already have ended the run.
         if self.run_manager.get_active_run_id() == run_id:
             await self.run_manager.complete_run(run_id)
-        await self._client.publish_state({"state": MachineState.IDLE, "run_id": None})
+        # busy until an aborted driver call actually returns
+        state = MachineState.BUSY if self._running is not None else MachineState.IDLE
+        await self._client.publish_state({"state": state, "run_id": None})
         return CommandResponse(status=CommandResponseStatus.SUCCESS, data=data)
 
     async def _immediate_pause(self, message: NATSMessage, handler: CommandHandler) -> CommandResponse:
@@ -540,6 +544,8 @@ class CommandProcessor:
         """
         self._is_estopped = True
         self._update_runnable()
+        if self._running is not None:
+            self._running["stopped_by"] = "estop"
         logger.critical("EMERGENCY STOP received (run_id: %s)", message.header.run_id)
         try:
             response = await handler(message)

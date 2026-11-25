@@ -50,10 +50,11 @@ judge compatibility by that, not by package versions.
   could still run after `resume`.
 - `complete` is refused with `EXECUTION_LOCKED` while a queued command of the run
   is executing; `data` carries `running` (`name`, `step_number`, `elapsed_s`) and
-  `queued`. With `params: {"abort": true}` the edge calls the driver's optional
-  `abort` method, waits up to 5 s, answers the running command `COMMAND_CANCELLED`
-  and ends the run; `data` reports `aborted`, `driver_abort`, `finished` and
-  `queued`. Completing a run that already ended succeeds with
+  `queued`. With `params: {"abort": true}` the edge ends the run and replies at
+  once, starting the driver's optional `abort` method on its own thread; `data`
+  reports `aborted`, `driver_abort` and `queued`. The running command is answered
+  `COMMAND_CANCELLED` when its driver call returns, and state stays `busy` (no
+  run) until then. Completing a run that already ended succeeds with
   `data: {"already_completed": true}`.
 
 ### Removed
@@ -66,6 +67,11 @@ judge compatibility by that, not by package versions.
 
 ### Fixed
 
+- A command stopped by `estop` or `complete --abort` keeps its driver thread
+  until the call returns, and the next queued command waits for it. Previously
+  the edge stopped waiting after 5 s (abort) or at once (estop) and started the
+  next command while the hardware call could still be running. The CLI no longer
+  raises its timeout for `--abort`.
 - Immediate commands sent while an edge was offline no longer act when it comes
   back (see request/reply above). Previously a stale `start`, `reset` or `estop`
   replayed on startup; a replayed `start` left an active run hidden behind

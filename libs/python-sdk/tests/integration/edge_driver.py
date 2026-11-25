@@ -40,6 +40,14 @@ class FullDriver:
         return {"waited": seconds, "stopped": stopped}
 
     @command
+    def stuck(self, seconds: float = 1.0) -> dict:
+        """Block for ``seconds``; ignores abort and estop (a hung hardware call)."""
+        print(f"EXEC stuck {seconds}", flush=True)
+        time.sleep(seconds)
+        print("DONE stuck", flush=True)
+        return {"waited": seconds}
+
+    @command
     def fail(self, message: str = "boom") -> None:
         """Always raise."""
         raise RuntimeError(message)

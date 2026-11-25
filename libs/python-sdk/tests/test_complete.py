@@ -46,20 +46,24 @@ class CompleteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.data["queued"], 2)
         self.assertEqual(self.processor.run_manager.get_active_run_id(), "run-1")
 
-    async def test_abort_stops_running_command_and_ends_run(self) -> None:
+    async def test_abort_ends_run_at_once_and_answers_command_when_it_returns(self) -> None:
         async def stop(_m: NATSMessage) -> CommandResponse:
-            self.release.set()
-            return CommandResponse(status=CommandResponseStatus.SUCCESS,
-                                   data={"driver_abort": True, "finished": True})
+            # The driver abort is only started; the command keeps running.
+            return CommandResponse(status=CommandResponseStatus.SUCCESS, data={"driver_abort": True})
 
         response = await self.processor._immediate_complete(
             "run-1", _message("complete", params={"abort": True}), stop)
         self.assertEqual(response.status, CommandResponseStatus.SUCCESS)
         self.assertEqual(response.data["aborted"]["name"], "move")
         self.assertTrue(response.data["driver_abort"])
+        self.assertNotIn("finished", response.data)
         self.assertIsNone(self.processor.run_manager.get_active_run_id())
+        self.assertFalse(self.queued.done())
+        self.assertEqual(self.responses, [])
+        self.release.set()
         await asyncio.wait_for(self.queued, 1)
         self.assertEqual(self.responses[-1].code, CommandResponseCode.COMMAND_CANCELLED)
+        self.assertEqual(self.responses[-1].message, "Stopped by complete --abort")
 
     async def test_repeat_complete_reports_already_completed(self) -> None:
         self.release.set()

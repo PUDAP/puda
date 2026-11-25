@@ -5,7 +5,7 @@
 ### Added
 
 - `puda machine commands` reports the lifecycle hooks the driver implements (`hooks` in JSON, a "Lifecycle hooks" line with `--human`), so agents can tell whether `estop` or `abort` reaches the hardware. `puda protocol validate` and `run` reject `start`, `complete` and hook names as steps with an explanation instead of "not found".
-- `puda machine complete --abort` stops the running command instead of being refused, then ends the run (requires Python SDK 0.1.0 edges). Results now include the edge's `code` and `data` for every immediate command, so a refused `complete` reports `code: EXECUTION_LOCKED` with `data.running` (name, step, elapsed) and `data.queued`, and an abort reports `data.aborted`, `driver_abort`, `finished` and `queued`.
+- `puda machine complete --abort` stops the running command instead of being refused, then ends the run (requires Python SDK 0.1.0 edges). Results now include the edge's `code` and `data` for every immediate command, so a refused `complete` reports `code: EXECUTION_LOCKED` with `data.running` (name, step, elapsed) and `data.queued`, and an abort reports `data.aborted`, `driver_abort` and `queued`. An abort returns at once; the running command is answered `COMMAND_CANCELLED` when its driver call returns, and the machine runs nothing else until then.
 
 ### Changed
 

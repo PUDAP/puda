@@ -53,7 +53,6 @@ _HOOK_QUEUE_ERRORS = {
 }
 
 # Seconds complete --abort waits for the running command after driver abort.
-ABORT_WAIT = 5.0
 
 TLM_STREAM_ERROR_LOG_INTERVAL = 30.0  # seconds
 HOST_HEALTH_INTERVAL = 5.0  # seconds
@@ -234,7 +233,9 @@ class EdgeRunner:
         # Dedicated threads so an emergency stop never waits behind queued
         # commands or telemetry in the default executor.
         self._awaiting_reconnect = False
+        # Separate pools: a hung abort hook must never occupy estop's thread.
         self._estop_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="puda-estop")
+        self._abort_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="puda-abort")
         if ImmediateCommand.ESTOP.value not in self.hooks:
             logger.warning(
                 "%s has no estop method; emergency stop will only halt the queue",
@@ -282,6 +283,7 @@ class EdgeRunner:
             logger.warning("Failed to publish offline state: %s", e)
         await self._driver_shutdown()
         self._estop_executor.shutdown(wait=False)
+        self._abort_executor.shutdown(wait=False)
         try:
             await self.nats_client.disconnect()
         except Exception as e:
@@ -413,7 +415,8 @@ class EdgeRunner:
                     message="Command was cancelled",
                 )
 
-            await self._publish_state(MachineState.IDLE, run_id)
+            # The active run, not the message's: an abort may have ended it.
+            await self._publish_state(MachineState.IDLE, self._active_run_id())
             await self.nats_client.publish_log("INFO", f"Command {command_name} completed")
             return CommandResponse(
                 status=CommandResponseStatus.SUCCESS,
@@ -489,31 +492,28 @@ class EdgeRunner:
         )
 
     async def _handle_abort(self) -> CommandResponse:
-        """Stop the running queued command for ``complete --abort``.
+        """Start the driver ``abort`` hook for ``complete --abort`` and return.
 
-        Calls the driver ``abort`` (if it has one) and waits up to
-        ``ABORT_WAIT`` seconds for the command to return. If it does not, the
-        edge stops waiting for it; the driver thread may still be running, which
-        is reported as ``finished: false``.
+        Nothing waits for the running command: it keeps its driver thread and is
+        answered ``COMMAND_CANCELLED`` when that call returns, and the queue does
+        not move on before then. The hook runs on its own thread; an error it
+        raises later is logged and published as an ``evt.log`` ERROR.
         """
-        data: dict = {"driver_abort": False, "finished": True}
+        data: dict = {"driver_abort": False}
         if "abort" in self.hooks:
-            handler = getattr(self.machine_driver, "abort")
-            try:
-                await asyncio.get_running_loop().run_in_executor(self._estop_executor, handler)
-                data["driver_abort"] = True
-            except Exception as e:
-                logger.error("Driver abort raised: %s", e, exc_info=True)
-                data["driver_error"] = str(e)
-        task = self.exec_state.get_current_task()
-        if task is not None and not task.done():
-            done, _ = await asyncio.wait({task}, timeout=ABORT_WAIT if data["driver_abort"] else 0)
-            if not done:
-                data["finished"] = False
-                await self.exec_state.cancel_current_execution()
-                logger.warning("Running command did not stop after abort; no longer waiting for it")
+            loop = asyncio.get_running_loop()
+            future = loop.run_in_executor(self._abort_executor, getattr(self.machine_driver, "abort"))
+            future.add_done_callback(self._report_abort_failure)
+            data["driver_abort"] = True
         await self.nats_client.publish_log("WARNING", "Run aborted by complete --abort")
         return CommandResponse(status=CommandResponseStatus.SUCCESS, data=data)
+
+    def _report_abort_failure(self, future: asyncio.Future) -> None:
+        if future.cancelled() or future.exception() is None:
+            return
+        error = future.exception()
+        logger.error("Driver abort raised: %s", error, exc_info=error)
+        asyncio.ensure_future(self.nats_client.publish_log("ERROR", f"Driver abort failed: {error}"))
 
     async def _handle_estop(self, message: NATSMessage) -> CommandResponse:
         """Run the driver ``estop`` and cancel the running queued command.
@@ -532,9 +532,10 @@ class EdgeRunner:
             stop = asyncio.get_running_loop().run_in_executor(
                 self._estop_executor, lambda: handler(**merged)
             )
-        cancelled = await self.exec_state.cancel_current_execution()
-        if cancelled:
-            logger.critical("Emergency stop cancelled the running queued command")
+        # The running queued command is not cancelled: it is answered
+        # COMMAND_CANCELLED when its driver call returns (the estop should make
+        # it return), so nothing can overlap it.
+        running = self.exec_state.get_current_task() is not None
         await self.nats_client.publish_log("CRITICAL", "Emergency stop received")
         if stop is None:
             return CommandResponse(
@@ -542,7 +543,7 @@ class EdgeRunner:
                 code=CommandResponseCode.ESTOP_NOT_SUPPORTED,
                 message=(
                     "Driver has no estop command: queue halted"
-                    + (" and running command cancelled" if cancelled else "")
+                    + (", running command left to finish" if running else "")
                     + ", but no hardware stop was sent"
                 ),
             )

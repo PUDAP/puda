@@ -164,7 +164,7 @@ These lifecycle hooks are optional. Define them when the machine has matching ha
 - `reset`: if defined, `puda machine reset <machine_id>` calls it after clearing the active run ID. The CLI command still succeeds and clears the run if `reset` is omitted. A successful reset also clears an [emergency stop](#emergency-stop).
 - `estop`: if defined, `puda machine estop <machine_id>` calls it immediately, even while another command is running. See [Emergency stop](#emergency-stop).
 - `pause` / `resume`: if defined, called after `puda machine pause` / `resume` hold or release the queue.
-- `abort`: if defined, `puda machine complete --abort <machine_id>` calls it on its own thread to stop the running command (a soft stop, not a safety action).
+- `abort`: if defined, `puda machine complete --abort <machine_id>` calls it on its own thread to stop the running command (a soft stop, not a safety action). The run ends at once; the command is answered `COMMAND_CANCELLED` when it returns, and the machine runs nothing else until then, so make commands return promptly after `abort` or `estop`.
 
 ```python title="driver.py"
 from puda import command

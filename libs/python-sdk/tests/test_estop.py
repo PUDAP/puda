@@ -110,7 +110,7 @@ async def _telemetry() -> None:
 
 
 class RunnerEstopTests(unittest.IsolatedAsyncioTestCase):
-    async def test_estop_runs_on_own_thread_and_cancels_running_command(self) -> None:
+    async def test_estop_runs_on_own_thread_and_running_command_returns(self) -> None:
         driver = EstopDriver()
         runner = EdgeRunner(EdgeNatsClient(["nats://localhost:4222"], "test-1"), driver, _telemetry)
 
@@ -123,7 +123,9 @@ class RunnerEstopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, CommandResponseStatus.SUCCESS)
         self.assertEqual(response.data, {"stopped": True})
         self.assertTrue(driver.estop_thread.startswith("puda-estop"))
-        self.assertEqual(queued.code, CommandResponseCode.COMMAND_CANCELLED)
+        # The runner waits for the driver call instead of cancelling it; the
+        # processor answers it COMMAND_CANCELLED (see test_it_baseline).
+        self.assertEqual(queued.status, CommandResponseStatus.SUCCESS)
 
     async def test_missing_estop_reports_no_hardware_stop(self) -> None:
         runner = EdgeRunner(

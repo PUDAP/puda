@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 from nats_harness import EdgeTestCase, new_run
 
@@ -23,7 +24,7 @@ class CompleteTests(EdgeTestCase):
         self.assertEqual(aborted["status"], "success")
         self.assertEqual(aborted["data"]["aborted"]["name"], "hold")
         self.assertTrue(aborted["data"]["driver_abort"])
-        self.assertTrue(aborted["data"]["finished"])
+        self.assertNotIn("finished", aborted["data"])
         self.assertEqual(aborted["data"]["queued"], 1)
         self.assertEqual((await self.wire.response("queue", "hold", run, 1))["code"], "COMMAND_CANCELLED")
         self.assertEqual((await self.wire.response("queue", "echo", run, 2))["code"], "RUN_ID_MISMATCH")
@@ -44,13 +45,21 @@ class CompleteTests(EdgeTestCase):
 class AbortWithoutDriverAbortTests(EdgeTestCase):
     driver = "minimal"
 
-    async def test_abort_reports_unfinished_command(self) -> None:
+    async def test_abort_returns_at_once_and_answers_the_command_when_it_returns(self) -> None:
         run = new_run()
         await self.wire.call("start", run)
         await self.wire.queue("hold", run, 1, params={"seconds": 3})
         await asyncio.sleep(0.5)
+        started = time.monotonic()
         aborted = await self.wire.call("complete", run, params={"abort": True})
+        self.assertLess(time.monotonic() - started, 1.0)
         self.assertEqual(aborted["status"], "success")
         self.assertFalse(aborted["data"]["driver_abort"])
-        self.assertFalse(aborted["data"]["finished"])
+        # The run is over but the driver call is not: busy with no run.
+        state = await self.wire.state()
+        self.assertEqual((state["state"], state["run_id"]), ("busy", None))
+        self.assertEqual(self.wire.matching("queue", "hold", run, 1), [])
         self.assertEqual((await self.wire.response("queue", "hold", run, 1))["code"], "COMMAND_CANCELLED")
+        self.assertLess(started + 2.0, time.monotonic())
+        state = await self.wire.state()
+        self.assertEqual((state["state"], state["run_id"]), ("idle", None))

@@ -224,10 +224,6 @@ func SendStartCommandWithContext(ctx context.Context, interlock *sync.Mutex, nc 
 	return sendImmediateCommandWithContext(ctx, interlock, nc, request, runID, userID, username, timeoutSeconds, store, onPublishAttempt)
 }
 
-// AbortTimeoutSeconds is the minimum wait for a COMPLETE with abort: the edge
-// calls the driver abort and waits up to 5 s for the running command.
-const AbortTimeoutSeconds = 20
-
 // SendCompleteCommand sends a COMPLETE command to a machine. With abort the
 // edge stops the running queued command instead of refusing with
 // EXECUTION_LOCKED.
@@ -235,9 +231,6 @@ func SendCompleteCommand(nc *nats.Conn, machineID, runID, userID, username strin
 	params := make(map[string]interface{})
 	if abort {
 		params["abort"] = true
-		if timeoutSeconds < AbortTimeoutSeconds {
-			timeoutSeconds = AbortTimeoutSeconds
-		}
 	}
 	request := puda.CommandRequest{
 		Name:       puda.ImmediateCommandComplete,

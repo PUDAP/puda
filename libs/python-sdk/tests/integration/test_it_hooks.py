@@ -11,7 +11,7 @@ class HookCatalogTests(EdgeTestCase):
         kv = await self.wire.js.key_value("MACHINE_COMMANDS")
         payload = json.loads((await kv.get(self.machine_id)).value)
         self.assertEqual(payload["hooks"], ["abort", "estop", "pause", "reset", "resume"])
-        self.assertEqual(sorted(entry["name"] for entry in payload["catalog"]), ["echo", "fail", "hold"])
+        self.assertEqual(sorted(entry["name"] for entry in payload["catalog"]), ["echo", "fail", "hold", "stuck"])
 
     async def test_queued_hook_is_rejected_and_ends_the_run(self) -> None:
         run = new_run()
