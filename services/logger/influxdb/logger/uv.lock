@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 
 [[package]]
@@ -198,11 +198,11 @@ wheels = [
 
 [[package]]
 name = "nats-py"
-version = "2.16.0"
+version = "2.17.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/2c/c8/739b72c9201081e48000884d476231873ac82f7247c43b33823eaf3c0bfb/nats_py-2.16.0.tar.gz", hash = "sha256:1d137ed7afc9b59033b3199324c6237df2016a5091935871344a787eba6b72fc", size = 79731, upload-time = "2026-09-16T07:47:21.843Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ad/81/bb848a2b1a78e65be0a1127c6b3554fb3dffd9106111a21f7a466ef032a6/nats_py-2.17.0.tar.gz", hash = "sha256:d231b0915567777e283b3553dbe6b35df450c9ffaba65c8a6ca11e6a622bcc07", size = 83960, upload-time = "2026-11-17T14:09:21.97Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/48/a3/16cec37172144d3362d7551bb823a098b2b2903281fc095dfe4480b8c2fd/nats_py-2.16.0-py3-none-any.whl", hash = "sha256:aeb1ff123966c05833d26c7df7e1d54c1c6d32b612428b21677a2e921f1fecae", size = 93578, upload-time = "2026-09-16T07:47:20.799Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/5a/dbc821dce27cf8f322f36fc99ad2b5c61d37f0b6a96604077aae892ccffb/nats_py-2.17.0-py3-none-any.whl", hash = "sha256:fc7d01f68957462220d6bdce310cad1707eeb5fbd369903d84217b18ea341c0e", size = 97786, upload-time = "2026-11-17T14:09:20.486Z" },
 ]
 
 [[package]]
@@ -253,7 +253,7 @@ wheels = [
 
 [[package]]
 name = "puda"
-version = "0.0.19rc1"
+version = "0.1.0rc1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
@@ -261,9 +261,9 @@ dependencies = [
     { name = "psutil" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cd/f8/63c513cbc86f409a19dea8bbc9c485d5b56fef3058d5d79f6032acffe17c/puda-0.0.19rc1.tar.gz", hash = "sha256:f7c993b45c07bbb059946f24755b643c55ad161160f10d9939a8059b82159e07", size = 47282, upload-time = "2026-10-09T05:43:48.908Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b1/bd/8972b978d9fb8a166c38eaa3a643a9899e58f41c3714ea8f4d926984e2ed/puda-0.1.0rc1.tar.gz", hash = "sha256:e463471f0dc7d0335d522fefcfe1293f5816a7d50f600e60894b9a7038a23b7c", size = 69787, upload-time = "2026-11-25T07:27:02.012Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/01/39/2b42b948ac441944fdd0016b8fdff080ead432aba5b4cb7aa2278ee10a9f/puda-0.0.19rc1-py3-none-any.whl", hash = "sha256:12690a43141cde2f68b297b8e6740e9ee0825f416d80a608ed9420714c59dd14", size = 52946, upload-time = "2026-10-09T05:43:46.823Z" },
+    { url = "https://files.pythonhosted.org/packages/70/ae/1941f04d6575d9dd887de3617384c5b9fd7569045563d163be1c36eb54dc/puda-0.1.0rc1-py3-none-any.whl", hash = "sha256:a28ed1af3cdfb3c987ec204d564b3a79738c3492671346eccfaa9cb5ac238173", size = 64252, upload-time = "2026-11-25T07:26:59.116Z" },
 ]
 
 [[package]]
@@ -283,8 +283,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "nats-py", specifier = ">=2.12.0" },
-    { name = "puda", specifier = "==0.0.19rc1" },
+    { name = "nats-py", specifier = ">=2.17.0" },
+    { name = "puda", specifier = "==0.1.0rc1" },
 ]
 
 [package.metadata.requires-dev]

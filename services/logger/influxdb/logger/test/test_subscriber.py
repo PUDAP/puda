@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from puda import e2e
 
+from e2e_context import ring_context
 from subscriber import Config, Subscriber, duration_seconds, timestamp_ns, to_line
 
 
@@ -19,9 +20,6 @@ def clean_env(monkeypatch):
         "JS_RESPONSE_MAX_AGE",
     ):
         monkeypatch.delenv(name, raising=False)
-    e2e.reset()
-    yield
-    e2e.reset()
 
 
 @pytest.fixture
@@ -52,7 +50,7 @@ def test_plaintext_config(monkeypatch):
     assert not config.encrypted
     assert config.servers == ["nats://one:4222", "nats://two:4222"]
     assert config.connect_options == {}
-    assert not e2e.enabled()
+    assert not config.context.enabled()
 
 
 @pytest.mark.parametrize("variable", ["PUDA_NATS_CA", "PUDA_E2E_KEY_FILE"])
@@ -299,8 +297,10 @@ async def test_plaintext_and_e2ee_identical_output(command):
     payload = json.dumps(command).encode()
     await subscriber.process(message(payload), True)
     plain_line = subscriber.emit.call_args.args[0]
-    e2e.set_ring(e2e.Ring(encrypt=b"a" * 32))
-    encrypted = message(e2e.seal("puda.first.cmd.response.queue", payload))
+    subscriber.config.context = ring_context(e2e.Ring(encrypt=b"a" * 32))
+    encrypted = message(
+        subscriber.config.context.seal("puda.first.cmd.response.queue", payload)
+    )
     await subscriber.process(encrypted, True)
     assert subscriber.emit.call_args.args[0] == plain_line
     encrypted.ack.assert_awaited_once()
@@ -332,12 +332,12 @@ async def test_core_messages_never_acked(command):
 
 
 async def test_wrong_key_retries_without_emitting(command):
-    e2e.set_ring(e2e.Ring(encrypt=b"a" * 32))
+    sender = ring_context(e2e.Ring(encrypt=b"a" * 32))
     msg = message(
-        e2e.seal("puda.first.cmd.response.queue", json.dumps(command).encode())
+        sender.seal("puda.first.cmd.response.queue", json.dumps(command).encode())
     )
-    e2e.set_ring(e2e.Ring(encrypt=b"b" * 32))
-    subscriber = Subscriber(Config([], True, {}))
+    wrong = ring_context(e2e.Ring(encrypt=b"b" * 32))
+    subscriber = Subscriber(Config([], True, {}, context=wrong))
     subscriber.sync_keyring = AsyncMock()
     subscriber.emit = Mock()
     await subscriber.process(msg, True)
@@ -348,8 +348,8 @@ async def test_wrong_key_retries_without_emitting(command):
 
 
 async def test_plaintext_rejected_when_encrypted(command):
-    e2e.set_ring(e2e.Ring(encrypt=b"a" * 32))
-    subscriber = Subscriber(Config([], True, {}))
+    context = ring_context(e2e.Ring(encrypt=b"a" * 32))
+    subscriber = Subscriber(Config([], True, {}, context=context))
     subscriber.sync_keyring = AsyncMock()
     subscriber.emit = Mock()
     msg = message(json.dumps(command).encode())

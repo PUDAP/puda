@@ -7,6 +7,7 @@ import nats
 import pytest
 from nats.js.api import RetentionPolicy, StreamConfig
 from puda import e2e
+from e2e_context import ring_context
 from storage import to_row
 from test_integration import services, eventually
 from test_logger import command
@@ -21,7 +22,7 @@ async def test_native_encrypted_response(services, tmp_path):
     config, db = services
     nc = await nats.connect(servers=config.servers)
     key = os.urandom(32)
-    e2e.set_ring(e2e.Ring(key))
+    ctx = ring_context(e2e.Ring(key))
     try:
         js = nc.jetstream()
         for suffix in ('QUEUE', 'IMMEDIATE'):
@@ -50,7 +51,7 @@ async def test_native_encrypted_response(services, tmp_path):
             reader.request(f"SELECT dictGet('{dictionary['database']}.{dictionary['name']}','key_hex',tuple('00000000'))")
         subject = 'puda.robot.cmd.response.queue'
         raw = json.dumps(command(), indent=2).encode()
-        await js.publish(subject, e2e.seal(subject, raw))
+        await js.publish(subject, ctx.seal(subject, raw))
 
         async def stored():
             return db.request('SELECT count() FROM puda.command_logs').strip() == b'1'
@@ -77,7 +78,7 @@ async def test_native_encrypted_response(services, tmp_path):
             ('tlm.stream.legacy', b'{"timestamp":null,"data":{"x":2},"extra":true}')]
         for suffix, plaintext in cases:
             target = 'puda.robot.' + suffix
-            await nc.publish(target, e2e.seal(target, plaintext))
+            await nc.publish(target, ctx.seal(target, plaintext))
         await nc.flush()
         async def all_rows():
             return db.request('SELECT (SELECT count() FROM puda.command_logs)+(SELECT count() FROM puda.telemetry)').strip() == b'6'
@@ -103,5 +104,4 @@ async def test_native_encrypted_response(services, tmp_path):
                     found, value = json.loads(found), json.loads(value)
                 assert found == value, name
     finally:
-        e2e.set_ring(None)
         await nc.close()

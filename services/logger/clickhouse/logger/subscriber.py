@@ -49,12 +49,12 @@ class Subscriber:
             try:
                 entry = await kv.get(e2e.KEYRING_KEY)
             except NotFoundError:
-                e2e.drop_previous()
+                self.config.context.drop_previous()
                 return
-            plain = e2e.open_payload(
+            plain = self.config.context.open_payload(
                 e2e.kv_aad(e2e.KEYRING_BUCKET, e2e.KEYRING_KEY), entry.value
             )
-            e2e.adopt_record(plain)
+            self.config.context.adopt_record(plain)
 
     async def watch_keys(self):
         while True:
@@ -173,10 +173,10 @@ class Subscriber:
         for msg, jetstream in batch:
             try:
                 try:
-                    plain = e2e.open_payload(msg.subject, msg.data)
+                    plain = self.config.context.open_payload(msg.subject, msg.data)
                 except e2e.E2EError:
                     await self.sync_keyring()
-                    plain = e2e.open_payload(msg.subject, msg.data)
+                    plain = self.config.context.open_payload(msg.subject, msg.data)
             except Exception:
                 log.error("Message decryption failed; retrying response if durable")
                 if jetstream:

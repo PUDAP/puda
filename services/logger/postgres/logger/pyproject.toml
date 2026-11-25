@@ -5,7 +5,10 @@ description = "Logger service that listens to NATS command/response streams and 
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "puda==0.0.15",
+    "puda==0.1.0rc1",
     "python-dotenv>=1.2.1",
     "psycopg[binary]>=3.2",
 ]
+
+[tool.setuptools]
+py-modules = ["main", "db_client"]
