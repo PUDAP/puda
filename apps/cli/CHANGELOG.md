@@ -10,6 +10,9 @@ CLI 0.2.0 speaks Edge Protocol 1.0 and pairs with Python SDK 0.1.0, the first SD
 
 - `puda machine commands` reports the lifecycle hooks the driver implements (`hooks` in JSON, a "Lifecycle hooks" line with `--human`), so agents can tell whether `estop` or `abort` reaches the hardware. `puda protocol validate` and `run` reject `start`, `complete` and hook names as steps with an explanation instead of "not found".
 - `puda machine complete --abort` stops the running command instead of being refused, then ends the run (requires Python SDK 0.1.0 edges). Results now include the edge's `code` and `data` for every immediate command, so a refused `complete` reports `code: EXECUTION_LOCKED` with `data.running` (name, step, elapsed) and `data.queued`, and an abort reports `data.aborted`, `driver_abort` and `queued`. An abort returns at once; the running command is answered `COMMAND_CANCELLED` when its driver call returns, and the machine runs nothing else until then.
+- `puda healthcheck` checks the PUDA JetStream resources, not just that JetStream answers. The new `puda` section reports each stream and KV bucket (status, replicas, leader, lagging replicas, consumers). Required resources that are missing, leaderless or below quorum make the report `unhealthy` (exit 1); a single replica in a cluster or a lagging replica is `degraded`. A broker with JetStream but no PUDA streams was previously `ok`.
+- `puda healthcheck` adds a top-level `issues` list. Each issue has `code`, `severity` (`unhealthy`, `degraded` or `advisory`), `target`, `source` (JSON path to the evidence; error text is not duplicated) and a concrete `next_step`, such as the exact `setup_streams.sh` command with the right `NATS_URL` and `REPLICAS`. Every non-ok status has a matching issue, and one cause affecting several resources is one issue. `--human` prints the issues first.
+- Lost JetStream quorum is reported as `jetstream_no_quorum` / `puda_resource_no_quorum`, including the window after nodes stop while an old leader still claims leadership.
 
 ### Changed
 
@@ -27,17 +30,6 @@ CLI 0.2.0 speaks Edge Protocol 1.0 and pairs with Python SDK 0.1.0, the first SD
 ### Fixed
 
 - `puda machine info` and the immediate lifecycle commands that ping first (`start`, `complete`, `reset`, ...) no longer report online machines as `invalid pong response`. A direct ping now reads every reply until a valid pong arrives or the timeout expires, so another subscriber on `puda.<id>.cmd.*` (such as a service answering `-NAK`) answering first is ignored. Remote edges (for example over Tailscale) were affected most because they always lose that race. If only non-pong replies arrive, the error reads `invalid pong response: no valid pong before timeout (ignored N non-pong replies)`.
-
-## 0.1.7-rc1 — 2026-11-20 (prerelease)
-
-### Added
-
-- `puda healthcheck` checks the PUDA JetStream resources, not just that JetStream answers. The new `puda` section reports each stream and KV bucket (status, replicas, leader, lagging replicas, consumers). Required resources that are missing, leaderless or below quorum make the report `unhealthy` (exit 1); a single replica in a cluster or a lagging replica is `degraded`. A broker with JetStream but no PUDA streams was previously `ok`.
-- `puda healthcheck` adds a top-level `issues` list. Each issue has `code`, `severity` (`unhealthy`, `degraded` or `advisory`), `target`, `source` (JSON path to the evidence; error text is not duplicated) and a concrete `next_step`, such as the exact `setup_streams.sh` command with the right `NATS_URL` and `REPLICAS`. Every non-ok status has a matching issue, and one cause affecting several resources is one issue. `--human` prints the issues first.
-- Lost JetStream quorum is reported as `jetstream_no_quorum` / `puda_resource_no_quorum`, including the window after nodes stop while an old leader still claims leadership.
-
-### Fixed
-
 - `puda healthcheck` no longer conflates endpoints with brokers. `--human` prints `endpoints: N/M reachable` and `unique brokers responding: K`, counting distinct non-empty server IDs from successful probes (never names or URLs), shows each endpoint's server `id`, notes endpoints that reported no ID instead of grouping them, and prints `cluster: <name>` only for a real cluster, without the advertised-address count (that list stays in JSON `cluster.discovered`; advertised addresses prove neither identity nor cluster size). JSON keeps every existing field and adds `cluster.brokers` / `gateways[].brokers`, each broker's server `id`, `name` and the `endpoints` that reached it (plus `unidentified_endpoints` when non-zero).
 
 ## 0.1.6 — 2026-11-19
