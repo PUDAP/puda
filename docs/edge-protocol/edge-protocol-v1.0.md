@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| Status | Draft for review |
+| Status | Release candidate. Shipped with the reference releases below; normative text changes only with a new protocol version (§2). |
 | Protocol version | `1.0`, carried as `header.protocol_version` in every command and response and as `protocol_version` in every pong. E2E frames are format `0x01`. |
-| Reference implementations | Python SDK `0.1.0` (`libs/python-sdk`, first as `0.1.0rc1`). CLI `0.2.0` (`apps/cli`, first as `0.2.0-rc1`). Both on branch `fix/edge-protocol-bugs`. Broker `nats-server 2.15.3` provisioned by `infra/nats/jetstream/setup_streams.sh`. |
+| Reference implementations | Python SDK `0.1.0rc1` (`libs/python-sdk`, on PyPI as `puda`; requires nats-py ≥ 2.17). CLI `0.2.0-rc1` (`apps/cli`, GitHub prerelease `v0.2.0-rc1`). Both built from `main` at `53bef76`. Broker `nats-server 2.15.3` (`infra/nats`), provisioned by `infra/nats/jetstream/setup_streams.sh`. |
 | Evidence | Wire captures in [`v1.0/transcripts/`](v1.0/transcripts/). Payload examples in [`v1.0/examples/`](v1.0/examples/). Schemas in [`v1.0/schemas/`](v1.0/schemas/). E2E vectors in [`v1.0/vectors/`](v1.0/vectors/). Run [`v1.0/check.py`](v1.0/check.py) to validate them. |
 
 This document specifies what a PUDA **edge** must do on the wire to be driven by the PUDA CLI, agents and loggers. An edge is the process that owns one machine. The spec is written so a second implementation, such as a C SDK on an ESP32, can interoperate without reading the Python source.
@@ -52,7 +52,7 @@ The protocol version is `MAJOR.MINOR`, and it is the only compatibility signal. 
 
 - An edge MUST speak the NATS client protocol with **headers** (`HPUB`/`HMSG`). Headers carry JetStream status codes (`408`, `404`, `409`), `KV-Operation` markers and `Nats-Subject` on KV reads.
 - Server URLs are either all `nats://` or all `tls://`. Mixing them is a configuration error.
-- With `tls://`, the edge MUST verify the server certificate against an explicitly configured CA file (`PUDA_NATS_CA` / `ca_file`). Reference deployments use server-only TLS; client certificates are not required.
+- With `tls://`, the edge MUST verify the server certificate against an explicitly configured CA file. The Python edge takes it as `EdgeNatsClient(ca_file=…)` and the E2E key file (§13.1) as `e2e_key_file=…`; the SDK reads no environment variables for either, so deployments pass their own settings (the loggers and CLI use `PUDA_NATS_CA` and `PUDA_E2E_KEY_FILE`). Reference deployments use server-only TLS; client certificates are not required.
 - Authentication: reference deployments run without broker authentication; access is controlled at the network layer. Edges SHOULD support token or user/password authentication for deployments that add it. NKEY and JWT support is OPTIONAL in 1.0.
 - Reconnect: the edge MUST reconnect forever. The reference waits 2 s between attempts and uses a 10 s connect timeout. After a reconnect the edge MUST restore every subscription and consumer binding (§7) and republish its state (§10).
 
@@ -68,18 +68,22 @@ An edge MUST have a synchronised wall clock (for example SNTP on an ESP32) befor
 
 ## 5. Provisioning
 
-Provisioning is the operator's job, not the edge's. `setup_streams.sh` creates the following:
+Provisioning is the operator's job, not the edge's. `setup_streams.sh` applies the stream configs in `infra/nats/jetstream/streams/*.json` and creates the KV buckets below. It requires `REPLICAS` (1 for a single node, 3 for the three-node cluster) and sets it on every stream and bucket. Re-running it updates existing streams to the files and changes only the replica count of existing buckets.
 
 | Name | Kind | Subjects / key | Retention and settings |
 |---|---|---|---|
 | `COMMAND_QUEUE` | Stream | `puda.*.cmd.queue` | `workqueue`, file storage, `discard: new`, `max_msgs_per_subject: 100` |
-| `RESPONSE_QUEUE` | Stream | `puda.*.cmd.response.queue` | `interest`, `max_age` 24 h |
-| `RESPONSE_IMMEDIATE` | Stream | `puda.*.cmd.response.immediate` | `interest`, `max_age` 24 h |
+| `RESPONSE_QUEUE` | Stream | `puda.*.cmd.response.queue` | `interest`, file storage, `max_age` 24 h |
+| `RESPONSE_IMMEDIATE` | Stream | `puda.*.cmd.response.immediate` | `interest`, file storage, `max_age` 24 h |
 | `MACHINE_STATE` | KV | key `<machine_id>` | history 1 |
 | `MACHINE_COMMANDS` | KV | key `<machine_id>` | history 1 |
 | `E2E_KEYRING` | KV | key `current` | history 1 |
 | `E2E_KEYFILES` | KV | `cli/<id>` | history 1; written by the CLI only |
 | `LIVESTREAMS` | KV | — | history 1; not used by edges |
+
+The broker config (`infra/nats/*/nats.conf`) sets `max_payload: 64MB` and JetStream limits of 4 GB memory and 10 GB file storage per server. No stream or consumer is defined for `puda.<id>.cmd.immediate` (§8.3).
+
+`max_msgs_per_subject: 100` caps each machine at 100 messages in `COMMAND_QUEUE`, counting the delivered command not yet acked. `discard: new` does **not** apply to this per-subject limit unless the stream also sets `discard_new_per_subject: true`, which the provisioned config does not. So the 101st publish succeeds and the broker silently deletes that machine's **oldest** message, which may be the command the edge is running (its later ack still succeeds). The client then waits forever for the deleted step. Observed on `nats-server 2.15.3` with the provisioned config, cap lowered to 3: publishes 4 and 5 were stored, and the running command and the next one were gone. With `discard_new_per_subject: true` the same publishes are rejected (`503`, error code `10077`, "maximum messages per subject exceeded") and nothing is deleted. See §18. Edges are unaffected either way.
 
 Rules:
 
@@ -217,6 +221,7 @@ Rules:
 - `data` is a JSON object or `null`. A handler result that is not an object MUST be wrapped as `{"result": <value>}`. A handler returning `false` is a **success** with `{"result": false}` ([example](v1.0/examples/response-queue-bool-false.json)).
 - Python adds `"kwargs": {}` to the echoed `command` when it was absent. Edges MAY do the same.
 - Storing the result before the ack means an edge that dies in between leaves the message unacked, so JetStream redelivers it. A redelivery MUST NOT run the command again (§9.2 rows 0a and 0b).
+- **Graceful shutdown** is the only case where the edge may give up storing a result: it answers a command still running `COMMAND_CANCELLED` (§9.2 row 10b) and stops retrying after a bounded time (the reference waits 5 s). If the result was not stored, the message is still unacked, so after restart it is redelivered and answered under row 0b instead.
 
 **Malformed commands.** A payload that opens (§13.4) but is not a valid envelope:
 
@@ -241,7 +246,7 @@ Rules:
 | `UNKNOWN_COMMAND` | Name not in the catalog, or an unknown immediate verb. |
 | `EXECUTION_ERROR` | Handler raised; envelope problem (missing `run_id` on queue, missing command); estop via queue. |
 | `EXECUTION_LOCKED` | Another queued command holds the execution lock, or `complete` without `abort` while a command of the run is running (§9.3). |
-| `COMMAND_CANCELLED` | The running queued command was stopped by `estop` or `complete` with `abort`. |
+| `COMMAND_CANCELLED` | The running queued command was stopped by `estop` or `complete` with `abort`, or the edge shut down while it ran. |
 | `RUN_ID_MISMATCH` | No active run, a different active run, `complete` for an inactive run, or `start` while another run is active. |
 | `MISSING_RUN_ID` | `start` or `complete` without a `run_id`. |
 | `MACHINE_PAUSED` | Reserved. A paused edge holds queued commands instead (§9.4). |
@@ -276,6 +281,7 @@ The edge MUST evaluate these checks in this order. The edge MUST remember the re
 | 8 | Name not dispatchable | `+TERM` | `UNKNOWN_COMMAND` | cleared | `busy` → `error` |
 | 9 | Handler raises | `+TERM` | `EXECUTION_ERROR` | cleared | `busy` → `error` |
 | 10 | Stopped by `estop` or `complete` with `abort`, answered when the driver call returns | `+TERM` | `COMMAND_CANCELLED` "Stopped by estop" / "Stopped by complete --abort" (`data` is the handler's result) | cleared | `estopped`, or `idle` + `null` after abort |
+| 10b | Edge shut down gracefully while the command ran | `+ACK` | `COMMAND_CANCELLED` "Command cancelled", best effort (§8.4) | cleared | `offline` |
 | 11 | Success | `+ACK` | `success`, `data` | kept | `busy` → `idle` |
 
 Row 3 only applies to a message delivered at the instant the edge paused; otherwise a paused edge does not pull (§9.4). When the message is redelivered, rows 2 and 3 apply again, so after an estop it is terminated with `MACHINE_ESTOPPED`.
@@ -615,6 +621,7 @@ The Communication page (`apps/docs/docs/overview/communication.mdx`) does not ma
 1. Define broker authentication (NKEY/JWT) for edges outside a trusted network.
 2. Consider an MQTT binding. The broker already exposes MQTT, and ESP-IDF has a native MQTT client. Work-queue consumption and ack semantics would need to be specified first.
 3. Consider `sdk_name` in the pong, so reports can tell implementations apart; compatibility does not need it (§2).
+4. Set `discard_new_per_subject: true` on `COMMAND_QUEUE` so a full per-machine queue rejects new commands instead of silently deleting the oldest one, including a running command (§5). This is a provisioning change with no wire change for edges; clients must then treat publish error `10077` as "queue full".
 
 ---
 
