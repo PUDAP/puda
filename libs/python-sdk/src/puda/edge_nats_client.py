@@ -83,6 +83,30 @@ class _TlmStream:
         }
 
 
+class _FetchInterrupted(Exception):
+    """A queue fetch was cancelled by nats-py itself, not by the edge."""
+
+
+async def _fetch(sub) -> list:
+    """``sub.fetch(1)``, in its own task so a reconnect cannot end the pull loop.
+
+    On a reconnect nats-py 2.17 cancels in-flight fetches, and the
+    CancelledError can escape ``fetch()``. Raised straight into the pull loop
+    it reads as the edge shutting down, so the loop would exit quietly and
+    the edge would stop taking queued commands. Only a cancel of the loop
+    itself is treated as shutdown here.
+    """
+    fetch = asyncio.ensure_future(sub.fetch(batch=1, timeout=1.0))
+    try:
+        await asyncio.wait({fetch})
+    except asyncio.CancelledError:
+        fetch.cancel()
+        raise
+    if fetch.cancelled():
+        raise _FetchInterrupted
+    return fetch.result()
+
+
 class EdgeNatsClient:
     """
     NATS client used by the machine edge.
@@ -693,12 +717,15 @@ class EdgeNatsClient:
                     await asyncio.sleep(0.5)
                     continue
                 try:
-                    msgs = await sub.fetch(batch=1, timeout=1.0)
+                    msgs = await _fetch(sub)
                     if msgs:
                         logger.debug("Pulled message from queue")
                         await self.commands.process_queue(msgs[0], handler)
                 except asyncio.TimeoutError:
                     continue
+                except _FetchInterrupted:
+                    logger.warning("Queue fetch interrupted by a reconnect; pulling again")
+                    await asyncio.sleep(0.5)
                 except Exception as e:
                     logger.error("Error pulling queue messages: %s", e, exc_info=True)
                     await asyncio.sleep(1)

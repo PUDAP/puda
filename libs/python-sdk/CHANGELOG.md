@@ -74,6 +74,13 @@ Release candidate. First release speaking PUDA Edge Protocol 1.0
 
 ### Fixed
 
+- The edge keeps taking queued commands after a reconnect on nats-py 2.17.
+  That version cancels in-flight queue fetches when the connection drops, and
+  the cancellation escaped into the pull loop, which took it for shutdown and
+  quietly stopped: the edge stayed online but never ran another queued
+  command. Each fetch now runs in its own task, and only a cancel of the edge
+  itself stops the loop. The dev lock moves to nats-py 2.17 so the tests cover
+  what `pip install puda` resolves.
 - A command stopped by `estop` or `complete --abort` keeps its driver thread
   until the call returns, and the next queued command waits for it. Previously
   the edge stopped waiting after 5 s (abort) or at once (estop) and started the
