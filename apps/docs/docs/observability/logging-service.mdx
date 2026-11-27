@@ -12,6 +12,10 @@ The recommended template is [`services/logger`](https://github.com/PUDAP/puda/tr
 
 The template uses InfluxDB. Most PUDA log queries are filtered by timestamp—runs, commands, telemetry, and events over a time window.
 
+:::info Protocol 1.0
+The loggers speak PUDA Edge Protocol 1.0: Python SDK `0.1.0rc1` or later, CLI `0.2.0-rc1` or later. They do not read traffic from older edges or brokers. See [Upgrade from 0.0.x](#upgrade-from-00x).
+:::
+
 ## Run the logger
 
 Run the logger on an always-on machine that can reach your NATS server. This can be the same machine that runs NATS, or another reliable machine on the same network.
@@ -90,7 +94,6 @@ INFLUXDB_ORGANIZATION=bears
 NATS_SERVERS=nats://<nats-host>:<port>
 LOGGER_REPLICAS=1
 JS_MAX_ACK_PENDING=20000
-JS_RESPONSE_MAX_AGE=24h
 ```
 
 `LOGGER_REPLICAS` controls the number of logger containers sharing NATS queue groups. Start with one and monitor CPU, buffer pressure, and response acknowledgment backlog before scaling. Redelivery can produce duplicates; queue groups do not guarantee exactly-once storage. With multiple replicas, each replica aggregates its own health samples, so queries must combine those results by machine.
@@ -111,7 +114,7 @@ Start the logger with Docker Compose. Use `--build` on the first run, or after D
 docker compose up -d --build
 ```
 
-The Python subscriber initializes the response streams and durable consumers using the same TLS settings as its subscriptions. There is no separate `nats-stream-init` service in the current Compose file. After changing `.env` or stream settings, recreate the logger:
+The response streams `RESPONSE_QUEUE` and `RESPONSE_IMMEDIATE` belong to the broker provisioning (`infra/nats/jetstream/setup_streams.sh`: interest retention, file storage, 24-hour max age). The logger only checks them: it never updates or deletes a stream, creates one only if it is missing (with those settings, logging that the broker is unprovisioned), and refuses to start on a wrong subject or `workqueue` retention. It creates its durable consumers using the same TLS settings as its subscriptions. After changing `.env`, recreate the logger:
 
 ```bash
 docker compose up -d --force-recreate influxdb-logger
@@ -131,21 +134,32 @@ The subscriber and Telegraf pipeline writes three measurements:
 
 | Measurement | NATS subjects | Description |
 |---|---|---|
-| `commands` | `puda.*.cmd.*` (requests), `puda.*.cmd.response.*` (responses) | Command and response log |
+| `commands` | `puda.*.cmd.queue` (queued requests), `puda.*.cmd.response.queue` and `puda.*.cmd.response.immediate` (responses) | Command and response log, tagged with `protocol_version` |
 | `telemetry` | `puda.*.tlm.health` | Machine health metrics (`cpu`, `mem`, `temp`), stored as a 60s mean per machine |
 | `telemetry_stream` | `puda.*.tlm.stream.>` | Individual driver samples, tagged by `machine_id` and `stream`, with the complete JSON payload in the `data` string field |
 
 The SDK publishes host health every 5 seconds by default. The logger aggregates `cpu`, `mem`, and `temp` over 60-second windows. Optional `status` is a tag, so a status change can produce separate points within a window. `connected` is not extracted or averaged; use heartbeat or health freshness for availability. Command messages and driver telemetry samples are not averaged.
 
-Position, weight, and other driver streams share `telemetry_stream` without payload field-type conflicts: the JSON object is stored as a string in `data`, preserving nested values and types. Numeric dashboards must extract their values from that JSON. An optional RFC3339 payload `timestamp` supplies the point time; otherwise receipt time is used.
+Position, weight, and other driver streams share `telemetry_stream` without payload field-type conflicts: the JSON object is stored as a string in `data`, preserving nested values and types. Numeric dashboards must extract their values from that JSON. Health and stream samples must use the protocol's `{timestamp, data}` wrapper; the wrapper's RFC3339 `timestamp` is the point time, and `data` holds the inner object. Samples without the wrapper are dropped.
 
-Command **requests**, health, and driver telemetry use live Core NATS subscriptions. Command **responses** use shared durable push queue consumers on `RESPONSE_QUEUE` and `RESPONSE_IMMEDIATE` with limits retention (24 hours by default). The subscriber preserves existing delivery subjects and acknowledgment positions when initializing them. Responses can replay within retention after downtime; Core NATS traffic cannot.
+Queued command **requests**, health, and driver telemetry use live Core NATS subscriptions. The logger never subscribes to `puda.*.cmd.immediate`: any extra subscriber there stops the broker answering "no responders" for an offline machine, so clients wait for a timeout instead. Immediate commands (`start`, `complete`, `pause`, …) are recorded from `RESPONSE_IMMEDIATE`, whose copies carry the full header and command. Command **responses** use shared durable push queue consumers on `RESPONSE_QUEUE` and `RESPONSE_IMMEDIATE`. With interest retention, the durable keeps responses while the logger is down, and they replay within the 24-hour max age; Core NATS traffic cannot replay.
 
 Acknowledgment happens after handing line protocol to Telegraf, not after confirmation of an InfluxDB write. Crashes or exhausted buffers can lose data, and redelivery can produce duplicates. Monitor both subscriber and Telegraf errors.
 
 :::tip
 For the full field and tag schema, see the [influxdb-logger README](https://github.com/PUDAP/puda/blob/main/services/logger/influxdb/logger/README.md).
 :::
+
+## Upgrade from 0.0.x
+
+The 1.0 loggers are a breaking release with no compatibility mode:
+
+- **Streams:** the logger no longer switches response streams to limits retention. Run `setup_streams.sh` on the broker so they match the protocol.
+- **`JS_RESPONSE_MAX_AGE` is removed.** The max age is part of provisioning. Delete it from `.env`.
+- **`protocol_version`** is recorded on every command and response. `cmd_version` is gone, because 1.0 commands carry no per-command version.
+- **Telemetry** without the `{timestamp, data}` wrapper is dropped.
+- **No `cmd.immediate` tap:** immediate commands appear only as `response.immediate` records.
+- **ClickHouse** needs a fresh database (new `protocol_version` column; `backfill.py` and `puda.events` are removed). **PostgreSQL** needs the `ALTER TABLE` in its README. **ReductStore** gains E2EE and per-stream telemetry entries.
 
 ## Migrate an existing database
 
