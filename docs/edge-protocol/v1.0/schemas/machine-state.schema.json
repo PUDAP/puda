@@ -30,6 +30,11 @@
         "string",
         "null"
       ]
+    },
+    "protocol_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "description": "Edge Protocol version (MAJOR.MINOR) of the edge that wrote this value (spec \u00a710). Absent in values written before it was added; readers MUST NOT require it."
     }
   },
   "additionalProperties": true

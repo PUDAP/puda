@@ -53,5 +53,6 @@
     "reset",
     "resume",
     "shutdown"
-  ]
+  ],
+  "protocol_version": "1.0"
 }

@@ -332,7 +332,7 @@ Pause **holds the queue**; resume continues it in order.
 
 On `estop` the edge MUST, in this order:
 
-1. Set the **estop latch** before anything else, so no queued command can start.
+1. Set the **estop latch** before anything else, so no queued command can start. The edge MUST check the latch, and whether the running command was marked stopped (step 3, §9.8), immediately before it hands a queued command to the driver, with nothing that can yield in between (no I/O, no `await`). A check made earlier, for example before putting `busy`, misses an estop that arrives in the meantime. A command stopped this way never reaches the driver; it is answered as in step 3, with `data: null`.
 2. Issue the hardware stop without waiting behind the running queued command or any other immediate command (§8.3). The reference uses a dedicated thread pool that nothing else uses.
 3. Mark the running queued command stopped. It is answered `COMMAND_CANCELLED` and its message terminated **when its driver call returns**; the edge MUST NOT start another queued command before then, so a hardware call is never overlapped. The stop in step 2 is what makes it return.
 4. Clear the run, put state `estopped`, and publish `evt.log` at level `CRITICAL`.
@@ -380,11 +380,12 @@ Commands queued behind the run are not removed. They are evaluated when pulled a
 The value is published to KV `MACHINE_STATE`, key `<id>` ([schema](v1.0/schemas/machine-state.schema.json), [example](v1.0/examples/machine-state.json)):
 
 ```json
-{"timestamp": "2026-11-23T13:25:24Z", "state": "busy", "run_id": "22222222-…", "homed": false}
+{"timestamp": "2026-11-23T13:25:24Z", "state": "busy", "run_id": "22222222-…", "protocol_version": "1.0", "homed": false}
 ```
 
 - `state` is one of `idle`, `busy`, `paused`, `error`, `estopped`, `offline`.
-- Machine-specific fields MAY be merged at the top level, as `homed` is above. They MUST NOT reuse `timestamp`, `state` or `run_id`.
+- `protocol_version` is the version the writing edge speaks (§2). The value outlives the edge that wrote it, so readers use it to tell which protocol produced it. Edges SHOULD include it; readers MUST NOT require it, because values written before it was added have none.
+- Machine-specific fields MAY be merged at the top level, as `homed` is above. They MUST NOT reuse `timestamp`, `state`, `run_id` or `protocol_version`.
 - The edge MUST put state at each of these points:
   - startup: `idle`;
   - queued command start: `busy` + run;
@@ -423,7 +424,8 @@ The catalog is put once per connect to KV `MACHINE_COMMANDS`, key `<id>` ([schem
       }
     }
   ],
-  "hooks": ["estop", "reset"]
+  "hooks": ["estop", "reset"],
+  "protocol_version": "1.0"
 }
 ```
 
@@ -433,6 +435,7 @@ The catalog is put once per connect to KV `MACHINE_COMMANDS`, key `<id>` ([schem
 - `confirm: true` makes the CLI ask the operator before sending the command. It is advisory metadata and does not change edge dispatch.
 - `hooks` MUST list the lifecycle hooks the edge implements (§11.2), sorted, and MAY be empty. Clients treat a missing `hooks` field as unknown; SDK 0.0.23 and older do not send it.
 - Lifecycle hooks MUST NOT appear in `catalog` or `commands`. `home` is an ordinary command.
+- `protocol_version` follows the same rule as in state (§10): edges SHOULD include it, and readers MUST NOT require it.
 
 ### 11.2 Lifecycle hooks
 
@@ -641,6 +644,8 @@ These fix contradictions in the 1.0 text, and places where the reference disagre
 | E-5 | §8.1: the reference dropped unknown `header`, `command` and top-level fields instead of echoing them. | Unreleased |
 | E-6 | §2, §8.6: receivers accept unknown response codes. The reference Python client rejected the whole response, so its wait timed out, and the schema allowed only the 1.0 codes. | Unreleased |
 | E-7 | §14: a malformed update request is answered when correlatable. The reference dropped it, so the CLI waited for its timeout. | Unreleased |
+| E-8 | §9.6 step 1: the latch is checked immediately before the driver call. The reference checked it before putting `busy`, so an estop or `complete --abort` handled during that put did not stop the command from starting. | Unreleased |
+| E-9 | §10, §11.1: state and catalog values carry `protocol_version` (SHOULD; readers MUST NOT require it). This only adds an optional field. | Unreleased |
 
 ---
 

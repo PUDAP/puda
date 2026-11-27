@@ -34,6 +34,11 @@
         ]
       },
       "uniqueItems": true
+    },
+    "protocol_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "description": "Edge Protocol version (MAJOR.MINOR) of the edge that wrote this value (spec §11.1). Absent in values written before it was added; readers MUST NOT require it."
     }
   },
   "$defs": {

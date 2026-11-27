@@ -260,7 +260,7 @@ func TestSpecCatalogExampleDecodes(t *testing.T) {
 	validateSpec(t, specSchema(t, "machine-commands"), "machine-commands.json re-encoded by the CLI", encoded)
 	original := jsonValue(t, data).(map[string]any)
 	decoded := jsonValue(t, encoded).(map[string]any)
-	requirePreserved(t, "machine-commands.json", original, decoded, []string{"commands", "hooks"})
+	requirePreserved(t, "machine-commands.json", original, decoded, []string{"commands", "hooks", "protocol_version"})
 	entryFields := schemaProperties(t, "machine-commands", "$defs", "entry")
 	wantEntries, gotEntries := original["catalog"].([]any), decoded["catalog"].([]any)
 	if len(gotEntries) != len(wantEntries) {

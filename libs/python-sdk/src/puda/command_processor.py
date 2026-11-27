@@ -308,6 +308,16 @@ class CommandProcessor:
         elif ack:
             await msg.ack()
 
+    def queued_stop_reason(self) -> str | None:
+        """Why the running queued command must not reach the driver, or None.
+
+        The latch counts even when no command was marked: an estop handled
+        between the row 2 check and the start of the command marks nothing.
+        """
+        if self._running is not None and self._running["stopped_by"] is not None:
+            return self._running["stopped_by"]
+        return "estop" if self._is_estopped else None
+
     async def _publish_state(self, payload: dict[str, Any]) -> None:
         """Put machine state; while the estop latch is set it always reads estopped (§9.6)."""
         if self._is_estopped and payload.get("state") != MachineState.OFFLINE:
