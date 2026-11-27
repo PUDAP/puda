@@ -50,6 +50,7 @@ const config: Config = {
         // Version roots have no page of their own; send them to Getting Started.
         redirects: [
           {from: '/docs', to: '/docs/getting-started'},
+          {from: '/docs/0.2.0', to: '/docs/0.2.0/getting-started'},
           {from: '/docs/0.0.36', to: '/docs/0.0.36/getting-started'},
         ],
       },
@@ -62,9 +63,15 @@ const config: Config = {
       {
         docs: {
           sidebarPath: './sidebars.ts',
-          lastVersion: 'current',
+          // v0.1.x stays the default while v0.2.0 is in beta. docs/ is v0.2.0.
+          lastVersion: '0.1.6',
           versions: {
             current: {
+              label: 'v0.2.0 (beta)',
+              path: '0.2.0',
+              banner: 'unreleased',
+            },
+            '0.1.6': {
               label: 'v0.1.x',
               banner: 'none',
             },

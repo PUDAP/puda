@@ -1,0 +1,108 @@
+---
+sidebar_position: 1.5
+---
+
+# Deployment Monorepo
+
+Keep everything a PUDA deployment runs in one Git repository: edge services and drivers, NATS, clock sync, the logger and its database, Grafana, livestreams, and agent skills. The services can run on different computers—a NATS mini PC, a NAS, an operator PC next to each instrument—but their code and configuration live together.
+
+A deployment can be a research lab, a factory line, a pilot plant, or a single cell. Name the repository `puda-<deployment>`.
+
+One repository makes a deployment easier to maintain:
+
+- Settings that depend on each other—NATS URLs, tokens, database names, machine IDs—change in one commit.
+- Every host runs from the same history, so you can review, pin, and roll back the whole deployment.
+- Moving a service to another host is a checkout and `docker compose up`, not a search for the right repository.
+- AI agents can read the whole deployment before changing any part of it.
+
+## Layout
+
+```text
+puda-<deployment>/
+├── README.md              # which host runs which folder
+├── .gitignore
+├── edges/
+│   └── <machine_id>/      # one edge service per machine
+├── services/
+│   ├── nats/              # the chosen NATS layout + jetstream/
+│   ├── chrony/            # clock sync server + client/
+│   ├── <database>/        # only the database you use
+│   │   ├── server/        # the database server
+│   │   └── logger/        # the PUDA logger that writes to it
+│   ├── grafana/
+│   └── livestream/
+└── skills/
+    └── <skill-name>/      # machine and workflow skills
+```
+
+`edges/` holds the code that talks to machines, `services/` the shared services, and `skills/` what the agent reads. Add only the folders the deployment uses. Several edges on one PC can share a uv workspace; see [Multiple machines on one PC](./integrating-a-new-machine#multiple-machines-on-one-pc).
+
+## Copy templates into the deployment
+
+Everything else in this guide is a template: NATS, clock sync, the logger, Grafana, livestream, and the edge services. Copy the code into its folder in the deployment (`edges/<machine_id>/` or `services/<name>/`) and change it as needed. The copied folder belongs to the deployment; commit every change to the deployment repository.
+
+Copy files only. Do not `git clone` a template into the deployment repository, add it as a submodule, or leave a nested `.git` directory.
+
+## Keep secrets out of Git
+
+Commit `.env.example` files with placeholders. Never commit `.env` files, tokens, or keys. Some templates rely on a `.gitignore` above the folder you copy, so add one at the repository root:
+
+```gitignore title=".gitignore"
+.env
+admin-token.json
+*.key
+*.pem
+.venv/
+__pycache__/
+```
+
+## Run each folder on its host
+
+Clone the deployment repository on every host, then start only the folders that host runs:
+
+```bash
+git clone https://github.com/<org>/puda-<deployment>.git
+cd puda-<deployment>/services/nats/single-node
+cp .env.example .env
+docker compose up -d
+```
+
+To update a host, run `git pull`, then recreate that host's services. List hosts and folders in the deployment `README.md`:
+
+```markdown title="README.md"
+| Host | Folders |
+|---|---|
+| nats-pc | services/nats/single-node, services/chrony |
+| nas | services/influxdb/server |
+| mini-pc | services/influxdb/logger, services/grafana |
+| robot-pc | edges/robot-arm, services/livestream |
+```
+
+## Deployment skills
+
+Save the [machine skills](./machine-skills) and [workflow skills](../using-puda/workflow-skills) you write for this deployment under `skills/<skill-name>/` and commit them.
+
+On the agent host, install the PUDA skills and the deployment skills in one command:
+
+```bash
+puda skills install ~/puda-<deployment>/skills
+```
+
+Local paths are symlinked, not copied. Edits—made by you or by the agent—land in the repository and show up in `git diff`. The command prints each link, for example:
+
+```text
+symlinked ~/.agents/skills/<skill-name> -> ~/puda-<deployment>/skills/<skill-name>
+symlinked ~/.hermes/skills/<skill-name> -> ~/.agents/skills/<skill-name>
+```
+
+Each skill is linked into `~/.agents/skills`, which Codex, Cline, Gemini CLI, and other agents read, and from there into the skills directory of Hermes, Claude Code, and Cursor when they are installed.
+
+Edits need no reinstall. Run the command again after adding a skill, then start a new agent session so the agent discovers it. If a copied skill with the same name is already installed, the command keeps it, reports it, and exits with an error; remove the copy and run the command again. Requires PUDA CLI 0.1.6 or later, and Node.js 20 or later for `npx`.
+
+## Instructions for AI agents
+
+Give your agent this rule before it sets up any part of the deployment:
+
+```text
+This PUDA deployment lives in one monorepo. Add every edge, driver, Docker service, configuration, and skill as a normal folder tracked by that repository. Never git clone a template into it, never add submodules, and never leave a nested .git directory. Copy only the template folder you need, such as the one logger database this deployment uses. Commit .env.example files, never .env files or keys. Save deployment skills under skills/ in the repository and install them with puda skills install <path-to-monorepo>/skills, which symlinks them so skill edits are tracked in Git.
+```

@@ -1,0 +1,410 @@
+---
+sidebar_position: 4
+---
+
+# Integrating a New Machine
+
+Each machine in PUDA runs an edge service. The edge service wraps the machine's hardware API, connects to NATS, and exposes machine commands to the rest of the PUDA system.
+
+:::info
+PUDA edge services currently support Python only, because it is the most commonly used language in the lab automation ecosystem. If you prefer to use another language, [contact us](https://www.puda.co/about) with your needs and we can create a PUDA SDK for it.
+:::
+
+Add each edge service to your [deployment monorepo](./deployment-monorepo) under `edges/<machine_id>/`, replacing `<machine_id>` with your machine ID. Copy the [edge-python-template](https://github.com/PUDAP/edge-python-template) as a plain folder, without a nested `.git`. From the repository root:
+
+```bash
+mkdir -p edges/<machine_id>
+curl -fsSL https://github.com/PUDAP/edge-python-template/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=1 -C edges/<machine_id>
+cd edges/<machine_id>
+```
+
+The template depends on the `puda` Python SDK from PyPI; uv installs it with the rest of the edge dependencies.
+
+Then follow the instructions in the `README.md` file.
+
+## Multiple machines on one PC
+
+If several instruments share one operator PC, they can share one uv workspace in the deployment monorepo. Give each instrument its own subdirectory with its own `MACHINE_ID`, driver, and `main.py`.
+
+[PUDAP/ViPSA](https://github.com/PUDAP/ViPSA) is a working example: a uv workspace that runs stage, Zaber, light, and Keithley edge services from one machine.
+
+Structure the folder like this:
+
+```
+edges/
+├── pyproject.toml          # uv workspace — lists each edge as a member
+├── uv.lock
+├── stage/
+│   ├── .env                # MACHINE_ID=stage
+│   ├── driver.py
+│   └── main.py
+├── zaber/
+│   ├── .env                # MACHINE_ID=zaber
+│   ├── driver.py
+│   └── main.py
+└── light/
+    ├── .env                # MACHINE_ID=light
+    ├── driver.py
+    └── main.py
+```
+
+Declare every edge package in the root `pyproject.toml`:
+
+```toml title="pyproject.toml"
+[tool.uv.workspace]
+members = [
+    "stage",
+    "zaber",
+    "light",
+]
+```
+
+Each subdirectory is a standalone edge service from the [edge-python-template](https://github.com/PUDAP/edge-python-template) template. Give each one a unique `MACHINE_ID` in its `.env` file, then start them individually or with a small script that launches every edge process on the PC.
+
+## Driver class
+
+The main integration point is the `driver.py` class. This class should be a thin wrapper around the hardware code for your machine to make it more AI ready. If you already have example code for each command, an AI coding agent can usually turn that into a quick `driver.py` for you.
+
+Only methods marked `@command` are advertised and callable. Undecorated public methods stay local to the driver. Drivers with no `@command` methods fail at startup. Do not use types JSON cannot represent in `@command` parameters; see [JSON primitives](#json-primitives).
+
+```bash
+puda machine commands <machine_id>
+```
+
+:::caution
+Keep every machine action you want an AI agent to discover, call, and orchestrate on this driver wrapper class, and mark it with `@command`. Methods that live only in lower-level hardware clients or helper classes are not available as machine commands.
+:::
+
+This means the driver method names, docstrings, parameters, and return annotations become part of the command interface that users and agents see. Optional `@safety` metadata is published in the command catalog so agents can prompt the operator before execution; it does not change dispatch. See [`@safety` decorator](#safety-decorator) for an example.
+
+Put a one-sentence summary on the **Driver class docstring**. PUDA advertises the first paragraph on `puda machine list` and `puda machine info` so agents can tell what the machine does without fetching the command catalog.
+
+```python title="driver.py"
+class Driver:
+    """Software-only PUDA test machine. Commands are simulated in memory; no hardware is required."""
+```
+
+That first paragraph is what agents see:
+
+```bash
+puda machine list
+```
+
+```json
+{
+  "machines": [
+    {
+      "machine_id": "test-1",
+      "description": "Software-only PUDA test machine. Commands are simulated in memory; no hardware is required."
+    }
+  ],
+  "count": 1
+}
+```
+
+## Best practices
+
+When writing the driver class:
+
+- Add a class docstring whose first paragraph is a one-sentence summary of what the machine does.
+- Mark remotely callable methods with `@command`. Undecorated methods are not advertised.
+- Attach `@safety` to commands that can cause harm so agents check preconditions and optionally confirm with the operator first.
+- Add docstrings for every `@command` method to provide context.
+- Document each parameter, error thrown and return object in the docstring.
+- Keep commands atomic, with each method performing one clear machine action.
+- Annotate `@command` parameters with [JSON primitives](#json-primitives). Protocol validate type-checks those annotations on commands the protocol uses. Unannotated parameters skip the type check. Types JSON cannot represent still fail validate when that command is used.
+- Avoid exposing low-level helper methods as `@command` methods. Use private methods for internal helpers.
+- Raise an exception when a command fails. Returning `False` is still a successful PUDA response.
+- Publish live readings with [`@tlm_stream`](#telemetry-streams) and machine-level fields with [`@machine_state`](#machine-state). Keep `@machine_state` to cached values.
+- Lifecycle methods are optional: `shutdown` (called before the edge stops), `home` (triggered by `puda machine home`), `reset` (`puda machine reset` always clears the run first), and `estop` (triggered by `puda machine estop`). Define [`estop`](#emergency-stop) for any machine with motion, heat, pressure, or dosing.
+
+These are standard good programming practices. In PUDA, they also become useful context for AI agents because the command names, docstrings, types, and errors describe what the machine can do and how failures should be interpreted.
+
+## JSON primitives
+
+`puda protocol validate` checks each **used** command's `params` against the live catalog. Parameter types must be **JSON primitives** because protocol files and command payloads are JSON, so the catalog can only describe types JSON can carry.
+
+Validate only parses catalog entries named in the protocol. Unused signatures are ignored, so an unparseable type on a command you are not running cannot fail the protocol.
+
+Unannotated parameters, `*args`, and `**kwargs` skip the type check (`any`). `*args` is not sent over NATS (dispatch is kwargs-only). Annotate parameters you want checked.
+
+| Catalog kind | JSON value | Example annotation |
+|---|---|---|
+| `str` | string | `name: str` |
+| `int` | integer | `count: int` |
+| `float` | number | `x_mm: float` |
+| `bool` | boolean | `enabled: bool` |
+| `bytes` | string | `blob: bytes` |
+| `null` | null | `None` |
+| `dict` | object | `layout: dict[str, str]` |
+| `list` | array | `values: list[int]` |
+| `any` | any JSON value | `payload: Any` |
+
+Nullable values use `T | None`. Unions of primitives such as `int | float` are allowed. Object keys must be `str`. Nested objects and arrays of primitives are allowed, for example `dict[str, str]` or `list[int]`.
+
+```python title="driver.py"
+from puda import command
+
+class Driver:
+    """Example machine whose commands use JSON primitives."""
+
+    @command
+    def load_deck(self, layout: dict[str, str]) -> dict[str, str | None]:
+        """Load labware names onto deck slots."""
+        ...
+```
+
+## Lifecycle commands
+
+These lifecycle methods are optional. Define them when the machine has matching hardware behavior.
+
+- `shutdown`: if defined, the edge calls it before the process stops so ports, sockets, and other resources are released.
+- `home`: if defined, triggered by `puda machine home <machine_id>`. Omit it if the machine has no home motion.
+- `reset`: if defined, `puda machine reset <machine_id>` calls it after clearing the active run ID. The CLI command still succeeds and clears the run if `reset` is omitted. A successful reset also clears an [emergency stop](#emergency-stop).
+- `estop`: if defined, `puda machine estop <machine_id>` calls it immediately, even while another command is running. See [Emergency stop](#emergency-stop).
+
+```python title="driver.py"
+from puda import command
+
+class Driver:
+    """Software-only PUDA test machine. Commands are simulated in memory; no hardware is required."""
+
+    @command
+    def shutdown(self) -> bool:
+        """
+        Shutdown the machine. If defined, called before the edge stops running.
+
+        Returns:
+            bool: True if the shutdown was successful, False otherwise
+        """
+        return True
+
+    @command
+    def home(self) -> bool:
+        """
+        Homes the machine. If defined, triggered by PUDA CLI `puda machine home <machine_id>`.
+
+        Returns:
+            bool: True if the home was successful, False otherwise
+        """
+        return True
+
+    @command
+    def reset(self) -> bool:
+        """
+        Software reset the hardware. If defined, `puda machine reset <machine_id>`
+        calls this after clearing the active run ID.
+
+        Returns:
+            bool: True if the reset was successful, False otherwise
+        """
+        return True
+```
+
+## Emergency stop
+
+Define an `estop` command on every driver that controls motion, heat, pressure, or dosing. `puda machine estop <machine_ids>` calls it on each machine in parallel, without asking for confirmation. It requires Python SDK 0.0.23 or later.
+
+```python title="driver.py"
+from puda import command
+
+class Driver:
+    @command
+    def estop(self) -> bool:
+        """
+        Emergency stop. Halts the controller immediately.
+
+        Returns:
+            bool: True once the stop was sent to the hardware
+        """
+        self._hardware.halt()
+        return True
+```
+
+When an estop arrives, the edge:
+
+1. Runs `estop` on its own thread. It does not wait for a queued command that is still running or for telemetry.
+2. Cancels the running queued command and ends the active run.
+3. Sets the machine state to `estopped`. Queued commands, `start`, and `resume` are rejected until `puda machine reset <machine_id>` succeeds.
+
+Write `estop` for that situation:
+
+- Send the controller's stop or halt directly. Do not wait for locks or connections held by a running command; the running command's hardware call should return once the controller stops.
+- Keep it fast and safe to call twice. It must not start any motion.
+- Raise if the stop cannot be sent, so the operator is told to use the physical stop.
+
+Cancelling the queued command only stops the edge waiting for it. The hardware stops because `estop` stops it.
+
+The CLI reports each machine separately:
+
+| Result | Meaning |
+|---|---|
+| `ok` | The driver's `estop` ran. |
+| `ESTOP_NOT_SUPPORTED` | The driver has no `estop` command. The queue stopped, but no hardware stop was sent. |
+| `Unknown immediate command: estop` | The edge runs a Python SDK older than 0.0.23. |
+| timeout | The edge did not answer. The estop stays queued and applies when the edge reconnects. |
+
+Any result other than `ok` means the hardware may still be running. A software estop does not replace the machine's physical emergency stop.
+
+## Command design
+
+Prefer atomic commands that map to a single hardware action. Avoid commands that combine unrelated work, hide required inputs, or require complex objects that cannot be represented cleanly as [JSON primitives](#json-primitives) in the [protocol file](../overview/under-the-hood#protocol-generation).
+
+When a hardware operation fails, include the command, target values, and hardware response in the error message.
+
+## `@safety` decorator
+
+Attach `@safety` to a `@command` method to publish advisory context in the command catalog. It does not block edge dispatch, so enforce hard preconditions in the method body by raising, for example `if not self._homed: raise RuntimeError("Machine is not homed; run home first")`. `@safety` without `@command` is ignored. Use [JSON primitives](#json-primitives) for `@safety` parameters.
+
+All five fields are keyword-only:
+
+| Field | Type | Required | Role |
+|---|---|---|---|
+| `summary` | `str` | yes | Headline of the risk |
+| `hazards` | `list[str]` | no | Short tags such as `collision` or `thermal` |
+| `requires` | `str` | no | Preconditions; agents insert earlier steps or ask first |
+| `forbidden_when` | `str` | no | Situations where the command must not be used |
+| `confirm` | `bool` | no | Defaults to `false`. When `true`, the AI agent asks the operator to confirm before running the command. |
+
+Use `requires` for checks the agent must run first, such as a vision pass before motion or reagent checks before mixing:
+
+```python title="driver.py"
+from puda import command, safety
+
+@command
+@safety(
+    summary="Collision risk from moving into an occupied workspace.",
+    hazards=["collision"],
+    requires="Before running this command, use the vision analyse skill to check the workspace for obstructions.",
+    forbidden_when="Do not move if vision reports an obstruction in the path.",
+    confirm=True,  # manual confirmation needed
+)
+def move_to(self, x_mm: float, y_mm: float, z_mm: float) -> bool:
+    """
+    Move the machine head to an absolute position.
+
+    Args:
+        x_mm: Target X position in millimeters.
+        y_mm: Target Y position in millimeters.
+        z_mm: Target Z position in millimeters.
+
+    Returns:
+        bool: True if the move was accepted, False otherwise.
+
+    Raises:
+        RuntimeError: If the hardware rejects the move command.
+    """
+    result = self._hardware.move_to(x_mm=x_mm, y_mm=y_mm, z_mm=z_mm)
+    if not result.ok:
+        raise RuntimeError(
+            "Failed to move machine head "
+            f"to x={x_mm}, y={y_mm}, z={z_mm}: {result.error}"
+        )
+    return True
+```
+
+The agent should run the vision analyse skill, confirm the path is clear, then call `move_to`. Because `confirm=True`, the agent then prompts the operator for confirmation before it proceeds with the move.
+
+## Configure the edge service
+
+After the driver commands work, edit `main.py` so the edge service loads the machine-specific environment variables, and passes them into the driver.
+
+Keep `MACHINE_ID` and `NATS_SERVERS` in `.env`, then add the variables your hardware needs:
+
+```bash title=".env"
+MACHINE_ID=my-machine
+NATS_SERVERS=nats://<nats-server-host>:<port>
+
+# Add variables as needed
+MY_MACHINE_HOST=192.168.1.50
+MY_MACHINE_PORT=4000
+```
+
+Add matching fields to the `Config` class in `main.py`. Use descriptive names and types so missing or invalid configuration fails at startup instead of during a command:
+
+```python title="main.py"
+class Config(BaseSettings):
+    machine_id: str
+    nats_servers: str
+    my_machine_host: str
+    my_machine_port: int = 4000
+
+    model_config = SettingsConfigDict(
+        env_file=Path(__file__).resolve().parent / ".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+    )
+
+    @property
+    def nats_server_list(self) -> list[str]:
+        return [s.strip() for s in self.nats_servers.split(",") if s.strip()]
+```
+
+Then instantiate the driver from that config:
+
+```python title="main.py"
+driver = Driver(
+    host=config.my_machine_host,
+    port=config.my_machine_port,
+)
+```
+
+## Telemetry streams
+
+Mark driver methods with `@tlm_stream(interval=...)` to publish telemetry streams such as position, weight, or a control signal. `EdgeRunner` calls each one every `interval` seconds and publishes the returned dict to `puda.<machine_id>.tlm.stream.<name>`. The stream name defaults to the method name, and the first paragraph of the docstring is advertised as its description. `puda machine info <machine_id>` lists every stream with its subject and interval.
+
+```python title="driver.py"
+from puda import tlm_stream
+
+class Driver:
+    @tlm_stream(interval=3.0, name="pos")  # puda.<machine_id>.tlm.stream.pos
+    def get_position(self) -> dict[str, float]:
+        """Current cartesian position."""
+        self._position = self._hardware.read_position()
+        return self._position
+
+    @tlm_stream(interval=0.25)  # puda.<machine_id>.tlm.stream.weight
+    def weight(self) -> dict | None:
+        """Mass in grams."""
+        return {"g": self._latest_mass}
+```
+
+How stream methods run:
+
+- Each stream is called in a separate worker thread, not on the event loop, so reading from the device here is fine.
+- Streams run concurrently with commands, which also run in worker threads. A stream can be called while a command is in progress. How the driver shares a connection between them depends on the device protocol.
+- Return `None` to skip a sample. Exceptions are logged and the stream keeps running.
+- A stream does not need to be a `@command`. Add `@command` only if agents should also be able to request the value on demand.
+- Cache the latest reading on the driver, such as `self._position`, so the [`@machine_state`](#machine-state) method can include it without touching the device.
+
+For data that arrives as events from a driver thread rather than on a fixed schedule, call `edge_nats_client.publish_tlm_stream_threadsafe("<name>", data)`.
+
+## Machine state
+
+Mark one driver method with `@machine_state` to add machine-level fields to every `MACHINE_STATE` update. Only one method may be marked, and its name does not matter. PUDA already sets `state`, `run_id`, and `timestamp`, so return only what is specific to your machine and do not reuse those keys.
+
+```python title="driver.py"
+from puda import machine_state
+
+class Driver:
+    @machine_state
+    def snapshot(self) -> dict:
+        return {"homed": self._homed, "position": self._position}
+```
+
+The `@machine_state` method is not polled. PUDA calls it whenever machine state changes: at startup and reconnect, when a queued command starts and ends, after immediate commands such as pause or reset, on errors, and at shutdown. Each call is one write to the `MACHINE_STATE` key-value store, so an idle machine's state is written once.
+
+It runs on the edge's event loop, not in a worker thread. Return values the driver already keeps in memory, updated by your commands. A device read here, such as a serial query, blocks command handling and telemetry until it finishes. Values that can change outside a command, like a limit switch or an operator homing from the machine's panel, belong in a `@tlm_stream` instead.
+
+## Heartbeat and host health
+
+`EdgeRunner` publishes the heartbeat and host health (CPU, memory and temperature on `tlm.health`, every 5 seconds) on its own, so `main.py` only wires things together:
+
+```python title="main.py"
+runner = EdgeRunner(nats_client=edge_nats_client, machine_driver=driver)
+```
+
+Adapt the field names to your machine. For a robot arm, position might include joints and tool pose. For a pump, position might be plunger position, valve position, and current flow rate. For a camera, it might be stage position, focus, exposure, and acquisition state. The important rule is that telemetry should be JSON-serializable, stable over time, and useful to agents, dashboards, and loggers watching subjects such as `puda.<machine_id>.tlm.stream.pos`, `puda.<machine_id>.tlm.stream.>` (every stream), and `puda.<machine_id>.tlm.health`.
+
+Once this is done, you can [install the PUDA CLI and skills](./puda-cli-and-skills) in your AI agent so it can command your PUDA-integrated machines.

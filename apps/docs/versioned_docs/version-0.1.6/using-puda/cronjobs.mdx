@@ -1,0 +1,47 @@
+---
+sidebar_position: 3
+---
+
+# Cron Jobs
+
+Use cron jobs when a PUDA task should run on a schedule, such as every morning before the lab opens, once per hour during a long experiment, or every night after instruments are idle.
+
+Cron is best for already-tested procedures. Before scheduling a machine task, turn the task into a protocol or [workflow skill](./workflow-skills), dry-run it, and confirm that it handles startup, verification, cleanup, and failure cases safely.
+
+## What to schedule
+
+Schedule deterministic commands or something that has been done before, not vague instructions. Good cron targets include:
+
+- Running a saved protocol.
+- Asking an agent to execute a named workflow skill from a project directory.
+- Collecting status or telemetry from machines.
+- Generating reports at the end of the day.
+- Running routine startup, calibration, or shutdown tasks that have already been validated.
+
+Avoid scheduling experimental commands that still need human judgement. If a task can move hardware, heat a device, dispense liquid, or consume a sample, the scheduled command should include explicit limits and verification gates.
+
+## Examples
+
+Describe the schedule in natural language and let the agent turn it into the right cron job for your project:
+
+```text
+Do a morning startup check every day at 8:00 AM.
+```
+
+```text
+Do a weekly calibration every Monday at 9:30 AM on the Opentrons machine.
+```
+
+```text
+Collect machine status every hour during the long-running experiment.
+```
+
+## Safety checks
+
+Before enabling the cron job:
+
+- Confirm the machine is reachable with `puda machine list`.
+- Use natural langauge to run at least once before turning it into a cronjob.
+- Write cron output to a log file so failures are visible later.
+
+Cron will keep running on its schedule. Disable or edit the cron entry whenever the machine setup, protocol file, consumables, or safety limits change.

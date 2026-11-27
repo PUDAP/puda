@@ -1,0 +1,37 @@
+---
+sidebar_position: 2
+---
+
+# Docker API Troubleshoot
+
+Use this page to fix common Docker API access issues during PUDA setup.
+
+## Unable to connect to the Docker API
+
+You may see this error when installing or starting PUDA services from WSL:
+
+```text
+unable to get image 'nats:2.12.2': permission denied while trying to connect to the docker API at unix:///var/run/docker.sock
+```
+
+This usually means your WSL user does not have permission to access Docker.
+
+Enable Docker access for your WSL user:
+
+```bash
+sudo usermod -aG docker "$USER"
+```
+
+Then restart the WSL shell/session. From Windows PowerShell, you can run:
+
+```powershell
+wsl --shutdown
+```
+
+Reopen WSL and verify Docker access:
+
+```bash
+docker ps
+```
+
+If you are using Hermes with Telegram, you can also mention the bot in Telegram and ask it to fix the error.
