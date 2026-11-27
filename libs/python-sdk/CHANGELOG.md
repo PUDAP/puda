@@ -15,6 +15,30 @@ judge compatibility by that, not by package versions.
 
 - An edge on an unprovisioned broker creates the command and response streams with the provisioned settings instead of a minimal config: `COMMAND_QUEUE` holds at most 10 commands per machine and refuses more (`discard_new_per_subject`), and the response streams use file storage with a 24 h `max_age`. Provisioned brokers are unchanged by the edge, as before; `infra/nats/jetstream/streams/COMMAND_QUEUE.json` carries the same limit.
 
+### Fixed
+
+- `StreamSubscriber` never acknowledges a message that failed. It subscribed with
+  nats-py's auto-ack, which acked after the callback even when the handler raised
+  (the wrapper swallowed the error), so a message whose payload could not be
+  opened or whose handler failed was lost. Subscriptions now use `manual_ack`:
+  the handler acks or terminates, and a failure is NAKed with a delay
+  (`nak_delay`, 5 s) so JetStream redelivers it. Messages of one subscription are
+  handled one at a time, in order.
+- `StreamSubscriber` never deletes a durable consumer. On "consumer is already
+  bound" it deleted the durable and subscribed again, which on an
+  interest-retention response stream drops the consumer's pending messages; it now
+  raises a `RuntimeError` naming the consumer and the options.
+- `StreamSubscriber` keeps one connection and does not re-subscribe on reconnect.
+  nats-py restores subscriptions itself; the reconnect callback cleared them and
+  called `_resubscribe_all`, and the `run()` health loop opened a second
+  connection while nats-py was still reconnecting. `_resubscribe_all` is removed;
+  `run()` connects again (and calls `on_start()` again) only if the connection
+  closes for good.
+- `StreamSubscriber` follows E2E key rotation: with a payload key it watches
+  `E2E_KEYRING/current` like an edge (Edge Protocol 1.0, section 13.5), adopts and
+  persists new rings, drops the previous key when the record is deleted, and
+  refreshes the record after a payload it cannot open.
+
 ## [0.1.0rc1] - 2026-11-25
 
 Release candidate. First release speaking PUDA Edge Protocol 1.0
