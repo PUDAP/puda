@@ -1,0 +1,87 @@
+---
+sidebar_position: 3.25
+---
+
+# Security
+
+PUDA security covers three distinct concerns: authentication (who is connecting), authorization (what they can do), and end-to-end encryption (who can read payloads).
+
+## Authentication
+
+`puda login` records a username and generates a user ID in the local CLI configuration. It is not a NATS server authentication handshake or proof of a user's identity. Selecting a profile chooses a connection; it does not grant access.
+
+The CA used for TLS lets clients verify the NATS server's server certificate. This is separate from authenticating clients to the NATS server. The supplied encrypted NATS server layouts do not, by themselves, establish individual client identities. A shared lab key also does not identify individual users: every holder can seal and open lab payloads.
+
+## Authorization
+
+Authorization determines which clients may publish or subscribe to which subjects and which machine operations they may perform. Encryption alone does not provide those permissions. Neither a username in a message nor possession of the shared lab key defines a per-user access policy.
+
+The supplied encrypted layouts do not define per-user subject permissions. Access controls must be configured separately for the deployment. Driver `@safety` metadata supports operator confirmation, but is not an authorization boundary; hard machine preconditions must be enforced by the driver.
+
+## End-to-end encryption (E2EE)
+
+Encryption is optional. The plaintext layouts on [NATS Server](./nats-server) remain the defaults. For an encrypted deployment, use `single-node-e2e` or `three-node-r3-e2e` and configure every participating client with the same 32-byte lab key.
+
+TLS encrypts the connection between each client and the NATS server. The lab key separately seals command, response, telemetry, KV, ping, and client-encrypted MQTT payloads, so the NATS server and JetStream disk store ciphertext. Subjects remain visible to NATS for routing. Switching NATS server layouts alone does not enable payload encryption: clients must seal their payloads.
+
+### Lab key and CA
+
+Do not put the lab key in `puda.config` or a source repository. Store it in a mode `0600` file (or equivalent restricted permissions on Windows) whose first line is `encrypt=` followed by the base64-encoded 32-byte key. Distribute it securely only to authorized clients, not to the NATS server. The NATS server needs server certificates and private keys, not the payload encryption key.
+
+Each client also needs the server CA file and `tls://` NATS URLs. CLI profiles and edge settings are configured differently.
+
+### CLI profiles
+
+Create and select an encrypted profile using paths on the machine running the CLI:
+
+```bash
+puda profile add secure-lab --servers tls://nats.example:4222 --ca /absolute/path/ca.pem --key /absolute/path/e2e.key
+puda profile switch secure-lab
+puda profile current
+```
+
+Replace the example host and paths with your lab's values. Supply both `--ca` and `--key`; profiles store the paths, not key contents. For a cluster, pass comma-separated `tls://` URLs to `--servers`. `puda config` manages user identity, not connections, and old security environment variables do not replace the active profile. See [profile migration](../upgrading-to-0.1.x#move-nats-server-settings-to-profiles).
+
+### Edge configuration
+
+SDK 0.0.21 does not look up security environment variables automatically. The edge application should load `PUDA_NATS_CA` and `PUDA_E2E_KEY_FILE` into its settings and explicitly pass them to the client:
+
+```python
+client = EdgeNatsClient(
+    servers=config.nats_server_list,
+    machine_id=config.machine_id,
+    ca_file=config.puda_nats_ca,
+    e2e_key_file=config.puda_e2e_key_file,
+)
+```
+
+Set `NATS_SERVERS` to `tls://` URLs. In Docker, mount the local CA and key files and pass their **container paths** to the application. Keep the CA mount read-only; clients that persist key rotations need write access to their key file. Do not bake keys into images.
+
+Both client arguments are optional. For plaintext operation, use `nats://` with both paths unset. The SDK treats TLS and payload encryption independently; the encrypted lab setup described here uses both.
+
+### Enable encryption
+
+Plan a maintenance window after upgrading every CLI and edge. Stop active runs and pause producers before migrating persisted plaintext data.
+
+1. Generate the CA and server certificates with `generate-certs.sh` in the matching encrypted layout: [`single-node-e2e`](https://github.com/PUDAP/puda/tree/main/infra/nats/single-node-e2e) or [`three-node-r3-e2e`](https://github.com/PUDAP/puda/tree/main/infra/nats/three-node-r3-e2e). Generate the lab key separately and distribute it only to authorized clients.
+2. Configure the key file, CA, and `tls://` URLs on every CLI, edge, logger, and other participating client.
+3. Back up any required stream data and KV registrations. Purging is destructive: with producers stopped, clear old plaintext data from `COMMAND_QUEUE`, `COMMAND_IMMEDIATE`, `RESPONSE_QUEUE`, `RESPONSE_IMMEDIATE`, and the KV buckets `MACHINE_STATE`, `MACHINE_COMMANDS`, and `LIVESTREAMS`. Do not purge a running fleet or discard data you need to retain.
+4. Start the encrypted NATS server layout and apply its JetStream setup as documented in that layout. Restart clients, let edges republish their state and command catalogs, and re-register required livestreams.
+5. Verify `puda machine info <machine_id>` and watch an advertised telemetry subject with `puda machine watch <subject> --timeout 15` to confirm end-to-end communication.
+
+### Key rotation
+
+Select an encrypted profile before using `puda encryption status` or `puda encryption rotate`; these commands require it. `puda encryption status` lists edges from ping and CLI key files from the `E2E_KEYFILES` bucket. `puda encryption rotate` installs one new key. Other CLIs adopt it the next time they connect. After clients report the new key, one CLI runs `puda encryption rotate --retire`. Account for offline clients before retiring the old key.
+
+### MQTT clients
+
+MQTT clients connect to `mqtts://<host>:8883` and must encrypt their payloads themselves; TLS alone does not hide them from the NATS server. With SDK 0.0.21, use a client-local encryption context and the corresponding NATS subject as authenticated additional data:
+
+```python
+from puda.e2e import Context
+
+encryption = Context("/absolute/path/e2e.key")
+payload = encryption.seal("puda.first.tlm.stream.pos", b'{"x": 1.0}')
+```
+
+Use your actual routed subject and publish the resulting bytes through your MQTT client. The old module-level `puda.e2e.seal` API is no longer available. The frame layout is documented in [`single-node-e2e/README.md`](https://github.com/PUDAP/puda/blob/main/infra/nats/single-node-e2e/README.md).

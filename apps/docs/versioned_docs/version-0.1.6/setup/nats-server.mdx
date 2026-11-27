@@ -1,0 +1,117 @@
+---
+sidebar_position: 3
+---
+
+# NATS Server
+
+The NATS server is the central communication point for PUDA. The CLI, edge services, and logger services all depend on it for commands, telemetry, events, and logs.
+
+Choose one of four layouts from [`infra/nats`](https://github.com/PUDAP/puda/tree/main/infra/nats) in the PUDA repository:
+
+- **Single-node** (`single-node`) — one plaintext NATS server on one always-on computer. No failover.
+- **Three-node** (`three-node-r3`) — one plaintext NATS server on each of three computers on the same network (LAN or Tailscale). The cluster survives one host going down.
+- **Single-node with TLS and E2EE** (`single-node-e2e`) — one TLS-enabled NATS server, with clients configured for payload encryption. No failover.
+- **Three-node with TLS and E2EE** (`three-node-r3-e2e`) — a three-server TLS-enabled cluster, with clients configured for payload encryption. The cluster survives one host going down.
+
+The plaintext layouts are covered below. For the encrypted variants and client configuration, see [Security](./security).
+
+After the server is running, apply the JetStream streams and KV buckets once from [`infra/nats/jetstream`](https://github.com/PUDAP/puda/tree/main/infra/nats/jetstream). Do not skip that step.
+
+Use a mini PC, Raspberry Pi, or another small always-on machine. Install a stable Linux distribution such as Ubuntu Server or Debian.
+
+## Install Docker
+
+Install Docker Engine by following the official Docker instructions for your Linux distribution:
+
+[Install Docker Engine](https://docs.docker.com/engine/install/)
+
+After Docker is installed, confirm that Docker Compose is available:
+
+```bash
+docker compose version
+```
+
+Copy the chosen layout and the JetStream configs into your [deployment monorepo](./deployment-monorepo) as plain folders. Do not clone the PUDA repository into it. From the repository root, replacing `single-node` with your layout:
+
+```bash
+mkdir -p services/nats
+curl -fsSL https://github.com/PUDAP/puda/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=3 -C services/nats puda-main/infra/nats/single-node puda-main/infra/nats/jetstream
+```
+
+Commit the folder, then check out the deployment monorepo on the NATS host:
+
+```bash
+cd puda-<deployment>/services/nats
+```
+
+## Single-node
+
+One computer runs the NATS server. Follow [`single-node/README.md`](https://github.com/PUDAP/puda/blob/main/infra/nats/single-node/README.md).
+
+```bash
+cd single-node
+cp .env.example .env
+```
+
+Set `HOST_IP` in `.env` to this computer's reachable LAN or Tailscale address. Then:
+
+```bash
+docker compose up -d
+```
+
+Apply JetStream with one replica:
+
+```bash
+cd ../jetstream
+NATS_URL=nats://localhost:<port> REPLICAS=1 ./setup_streams.sh
+```
+
+The NATS client URL is:
+
+```text
+nats://<nats-server-host>:<port>
+```
+
+This layout has no server or JetStream failover.
+
+## Three-node
+
+Use three computers on the same network. Copy `three-node-r3` into the deployment monorepo, check it out on all three hosts, and run `nats1/`, `nats2/`, and `nats3/` on one host each. Follow [`three-node-r3/README.md`](https://github.com/PUDAP/puda/blob/main/infra/nats/three-node-r3/README.md).
+
+The [PUDAP/puda-nats-template](https://github.com/PUDAP/puda-nats-template) template is the same three-computer layout (`machine1`, `machine2`, `machine3`). Copy it into the deployment monorepo the same way; do not clone it.
+
+On each host:
+
+```bash
+cp .env.example .env
+```
+
+Fill in reachable addresses for this host and the other two. Route port `6222` must be reachable between all three computers. Then on every host:
+
+```bash
+docker compose up -d
+```
+
+After all three nodes are up, apply JetStream **once** from an operator machine that has the deployment monorepo:
+
+```bash
+cd jetstream
+NATS_URL=nats://<nats1-host>:<port> REPLICAS=3 ./setup_streams.sh
+```
+
+Do not run the JetStream bootstrap independently on all three servers.
+
+Configure PUDA clients with all three URLs:
+
+```env title=".env"
+NATS_SERVERS=nats://<nats1-host>:<port>,nats://<nats2-host>:<port>,nats://<nats3-host>:<port>
+```
+
+Once this is done, you can start integrating a new machine.
+
+Optional: sync host clocks with [Clock Sync](./clock-sync) so timestamps agree across the NATS host and every edge.
+
+## Security
+
+The layouts above remain the plaintext defaults. See [Security](./security) for authentication, authorization, and optional end-to-end encryption, including encrypted NATS server layouts, client configuration, and key rotation.

@@ -8,7 +8,7 @@ is a self-contained template: a database server stack and a NATS logger.
 - `postgres/`: PostgreSQL server and NATS → PostgreSQL logger
 - `reductstore/`: ReductStore server and NATS → ReductStore logger
 
-All four loggers (1.0.0) speak PUDA Edge Protocol 1.0 ([spec](../../docs/edge-protocol/edge-protocol-v1.0.md)): Python SDK `0.1.0rc1`+, CLI `0.2.0-rc1`+, no compatibility with 0.1.x setups (CLI 0.1.x, SDK 0.0.x). See [Upgrading to v0.2.x](https://docs.puda.co/docs/upgrading-to-0.2.x). As observers they:
+All four loggers (1.0.0) speak PUDA Edge Protocol 1.0 ([spec](../../docs/edge-protocol/edge-protocol-v1.0.md)): Python SDK `0.1.0rc1`+, CLI `0.2.0-rc1`+, no compatibility with 0.1.x setups (CLI 0.1.x, SDK 0.0.x). See [Upgrading to v0.2.x](https://docs.puda.co/docs/0.2.0/upgrading-to-0.2.x). As observers they:
 
 - never subscribe to `puda.*.cmd.immediate`, `cmd.ping` or `update`, and record immediate commands from `RESPONSE_IMMEDIATE`;
 - never update or delete the provisioned response streams (interest retention, 24 h); a missing stream is created with those settings and a warning;
@@ -26,4 +26,4 @@ curl -fsSL https://github.com/PUDAP/puda/archive/refs/heads/main.tar.gz \
   | tar -xz --strip-components=4 -C services/influxdb puda-main/services/logger/influxdb
 ```
 
-See [Logging service](https://docs.puda.co/observability/logging-service) for the full setup.
+See [Logging service](https://docs.puda.co/docs/0.2.0/observability/logging-service) for the full setup.

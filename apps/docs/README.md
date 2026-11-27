@@ -20,17 +20,17 @@ This command starts a local development server and opens up a browser window. Mo
 
 ## Docs versions
 
-The default docs (`/docs/...`) are **v0.1.x** (CLI v0.1.0, Python SDK 0.0.17). **v0.0.36** is at `/docs/0.0.36/`.
+The default docs (`/docs/...`) are **v0.1.x** (CLI v0.1.x, Python SDK 0.0.x), frozen in `versioned_docs/version-0.1.6/`. **v0.2.0 (beta)** is at `/docs/0.2.0/` and **v0.0.36** at `/docs/0.0.36/`.
 
-`docs/` is the v0.1.x source. Frozen copies live in `versioned_docs/`.
+`docs/` is the v0.2.0 source (CLI v0.2.0-rc1, Python SDK 0.1.0rc1). It is labelled beta with the unreleased banner, and `lastVersion` keeps v0.1.x the default. Edit `docs/` for 0.2 changes, and `versioned_docs/version-0.1.6/` for fixes to the v0.1.x docs.
 
-To freeze another release:
+When v0.2.0 is released, freeze it and make it the default:
 
 ```bash
 npx pnpm docs:version 0.2.0
 ```
 
-That copies `docs/` into `versioned_docs/version-0.2.0/` and updates `versions.json`. Then set `lastVersion` / version labels in `docusaurus.config.ts`.
+That copies `docs/` into `versioned_docs/version-0.2.0/` and updates `versions.json`. Then in `docusaurus.config.ts` set `lastVersion: '0.2.0'`, give the new version its label, and point `current` at the next release.
 
 ## Build
 
