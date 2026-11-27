@@ -13,6 +13,7 @@ judge compatibility by that, not by package versions.
 
 ### Changed
 
+- `MACHINE_STATE` and `MACHINE_COMMANDS` values carry `protocol_version`, so a reader can tell which protocol wrote a value that outlived its edge (E-9).
 - An edge on an unprovisioned broker creates the command and response streams with the provisioned settings instead of a minimal config: `COMMAND_QUEUE` holds at most 10 commands per machine and refuses more (`discard_new_per_subject`), and the response streams use file storage with a 24 h `max_age`. Provisioned brokers are unchanged by the edge, as before; `infra/nats/jetstream/streams/COMMAND_QUEUE.json` carries the same limit.
 
 ### Fixed
@@ -24,6 +25,7 @@ Edge Protocol 1.0 errata (spec §19); the protocol version stays `1.0`:
 - Responses echo unknown `header`, `command` and top-level fields unchanged, so fields added by a later 1.x minor survive the round trip (E-5).
 - A response `code` this SDK does not know is kept as a string instead of failing validation, so `CommandService` no longer times out on codes added by a later 1.x minor (E-6).
 - A malformed update request is answered `EXECUTION_ERROR` when it can be correlated, instead of leaving the CLI to time out (E-7).
+- A queued command can no longer start after an `estop` or `complete --abort` that was handled while the edge put `busy`. The latch and the stop mark are now checked in the same event-loop step that hands the command to the driver thread; such a command is answered `COMMAND_CANCELLED` without reaching the driver (E-8).
 - `StreamSubscriber` never acknowledges a message that failed. It subscribed with
   nats-py's auto-ack, which acked after the callback even when the handler raised
   (the wrapper swallowed the error), so a message whose payload could not be

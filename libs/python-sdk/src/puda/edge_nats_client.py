@@ -651,6 +651,8 @@ class EdgeNatsClient:
             message = {"timestamp": self._format_timestamp(), **data}
             if self.state_handler is not None:
                 message.update(self.state_handler())
+            # The value outlives this edge; readers can tell which protocol wrote it.
+            message["protocol_version"] = PROTOCOL_VERSION
             if isinstance(message.get("state"), MachineState):
                 message["state"] = message["state"].value
             await self.kv_state.put(

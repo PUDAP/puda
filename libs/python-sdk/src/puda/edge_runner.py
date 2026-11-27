@@ -21,6 +21,7 @@ from .command import (
     require_command_names,
     resolve_hook_names,
 )
+from .constants import PROTOCOL_VERSION
 from .edge_nats_client import EdgeNatsClient
 from .edge_updater import EdgeUpdater
 from .execution_state import ExecutionState
@@ -132,20 +133,29 @@ def _validate_handler(
     return handler, None
 
 
+class _StoppedBeforeStart(Exception):
+    """An estop or abort arrived before the driver call was handed to its thread."""
+
+
 async def _execute_handler(
     handler: Callable[..., Any],
     params: dict | None,
     kwargs: dict | None = None,
+    stop_reason: Callable[[], str | None] | None = None,
 ) -> Any:
     """
     Run a synchronous handler in a thread pool so the async wrapper can be cancelled.
 
     Spreads params as keyword arguments. If kwargs is provided, those are merged
-    in (kwargs take precedence on key conflicts).
+    in (kwargs take precedence on key conflicts). *stop_reason* is checked in the
+    same event-loop step that submits the call, so no estop or abort handled
+    before the submit can be missed (spec §9.6 step 1).
     """
     params = params if isinstance(params, dict) else {}
     if kwargs:
         params = {**params, **kwargs}
+    if stop_reason is not None and (reason := stop_reason()) is not None:
+        raise _StoppedBeforeStart(reason)
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, lambda: handler(**params))
 
@@ -402,11 +412,19 @@ class EdgeRunner:
                 await self._publish_state(MachineState.ERROR, run_id)
                 return error_response
 
-            task = asyncio.create_task(_execute_handler(handler, params, kwargs))
+            task = asyncio.create_task(_execute_handler(handler, params, kwargs, self._queued_stop_reason))
             self.exec_state.set_current_task(task)
 
             try:
                 handler_result = await task
+            except _StoppedBeforeStart as stopped:
+                logger.warning("%s not started: stopped by %s", command_name, stopped)
+                await self._publish_state(MachineState.IDLE, self._active_run_id())
+                return CommandResponse(
+                    status=CommandResponseStatus.ERROR,
+                    code=CommandResponseCode.COMMAND_CANCELLED,
+                    message=f"Stopped by {stopped}",
+                )
             except asyncio.CancelledError:
                 logger.info("Handler execution cancelled (run_id: %s)", run_id)
                 return CommandResponse(
@@ -563,6 +581,11 @@ class EdgeRunner:
 
     # -- helpers -------------------------------------------------------------
 
+    def _queued_stop_reason(self) -> str | None:
+        """Why the queued command must not start now, or None."""
+        commands = getattr(self.nats_client, "commands", None)
+        return commands.queued_stop_reason() if commands is not None else None
+
     def _active_run_id(self) -> str | None:
         commands = getattr(self.nats_client, "commands", None)
         return commands.run_manager.get_active_run_id() if commands is not None else None
@@ -581,7 +604,9 @@ class EdgeRunner:
         
     async def _publish_commands(self) -> None:
         text, catalog = build_command_catalog(self.machine_driver)
-        payload: dict[str, Any] = {"commands": text, "catalog": catalog, "hooks": sorted(self.hooks)}
+        payload: dict[str, Any] = {
+            "commands": text, "catalog": catalog, "hooks": sorted(self.hooks), "protocol_version": PROTOCOL_VERSION,
+        }
         await self.nats_client.publish_commands(payload)
 
     async def _publish_host_health(self) -> None:

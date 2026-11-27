@@ -99,6 +99,18 @@ class EstopDriver:
         return {"stopped": True}
 
 
+class CountingDriver:
+    def __init__(self) -> None:
+        self.moves = 0
+
+    @command
+    def move(self) -> None:
+        self.moves += 1
+
+    def estop(self) -> None:
+        return None
+
+
 class NoEstopDriver:
     @command
     def move(self) -> None:
@@ -126,6 +138,38 @@ class RunnerEstopTests(unittest.IsolatedAsyncioTestCase):
         # The runner waits for the driver call instead of cancelling it; the
         # processor answers it COMMAND_CANCELLED (see test_it_baseline).
         self.assertEqual(queued.status, CommandResponseStatus.SUCCESS)
+
+    async def _stop_during_busy_put(self, stop: str) -> tuple[CountingDriver, CommandResponse]:
+        """Run a queued move whose busy-state put yields to an estop or abort (§9.6 step 1)."""
+        driver = CountingDriver()
+        client = EdgeNatsClient(["nats://localhost:4222"], "test-1")
+        runner = EdgeRunner(client, driver, _telemetry)
+        processor = client.commands
+        await processor.run_manager.start_run("run-1")
+
+        async def put(payload: dict) -> None:
+            if payload["state"] == MachineState.BUSY and processor._running["stopped_by"] is None:
+                verb = ImmediateCommand.ESTOP if stop == "estop" else ImmediateCommand.COMPLETE
+                params = {"abort": True} if stop == "abort" else None
+                await processor._dispatch_immediate(
+                    verb, "run-1", _message(verb.value, params=params), runner._handle_immediate
+                )
+
+        client.publish_state = put  # type: ignore[method-assign]
+        processor._running = {"name": "move", "step_number": 1, "run_id": "run-1",
+                              "started": 0.0, "stopped_by": None}
+        response = await runner._handle_execute(_message("move"))
+        return driver, response
+
+    async def test_estop_during_busy_put_keeps_the_command_from_starting(self) -> None:
+        driver, response = await self._stop_during_busy_put("estop")
+        self.assertEqual(driver.moves, 0)
+        self.assertEqual(response.code, CommandResponseCode.COMMAND_CANCELLED)
+
+    async def test_abort_during_busy_put_keeps_the_command_from_starting(self) -> None:
+        driver, response = await self._stop_during_busy_put("abort")
+        self.assertEqual(driver.moves, 0)
+        self.assertEqual(response.code, CommandResponseCode.COMMAND_CANCELLED)
 
     async def test_missing_estop_reports_no_hardware_stop(self) -> None:
         runner = EdgeRunner(

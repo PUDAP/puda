@@ -59,6 +59,9 @@ type MachineCommands struct {
 	// reset, estop, abort, shutdown). Nil when the edge does not report them
 	// (Python SDK older than 0.1.0).
 	Hooks []string `json:"hooks"`
+	// ProtocolVersion is the Edge Protocol version of the edge that wrote the
+	// catalog; empty for catalogs written before the field existed.
+	ProtocolVersion string `json:"protocol_version,omitempty"`
 }
 
 type MachineCommand struct {

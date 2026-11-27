@@ -10,17 +10,18 @@ import base64
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import jsonschema
 import pytest
 from pydantic import ValidationError
 
-from puda import e2e
-from puda.command import build_command_catalog, command
+from puda import PROTOCOL_VERSION, e2e
+from puda.command import command
 from puda.command_processor import CommandProcessor, _error, _ok
 from puda.command_service import CommandService
 from puda.edge_nats_client import EdgeNatsClient
+from puda.edge_runner import EdgeRunner
 from puda.host_addresses import HostAddresses
 from puda.models import CommandRequest, CommandResponseCode, NATSMessage
 
@@ -145,5 +146,19 @@ class _Driver:
 
 
 def test_sdk_catalog_matches_spec():
-    text, catalog = build_command_catalog(_Driver())
-    validate("machine-commands", {"commands": text, "catalog": catalog, "hooks": ["pause"]})
+    client = EdgeNatsClient(["nats://localhost:4222"], "proto-test")
+    client.publish_commands = AsyncMock()  # type: ignore[method-assign]
+    asyncio.run(EdgeRunner(client, _Driver())._publish_commands())
+    (payload,), _ = client.publish_commands.call_args
+    validate("machine-commands", payload)
+    assert payload["protocol_version"] == PROTOCOL_VERSION  # §11.1: KV values outlive their writer
+
+
+def test_sdk_state_value_matches_spec():
+    client = EdgeNatsClient(["nats://localhost:4222"], "proto-test")
+    client.kv_state = SimpleNamespace(put=AsyncMock())  # type: ignore[assignment]
+    client.set_state_handler(lambda: {"homed": True})
+    asyncio.run(client.publish_state({"state": "idle", "run_id": None}))
+    stored = json.loads(client.kv_state.put.call_args.args[1])
+    validate("machine-state", stored)
+    assert stored["protocol_version"] == PROTOCOL_VERSION  # §10
