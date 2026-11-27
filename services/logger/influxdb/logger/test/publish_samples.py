@@ -20,6 +20,7 @@ async def main():
         await subscriber.sync_keyring()
         data = {
             "header": {
+                "protocol_version": "1.0",
                 "machine_id": "logger-test",
                 "timestamp": "2026-07-07T09:41:42Z",
                 "username": "test",
@@ -37,7 +38,7 @@ async def main():
         ):
             subject = "puda.logger-test." + suffix
             payload = (
-                {"timestamp": "2026-07-07T09:41:42Z", "cpu": 6.0}
+                {"timestamp": "2026-07-07T09:41:42Z", "data": {"cpu": 6.0}}
                 if suffix == "tlm.health"
                 else data
             )

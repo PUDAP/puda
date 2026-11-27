@@ -1,13 +1,16 @@
 import base64
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from nats.js.api import RetentionPolicy, StorageType, StreamConfig
+from nats.js.errors import NotFoundError
 from puda import e2e
 
 from e2e_context import ring_context
-from subscriber import Config, Subscriber, duration_seconds, timestamp_ns, to_line
+from subscriber import Config, Subscriber, timestamp_ns, to_line
 
 
 @pytest.fixture(autouse=True)
@@ -17,7 +20,6 @@ def clean_env(monkeypatch):
         "PUDA_NATS_CA",
         "PUDA_E2E_KEY_FILE",
         "JS_MAX_ACK_PENDING",
-        "JS_RESPONSE_MAX_AGE",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -26,6 +28,7 @@ def clean_env(monkeypatch):
 def command():
     return {
         "header": {
+            "protocol_version": "1.0",
             "machine_id": "first",
             "timestamp": "2026-07-07T09:41:42Z",
             "username": "user",
@@ -111,7 +114,8 @@ def test_command_schema(command):
     line = to_line("puda.first.cmd.queue", json.dumps(command).encode())
     assert line == (
         "commands,cmd_name=home,machine_id=first,msg_type=command,"
-        "run_id=run-1,status=sent,subject=puda.first.cmd.queue,topic=queue,username=user "
+        "protocol_version=1.0,run_id=run-1,status=sent,subject=puda.first.cmd.queue,"
+        "topic=queue,username=user "
         'step_number=1i,user_id="user-1" 1783417302000000000'
     )
 
@@ -125,9 +129,12 @@ def test_response_schema(command):
     assert "status=success" in line
 
 
+def tlm(data, timestamp="2026-07-07T09:41:42.123456789Z"):
+    return json.dumps({"timestamp": timestamp, "data": data}).encode()
+
+
 def test_health_scalars_and_nanosecond_time():
-    raw = b'{"timestamp":"2026-07-07T09:41:42.123456789Z","cpu":6.0}'
-    line = to_line("puda.first.tlm.health", raw)
+    line = to_line("puda.first.tlm.health", tlm({"cpu": 6.0}))
     assert line.startswith(
         "telemetry,machine_id=first,subject=puda.first.tlm.health cpu=6.0 "
     )
@@ -168,13 +175,13 @@ def test_command_context_tag_escaping(command):
 def test_health_scalars_status_and_fallback():
     line = to_line(
         "puda.first.tlm.health",
-        b'{"cpu":2,"mem":4,"temp":null,"connected":true,"status":"ok"}',
+        tlm({"cpu": 2, "mem": 4, "temp": None, "connected": True, "status": "ok"}),
     )
     assert "cpu=2.0,mem=4.0" in line
     assert "connected=" not in line
     assert "status=ok" in line
     assert "temp=" not in line
-    assert "data=" in to_line("puda.first.tlm.health", b'{"custom":42}')
+    assert "data=" in to_line("puda.first.tlm.health", tlm({"custom": 42}))
 
 
 def stream_data(line):
@@ -185,11 +192,10 @@ def stream_data(line):
 
 @pytest.mark.parametrize("connected", [True, False])
 def test_connected_is_only_preserved_in_json(connected):
-    payload = json.dumps({"connected": connected}).encode()
-    health = to_line("puda.first.tlm.health", payload)
+    health = to_line("puda.first.tlm.health", tlm({"connected": connected}))
     assert "connected=" not in health
-    assert stream_data(health) == {"connected": connected}
-    stream = to_line("puda.first.tlm.stream.device", payload)
+    assert stream_data(health)["data"] == {"connected": connected}
+    stream = to_line("puda.first.tlm.stream.device", tlm({"connected": connected}))
     assert stream_data(stream) == {"connected": connected}
 
 
@@ -203,51 +209,39 @@ def test_driver_stream_json():
         "axes": [1, 2],
         "meta": {"mode": "xyz"},
         "mass g,raw=": 3,
-        "timestamp": "2026-07-07T09:41:42.123456789Z",
         "label": 'quoted "text"\nnext\\line µ',
     }
-    line = to_line(
-        "puda.first.tlm.stream.pos", json.dumps(payload).encode()
-    )
+    line = to_line("puda.first.tlm.stream.pos", tlm(payload))
     assert line.startswith("telemetry_stream,machine_id=first,stream=pos,")
     assert stream_data(line) == payload
     assert "\n" not in line
     assert line.endswith("1783417302123456789")
 
 
-def test_driver_stream_without_timestamp(monkeypatch):
-    monkeypatch.setattr("subscriber.time.time_ns", lambda: 123456789)
-    line = to_line("puda.balance.tlm.stream.weight", b'{"mass_g":10}')
-    assert line.endswith(" 123456789")
-    assert stream_data(line) == {"mass_g": 10}
+@pytest.mark.parametrize(
+    "payload", [{}, {"x": None}, {"": 1}, {"machine_id": "bad"}, {"bad\nname": 1}]
+)
+def test_driver_stream_arbitrary_objects(payload):
+    line = to_line("puda.first.tlm.stream.pos", tlm(payload))
+    assert stream_data(line) == payload
+
+
+@pytest.mark.parametrize("value", [1, "one", True, None, [1], {"x": 1}])
+def test_driver_stream_mixed_value_types(value):
+    for stream in ("pos", "weight"):
+        line = to_line(f"puda.first.tlm.stream.{stream}", tlm({"value": value}))
+        assert stream_data(line) == {"value": value}
 
 
 @pytest.mark.parametrize(
     "payload",
     [
-        b"{}",
-        b'{"x":null}',
-        b'{"":1}',
-        b'{"machine_id":"bad"}',
-        b'{"bad\\nname":1}',
+        b'{"timestamp":"2026-07-07T09:41:42Z","data":{"x":NaN}}',
+        b'{"timestamp":"2026-07-07T09:41:42Z","data":{"x":[Infinity]}}',
+        b"[]",
+        b"null",
+        b"not json",
     ],
-)
-def test_driver_stream_arbitrary_objects(payload):
-    line = to_line("puda.first.tlm.stream.pos", payload)
-    assert stream_data(line) == json.loads(payload)
-
-
-@pytest.mark.parametrize("value", [1, "one", True, None, [1], {"x": 1}])
-def test_driver_stream_mixed_value_types(value):
-    payload = json.dumps({"value": value}).encode()
-    for stream in ("pos", "weight"):
-        assert stream_data(to_line(f"puda.first.tlm.stream.{stream}", payload)) == {
-            "value": value
-        }
-
-
-@pytest.mark.parametrize(
-    "payload", [b'{"x":NaN}', b'{"x":[Infinity]}', b"[]", b"null", b"not json"]
 )
 def test_invalid_driver_stream_payload(payload):
     with pytest.raises(ValueError):
@@ -260,19 +254,6 @@ def test_response_data_fallback(command):
     line = to_line("puda.first.cmd.response.queue", json.dumps(command).encode())
     assert 'response_message="{\\"result\\":42}"' in line
     assert "response_data=" not in line
-
-
-@pytest.mark.parametrize(
-    "duration,expected", [("24h", 86400), ("1h30m", 5400), ("0.5s", 0.5)]
-)
-def test_response_retention_duration(duration, expected):
-    assert duration_seconds(duration) == expected
-
-
-@pytest.mark.parametrize("duration", ["", "0s", "-1h", "2days"])
-def test_invalid_response_retention_duration(duration):
-    with pytest.raises(ValueError):
-        duration_seconds(duration)
 
 
 @pytest.mark.parametrize("payload", [b"[]", b"{}", b"not json"])
@@ -364,3 +345,167 @@ async def test_invalid_json_terminated():
     await subscriber.process(msg, True)
     msg.term.assert_awaited_once()
     msg.ack.assert_not_awaited()
+
+
+@pytest.mark.parametrize("version", ["1.0", "1.7", "2.0"])
+def test_protocol_version_tag(command, version):
+    command["header"]["protocol_version"] = version
+    line = to_line("puda.first.cmd.response.queue", json.dumps(command).encode())
+    assert f"protocol_version={version}," in line
+
+
+@pytest.mark.parametrize("version", ["", "1", "v1.0", "1.0.0", 1.0])
+def test_protocol_version_invalid(command, version):
+    command["header"]["protocol_version"] = version
+    with pytest.raises(ValueError):
+        to_line("puda.first.cmd.queue", json.dumps(command).encode())
+
+
+def test_protocol_version_missing_is_logged_without_tag(command):
+    """An edge's reply to a malformed command echoes it without protocol_version."""
+    del command["header"]["protocol_version"]
+    line = to_line("puda.first.cmd.response.queue", json.dumps(command).encode())
+    assert line.startswith("commands,") and "protocol_version=" not in line
+
+
+def test_no_command_or_header_version(command):
+    command["header"]["version"] = "0.0.1"
+    command["command"]["version"] = "2"
+    line = to_line("puda.first.cmd.queue", json.dumps(command).encode())
+    assert "cmd_version" not in line and "version=0.0.1" not in line
+    assert "version=\"2\"" not in line
+
+
+@pytest.mark.parametrize(
+    "subject",
+    ["puda.first.cmd.immediate", "puda.first.cmd.ping", "puda.first.update",
+     "puda.first.update.response", "puda.first.tlm.heartbeat"],
+)
+def test_untapped_subjects_rejected(command, subject):
+    with pytest.raises(ValueError):
+        to_line(subject, json.dumps(command).encode())
+
+
+def test_config_has_no_response_max_age(monkeypatch):
+    monkeypatch.setenv("NATS_SERVERS", "nats://one:4222")
+    monkeypatch.setenv("JS_RESPONSE_MAX_AGE", "not-a-duration")
+    config = Config.from_env()
+    assert not hasattr(config, "response_max_age")
+
+
+def stream_info(retention=RetentionPolicy.INTEREST, subject=None, **overrides):
+    def info(name):
+        config = StreamConfig(
+            name=name,
+            subjects=[subject or f"puda.*.cmd.response.{name.split('_')[1].lower()}"],
+            retention=retention,
+            storage=StorageType.FILE,
+            max_age=86400.0,
+            **overrides,
+        )
+        return SimpleNamespace(config=config)
+
+    return AsyncMock(side_effect=info)
+
+
+def stream_subscriber(stream_info_mock):
+    subscriber = Subscriber(Config([], False, {}))
+    subscriber.js = Mock(
+        stream_info=stream_info_mock,
+        add_stream=AsyncMock(),
+        update_stream=AsyncMock(),
+        delete_stream=AsyncMock(),
+        consumer_info=AsyncMock(side_effect=NotFoundError),
+        add_consumer=AsyncMock(),
+    )
+    return subscriber
+
+
+async def test_provisioned_streams_left_unchanged():
+    subscriber = stream_subscriber(stream_info())
+    await subscriber.ensure_streams()
+    subscriber.js.add_stream.assert_not_awaited()
+    subscriber.js.update_stream.assert_not_called()
+    subscriber.js.delete_stream.assert_not_called()
+    assert subscriber.js.add_consumer.await_count == 2
+
+
+async def test_missing_streams_created_with_spec_settings(caplog):
+    subscriber = stream_subscriber(AsyncMock(side_effect=NotFoundError))
+    await subscriber.ensure_streams()
+    configs = {
+        call.kwargs["config"].name: call.kwargs["config"]
+        for call in subscriber.js.add_stream.await_args_list
+    }
+    assert set(configs) == {"RESPONSE_QUEUE", "RESPONSE_IMMEDIATE"}
+    for name, config in configs.items():
+        assert config.subjects == [f"puda.*.cmd.response.{name[9:].lower()}"]
+        assert config.retention == RetentionPolicy.INTEREST
+        assert config.storage == StorageType.FILE
+        assert config.max_age == 86400
+    assert "unprovisioned" in caplog.text
+    subscriber.js.update_stream.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"retention": RetentionPolicy.LIMITS},
+        {"retention": RetentionPolicy.INTEREST, "storage": StorageType.MEMORY},
+        {"retention": RetentionPolicy.INTEREST, "max_age": 3600.0},
+    ],
+)
+async def test_mismatched_stream_logged_not_updated(caplog, overrides):
+    retention = overrides.pop("retention")
+    info = stream_info(retention)
+
+    async def changed(name):
+        result = await info(name)
+        for key, value in overrides.items():
+            setattr(result.config, key, value)
+        return result
+
+    subscriber = stream_subscriber(AsyncMock(side_effect=changed))
+    await subscriber.ensure_streams()
+    assert "leaving it unchanged" in caplog.text
+    subscriber.js.add_stream.assert_not_awaited()
+    subscriber.js.update_stream.assert_not_called()
+    assert subscriber.js.add_consumer.await_count == 2
+
+
+async def test_workqueue_stream_refused():
+    subscriber = stream_subscriber(stream_info(RetentionPolicy.WORK_QUEUE))
+    with pytest.raises(ValueError, match="workqueue"):
+        await subscriber.ensure_streams()
+    subscriber.js.update_stream.assert_not_called()
+    subscriber.js.add_consumer.assert_not_awaited()
+
+
+async def test_stream_without_expected_subject_refused():
+    subscriber = stream_subscriber(stream_info(subject="puda.other"))
+    with pytest.raises(ValueError, match="expected response subject"):
+        await subscriber.ensure_streams()
+    subscriber.js.update_stream.assert_not_called()
+
+
+def test_no_stream_mutation_in_source():
+    source = (Path(__file__).resolve().parents[1] / "subscriber.py").read_text()
+    for name in ("update_stream", "delete_stream", "JS_RESPONSE_MAX_AGE",
+                 "cmd.immediate\"", "cmd.ping", "cmd_version"):
+        assert name not in source
+    for script in ("nats-init.sh", "healthcheck.sh", "docker-entrypoint.sh",
+                   ".env.example", "compose.yml"):
+        text = (Path(__file__).resolve().parents[1] / script).read_text()
+        assert "JS_RESPONSE_MAX_AGE" not in text and "nats stream" not in text
+
+
+async def test_legacy_telemetry_logged_and_dropped(caplog):
+    subscriber = Subscriber(Config([], False, {}))
+    subscriber.emit = Mock()
+    msg = message(b'{"timestamp":"2026-07-07T09:41:42Z","cpu":6.0}')
+    msg.subject = "puda.first.tlm.health"
+    await subscriber.process(msg)
+    subscriber.emit.assert_not_called()
+    assert "Invalid message on puda.first.tlm.health" in caplog.text
+    msg.ack.assert_not_awaited()
+    msg.term.assert_not_awaited()

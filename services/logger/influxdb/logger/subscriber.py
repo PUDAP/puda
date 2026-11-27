@@ -9,7 +9,6 @@ import os
 import re
 import signal
 import sys
-import time
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
@@ -20,12 +19,14 @@ from nats.js.api import (
     ConsumerConfig,
     DeliverPolicy,
     RetentionPolicy,
+    StorageType,
     StreamConfig,
 )
 from nats.js.errors import NotFoundError
 from puda import e2e
 
 log = logging.getLogger("subscriber")
+# Provisioned by the operator (Edge Protocol 1.0 §5); the logger only checks them.
 RESPONSE_STREAMS = {
     "RESPONSE_QUEUE": "puda.*.cmd.response.queue",
     "RESPONSE_IMMEDIATE": "puda.*.cmd.response.immediate",
@@ -34,18 +35,10 @@ RESPONSE_CONSUMERS = {
     "RESPONSE_QUEUE": "puda_logger_cmd_responses_queue",
     "RESPONSE_IMMEDIATE": "puda_logger_cmd_responses_immediate",
 }
-
-
-def duration_seconds(value):
-    parts = re.findall(r"(\d+(?:\.\d+)?)(h|m|s)", value)
-    if not parts or "".join(number + unit for number, unit in parts) != value:
-        raise ValueError("JS_RESPONSE_MAX_AGE must be a duration such as 24h or 1h30m")
-    seconds = sum(
-        float(number) * {"h": 3600, "m": 60, "s": 1}[unit] for number, unit in parts
-    )
-    if not 0 < seconds < float("inf"):
-        raise ValueError("JS_RESPONSE_MAX_AGE must be positive and finite")
-    return seconds
+RESPONSE_RETENTION = RetentionPolicy.INTEREST
+RESPONSE_STORAGE = StorageType.FILE
+RESPONSE_MAX_AGE = 86400.0
+PROTOCOL_VERSION = re.compile(r"\d+\.\d+")
 
 
 @dataclass
@@ -54,7 +47,6 @@ class Config:
     encrypted: bool
     connect_options: dict
     max_ack_pending: int = 20000
-    response_max_age: float = 86400
     # Payload keys loaded once from PUDA_E2E_KEY_FILE; disabled for plaintext mode.
     context: e2e.Context = field(default_factory=e2e.Context)
 
@@ -102,13 +94,10 @@ class Config:
                 raise ValueError
         except ValueError:
             raise ValueError("JS_MAX_ACK_PENDING must be a positive integer") from None
-        max_age = duration_seconds(os.getenv("JS_RESPONSE_MAX_AGE", "24h"))
-        return cls(servers, encrypted, options, max_pending, max_age, context)
+        return cls(servers, encrypted, options, max_pending, context)
 
 
 def timestamp_ns(value):
-    if value is None:
-        return time.time_ns()
     if not isinstance(value, str):
         raise ValueError("timestamp must be RFC3339")
     match = re.fullmatch(r"(.{19})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})", value)
@@ -158,12 +147,12 @@ def to_line(subject: str, payload: bytes) -> str:
     if len(parts) < 4 or parts[0] != "puda":
         raise ValueError("unsupported subject")
     tags = {"subject": subject}
-    # Match the SDK's exact {timestamp, data} telemetry envelope only. Keep
-    # legacy flattened objects with a data measurement and siblings intact.
-    if set(data) == {"timestamp", "data"} and isinstance(data["data"], dict):
+    telemetry = parts[2] == "tlm"
+    if telemetry:
+        # Protocol 1.0 §12: samples always use the {timestamp, data} wrapper.
+        if "timestamp" not in data or not isinstance(data.get("data"), dict):
+            raise ValueError("telemetry must use the {timestamp, data} wrapper")
         values = data["data"]
-    else:
-        values = data
     if parts[2:] == ["tlm", "health"]:
         measurement = "telemetry"
         tags["machine_id"] = parts[1]
@@ -180,18 +169,20 @@ def to_line(subject: str, payload: bytes) -> str:
             tags["status"] = values["status"]
         if not fields:
             fields["data"] = field_value(payload.decode("utf-8"))
-        timestamp = timestamp_ns(data.get("timestamp"))
+        timestamp = timestamp_ns(data["timestamp"])
     elif len(parts) >= 5 and parts[2:4] == ["tlm", "stream"]:
         measurement = "telemetry_stream"
         tags.update(machine_id=parts[1], stream=".".join(parts[4:]))
         fields = {
             "data": field_value(json.dumps(values, separators=(",", ":"), allow_nan=False))
         }
-        timestamp = timestamp_ns(data.get("timestamp"))
+        timestamp = timestamp_ns(data["timestamp"])
+    elif telemetry:
+        raise ValueError("unsupported telemetry subject")
     else:
+        # Immediate requests are never tapped (§8.3); they arrive via RESPONSE_IMMEDIATE.
         if parts[2:] not in (
             ["cmd", "queue"],
-            ["cmd", "immediate"],
             ["cmd", "response", "queue"],
             ["cmd", "response", "immediate"],
         ):
@@ -201,6 +192,13 @@ def to_line(subject: str, payload: bytes) -> str:
         header, command = data["header"], data["command"]
         if not isinstance(header, dict) or not isinstance(command, dict):
             raise ValueError("header and command must be objects")
+        # Required in 1.0, but an edge's EXECUTION_ERROR reply to a malformed command
+        # echoes it without one (spec 8.4); record that reply with no tag.
+        version = header.get("protocol_version")
+        if version is not None:
+            if not isinstance(version, str) or not PROTOCOL_VERSION.fullmatch(version):
+                raise ValueError("header.protocol_version must be MAJOR.MINOR")
+            tags["protocol_version"] = version
         tags.update(
             machine_id=header["machine_id"],
             cmd_name=command["name"],
@@ -301,16 +299,23 @@ class Subscriber:
                 await asyncio.sleep(8)
 
     async def ensure_streams(self):
+        """Check the provisioned response streams; never update or delete them."""
         for name, subject in RESPONSE_STREAMS.items():
             try:
                 info = await self.js.stream_info(name)
             except NotFoundError:
+                log.warning(
+                    "Stream %s missing: broker is unprovisioned; creating it with "
+                    "the protocol settings",
+                    name,
+                )
                 await self.js.add_stream(
                     config=StreamConfig(
                         name=name,
                         subjects=[subject],
-                        retention=RetentionPolicy.LIMITS,
-                        max_age=self.config.response_max_age,
+                        retention=RESPONSE_RETENTION,
+                        storage=RESPONSE_STORAGE,
+                        max_age=RESPONSE_MAX_AGE,
                     )
                 )
             else:
@@ -318,16 +323,21 @@ class Subscriber:
                     raise ValueError(
                         f"{name} does not include the expected response subject"
                     )
+                if info.config.retention == RetentionPolicy.WORK_QUEUE:
+                    # Acking from a WorkQueue stream would delete other readers' data.
+                    raise ValueError(f"{name} uses workqueue retention; refusing to consume")
                 if (
-                    info.config.retention != RetentionPolicy.LIMITS
-                    or info.config.max_age != self.config.response_max_age
+                    info.config.retention != RESPONSE_RETENTION
+                    or info.config.storage != RESPONSE_STORAGE
+                    or info.config.max_age != RESPONSE_MAX_AGE
                 ):
-                    await self.js.update_stream(
-                        config=replace(
-                            info.config,
-                            retention=RetentionPolicy.LIMITS,
-                            max_age=self.config.response_max_age,
-                        )
+                    log.warning(
+                        "Stream %s does not match the provisioning spec "
+                        "(retention=%s, storage=%s, max_age=%ss); leaving it unchanged",
+                        name,
+                        getattr(info.config.retention, "value", info.config.retention),
+                        getattr(info.config.storage, "value", info.config.storage),
+                        info.config.max_age,
                     )
             consumer = RESPONSE_CONSUMERS[name]
             try:

@@ -27,7 +27,7 @@ services:
         target: /run/puda-key/e2e.key
         bind:
           create_host_path: false
-    # The Python subscriber initializes response streams using the same TLS settings.
+    # The subscriber checks the provisioned response streams and binds its consumers.
 
   # Restart unhealthy replicas, preserving the upstream healthcheck/autoheal setup.
   autoheal:
