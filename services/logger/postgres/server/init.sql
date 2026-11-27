@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS command_log (
     run_id TEXT REFERENCES run(run_id) ON DELETE CASCADE,
     step_number INTEGER,
     command_name TEXT,
+    protocol_version TEXT NOT NULL,  -- header.protocol_version (PUDA Edge Protocol, e.g. '1.0')
     payload JSONB,
     machine_id TEXT,
     command_type TEXT CHECK (command_type IN ('queue', 'immediate')),

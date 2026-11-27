@@ -1,14 +1,24 @@
 [project]
 name = "postgres-logger"
-version = "0.1.0"
+version = "1.0.0"
 description = "Logger service that listens to NATS command/response streams and logs to PostgreSQL"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "puda==0.1.0rc1",
+    "nats-py>=2.17.0",
     "python-dotenv>=1.2.1",
     "psycopg[binary]>=3.2",
 ]
+
+[dependency-groups]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["."]
+testpaths = ["tests"]
 
 [tool.setuptools]
 py-modules = ["main", "db_client"]

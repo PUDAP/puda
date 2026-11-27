@@ -28,14 +28,17 @@ as a workaround.
 - `puda.*.cmd.response.queue` and `.immediate` bind existing `RESPONSE_QUEUE` and
   `RESPONSE_IMMEDIATE` streams using new **pull**, explicit-ACK durables
   `puda_native_response_queue` and `puda_native_response_immediate`.
-- Stream retention must be Limits or Interest; WorkQueue is refused. Existing
-  streams and consumers are never reset or reconfigured. Compatible native
+- Response streams belong to the provisioner. `install` calls `STREAM.INFO`
+  only; a missing stream is created with the spec settings (interest, file,
+  24 h max age) and a warning. An existing stream must have the expected subject
+  and must not be WorkQueue (refused); other differences are logged and left
+  unchanged. Streams are never updated or deleted; consumers are never reset. Compatible native
   durables can be reused; incompatible settings cause an error.
 - Queued commands (`cmd.queue`), health, and `tlm.stream.>` use Core
   subscriptions in the distinct `puda_native_core` group. They do not bind a
   machine's command WorkQueue or compete with the old logger's group.
-  Immediate commands (`cmd.immediate`) are not tapped: they are core
-  request/reply, and an extra subscriber hides offline machines from the
+  Immediate commands (`cmd.immediate`), `cmd.ping` and `update` subjects are
+  never tapped: immediate commands are core request/reply, and an extra subscriber hides offline machines from the
   broker's "no responders". They are logged from `RESPONSE_IMMEDIATE`.
 - Each source has exactly one MV. `RawBLOB` retains binary frame bytes;
   `_subject` is the original AAD. SQL validates `E2 01`, frame length, SHA256
@@ -52,8 +55,9 @@ as a workaround.
   **not performance-tuned defaults**. A poison response blocks its durable until
   repaired. There is no automatic quarantine or destructive poison-message ACK.
 - Storage keeps exact plaintext `raw_json`, subject, SHA256 event ID, nanosecond
-  timestamp and receipt timestamp. Health/stream envelope detection matches the
-  Python logger's exact two-key rule; legacy objects retain other fields.
+  timestamp, receipt timestamp and `header.protocol_version`. Health/stream
+  messages must use the `{timestamp, data}` wrapper (string timestamp, object
+  `data`), as in the Python logger; anything else throws.
   Metadata duplicate object fields use Python's last-member-wins behavior.
   Telemetry `data` is semantically JSON, not guaranteed byte-identical to Python's
   compact serialization: nested whitespace, number spelling and duplicate-member

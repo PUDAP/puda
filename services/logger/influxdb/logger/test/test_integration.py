@@ -17,7 +17,13 @@ from pathlib import Path
 
 import nats
 import pytest
-from nats.js.api import AckPolicy, ConsumerConfig, RetentionPolicy, StreamConfig
+from nats.js.api import (
+    AckPolicy,
+    ConsumerConfig,
+    RetentionPolicy,
+    StorageType,
+    StreamConfig,
+)
 from puda import e2e
 
 from e2e_context import ring_context
@@ -192,7 +198,7 @@ async def test_container_pipeline(tmp_path, encrypted):
         )
         nc = await nats.connect(server, **options)
         js = nc.jetstream()
-        # Simulate pre-existing upstream streams/durables with custom delivery subjects.
+        # Simulate provisioned streams (setup_streams.sh) with pre-existing durables.
         for suffix in ("queue", "immediate"):
             stream = "RESPONSE_" + suffix.upper()
             durable = "puda_logger_cmd_responses_" + suffix
@@ -200,7 +206,8 @@ async def test_container_pipeline(tmp_path, encrypted):
                 config=StreamConfig(
                     name=stream,
                     subjects=[f"puda.*.cmd.response.{suffix}"],
-                    retention=RetentionPolicy.LIMITS,
+                    retention=RetentionPolicy.INTEREST,
+                    storage=StorageType.FILE,
                     max_age=86400,
                     max_msgs=10000,
                 )
@@ -252,13 +259,15 @@ async def test_container_pipeline(tmp_path, encrypted):
             )
             assert info.config.deliver_subject == f"_INBOX.upstream.{suffix}"
             assert info.config.max_ack_pending == 20000
-            assert (
-                await js.stream_info("RESPONSE_" + suffix.upper())
-            ).config.max_msgs == 10000
+            # The logger never updates provisioned streams.
+            stream_config = (await js.stream_info("RESPONSE_" + suffix.upper())).config
+            assert stream_config.max_msgs == 10000
+            assert stream_config.retention == RetentionPolicy.INTEREST
         ctx = ring_context(e2e.Ring(encrypt=original_key) if encrypted else None)
 
         async def publish(name):
             header = {
+                "protocol_version": "1.0",
                 "machine_id": "test-machine",
                 "timestamp": "2026-07-07T09:41:42Z",
                 "username": "ACME\\test user",
@@ -289,9 +298,7 @@ async def test_container_pipeline(tmp_path, encrypted):
                     json.dumps(
                         {
                             "timestamp": datetime.now(timezone.utc).isoformat(),
-                            "cpu": 6.0,
-                            "connected": True,
-                            "sample": name,
+                            "data": {"cpu": 6.0, "connected": True, "sample": name},
                         }
                     ).encode(),
                 ),
@@ -309,7 +316,8 @@ async def test_container_pipeline(tmp_path, encrypted):
                 ),
             ):
                 subject = "puda.test-machine.tlm.stream." + stream
-                await nc.publish(subject, ctx.seal(subject, json.dumps(sample).encode()))
+                wrapped = {"timestamp": "2026-07-07T09:41:42Z", "data": sample}
+                await nc.publish(subject, ctx.seal(subject, json.dumps(wrapped).encode()))
             await nc.flush()
 
         await publish("initial")
@@ -343,6 +351,7 @@ async def test_container_pipeline(tmp_path, encrypted):
         assert all("subject=" not in line.split(" ", 1)[0] for line in lines)
         command_lines = [line for line in lines if line.startswith("commands,")]
         assert all("run_id=run-1" in line for line in command_lines)
+        assert all("protocol_version=1.0" in line for line in command_lines)
         assert all("username=ACME\\\\test\\ user" in line for line in command_lines)
         assert all('run_id="' not in line and 'username="' not in line for line in command_lines)
         assert not any(

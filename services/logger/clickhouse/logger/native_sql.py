@@ -46,6 +46,8 @@ def statements(server, key_path='/var/lib/clickhouse/user_files/puda-keys.tsv', 
             nats_format='RawBLOB', nats_max_block_size=1, nats_flush_interval_ms=100,
             nats_skip_broken_messages=0, nats_commit_on_select=0"""
         yield command_view(name, 'response')
+    # Never tap puda.*.cmd.immediate, cmd.ping or update subjects (Edge Protocol
+    # 1.0 §8.3); immediate commands are recorded from RESPONSE_IMMEDIATE only.
     for name, subject, kind in (
         ('native_command_queue', 'puda.*.cmd.queue', 'command'),
         ('native_health', 'puda.*.tlm.health', 'telemetry'),
@@ -102,7 +104,7 @@ def command_select(source, kind):
     status = "JSONExtractString(r,'status')" if kind == 'response' else "'sent'"
     invalid = ["JSONType(raw_json)!='Object'", "JSONType(h)!='Object'", "JSONType(c)!='Object'",
         "JSONType(h,'machine_id')!='String'", "JSONType(c,'name')!='String'", "NOT JSONHas(h,'timestamp')"]
-    invalid += [f"JSONType(h,'{field}') NOT IN ('String','Null')" for field in ('run_id','username','user_id')]
+    invalid += [f"JSONType(h,'{field}') NOT IN ('String','Null')" for field in ('run_id','username','user_id','protocol_version')]
     if kind == 'response':
         invalid += ["JSONType(doc,'response')!='Object'", "JSONType(r,'status')!='String'"]
     guard = ' OR '.join(invalid)
@@ -118,6 +120,7 @@ def command_select(source, kind):
       JSONExtractString(c,'name') AS cmd_name,
       if(throwIf(JSONType(c,'step_number') NOT IN ('Int64','UInt64') OR isNull(toInt64OrNull(JSONExtractRaw(c,'step_number'))), 'Native command rejected')=0,JSONExtractInt(c,'step_number'),0) AS step_number,
       JSONExtractString(h,'username') AS username, JSONExtractString(h,'user_id') AS user_id,
+      JSONExtractString(h,'protocol_version') AS protocol_version,
       {status} AS status,
       raw_json FROM {source}"""
 
@@ -125,16 +128,15 @@ def command_select(source, kind):
 def telemetry_select(source, kind):
     """Build a SELECT from a trusted SQL relation (not untrusted input)."""
     stream = "'health'" if kind == 'telemetry' else "arrayStringConcat(arraySlice(splitByChar('.',_subject),5),'.')"
-    return f"""    {decrypt_with()},
-      JSONExtractKeysAndValuesRaw(doc) AS pairs
+    # Edge Protocol 1.0 §12: only the {timestamp, data:{...}} wrapper is valid.
+    guard = "JSONType(doc,'timestamp')!='String' OR JSONType(doc,'data')!='Object'"
+    return f"""    {decrypt_with()}
     SELECT lower(hex(SHA256(concat(_subject,char(0),raw_json)))) AS event_id,
       {timestamp_expression('doc')} AS event_ns,
       toUnixTimestamp64Nano(now64(9)) AS received_ns, _subject AS subject,
-      splitByChar('.',_subject)[2] AS machine_id, '{kind}' AS msg_type,
+      if(throwIf({guard},'Native telemetry rejected')=0,splitByChar('.',_subject)[2],'') AS machine_id, '{kind}' AS msg_type,
       arrayStringConcat(arraySlice(splitByChar('.',_subject),4),'.') AS topic,
-      {stream} AS stream,
-      if(arraySort(JSONExtractKeys(doc))=['data','timestamp'] AND JSONType(doc,'data')='Object',
-        JSONExtractRaw(doc,'data'), concat('{{',arrayStringConcat(arrayMap(x -> concat(toJSONString(x.1),':',x.2),arrayFilter(x -> x.1!='timestamp',pairs)),','),'}}')) AS data,
+      {stream} AS stream, JSONExtractRaw(doc,'data') AS data,
       raw_json FROM {source}"""
 
 

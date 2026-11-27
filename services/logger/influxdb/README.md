@@ -2,7 +2,7 @@
 
 InfluxDB 3 Core server (`server/`) and Telegraf logger (`logger/`) for PUDA.
 
-The server boots with a preconfigured admin token from a JSON file mounted at `/run/secrets/admin-token`. See `logger/README.md` for the NATS → InfluxDB logger.
+The server boots with a preconfigured admin token from a JSON file mounted at `/run/secrets/admin-token`. See `logger/README.md` for the NATS → InfluxDB logger. The logger requires PUDA Edge Protocol 1.0 (puda SDK 0.1.0rc1+, CLI 0.2.0-rc1+).
 
 ## Creating the admin-token file
 

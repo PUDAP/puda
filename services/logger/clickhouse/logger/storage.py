@@ -3,6 +3,7 @@
 import calendar
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -13,7 +14,16 @@ from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
+from nats.js.api import RetentionPolicy, StorageType, StreamConfig
+from nats.js.errors import NotFoundError
 from puda import e2e
+
+# Provisioner-owned response streams (Edge Protocol 1.0 §5). Never updated or deleted here.
+RESPONSE_STREAMS = {
+    "RESPONSE_QUEUE": "puda.*.cmd.response.queue",
+    "RESPONSE_IMMEDIATE": "puda.*.cmd.response.immediate",
+}
+RESPONSE_MAX_AGE = 86400  # seconds; spec setting, used only when creating a missing stream
 
 
 @dataclass(repr=False)
@@ -224,11 +234,63 @@ class ClickHouse:
             raise RuntimeError("ClickHouse insert was not confirmed")
 
     def check(self):
-        for table in (self.config.command_table, self.config.telemetry_table):
+        # Selecting protocol_version fails fast on a pre-1.0 command table.
+        for table, column in (
+            (self.config.command_table, "protocol_version"),
+            (self.config.telemetry_table, ""),
+        ):
             if self.request(
-                f"SELECT count() FROM `{self.config.database}`.`{table}` WHERE 0"
+                f"SELECT count({column}) FROM `{self.config.database}`.`{table}` WHERE 0"
             ).strip() != b"0":
                 raise RuntimeError("ClickHouse schema check failed")
+
+
+async def ensure_response_streams(js, log):
+    """Check provisioner-owned response streams; create only missing ones (§5).
+
+    Never calls STREAM.UPDATE or STREAM.DELETE. A missing stream is created with
+    the spec settings and a warning; an existing stream must carry the expected
+    subject and must not be a WorkQueue, other differences are only logged.
+    """
+    for stream, subject in RESPONSE_STREAMS.items():
+        try:
+            info = await js.stream_info(stream)
+        except NotFoundError:
+            log.warning(
+                "Response stream %s missing: broker is unprovisioned; creating it "
+                "with Edge Protocol 1.0 settings (run setup_streams.sh)",
+                stream,
+            )
+            try:
+                await js.add_stream(
+                    config=StreamConfig(
+                        name=stream,
+                        subjects=[subject],
+                        retention=RetentionPolicy.INTEREST,
+                        storage=StorageType.FILE,
+                        max_age=RESPONSE_MAX_AGE,
+                    )
+                )
+                continue
+            except Exception:
+                # Created concurrently by another process: validate it instead.
+                info = await js.stream_info(stream)
+        config = info.config
+        if subject not in (config.subjects or []):
+            raise ValueError(f"Response stream {stream} lacks subject {subject}")
+        if config.retention == RetentionPolicy.WORK_QUEUE:
+            raise ValueError(f"Response stream {stream} uses WorkQueue retention; refusing")
+        if (
+            config.retention != RetentionPolicy.INTEREST
+            or config.storage not in (None, StorageType.FILE)
+            or not config.max_age
+            or round(config.max_age) != RESPONSE_MAX_AGE
+        ):
+            log.warning(
+                "Response stream %s differs from Edge Protocol 1.0 provisioning "
+                "(interest, file, 24h max_age); leaving it unchanged",
+                stream,
+            )
 
 
 def timestamp_ns(value):
@@ -282,20 +344,18 @@ def to_row(subject, payload):
     ):
         row["msg_type"] = "telemetry" if parts[3] == "health" else "telemetry_stream"
         row["stream"] = "health" if parts[3] == "health" else ".".join(parts[4:])
-        row["event_ns"] = timestamp_ns(data.get("timestamp"))
-        # Exact two-key object envelope only; legacy objects with extra fields
-        # (including their own `data` measurement) must not lose those fields.
-        if set(data) == {"timestamp", "data"} and isinstance(data["data"], dict):
-            values = data["data"]
-        else:
-            values = {key: value for key, value in data.items() if key != "timestamp"}
+        # Edge Protocol 1.0 §12: telemetry is always {timestamp, data:{...}}.
+        if not isinstance(data.get("timestamp"), str) or not isinstance(
+            data.get("data"), dict
+        ):
+            raise ValueError("telemetry requires the {timestamp, data} wrapper")
+        row["event_ns"] = timestamp_ns(data["timestamp"])
         row["data"] = json.dumps(
-            values, ensure_ascii=False, allow_nan=False, separators=(",", ":"),
+            data["data"], ensure_ascii=False, allow_nan=False, separators=(",", ":"),
         )
         return row
     if parts[2:] not in (
         ["cmd", "queue"],
-        ["cmd", "immediate"],
         ["cmd", "response", "queue"],
         ["cmd", "response", "immediate"],
     ):
@@ -308,6 +368,8 @@ def to_row(subject, payload):
         ("run_id", header, "run_id"),
         ("username", header, "username"),
         ("user_id", header, "user_id"),
+        # Required by 1.0 edges; an echoed malformed command may lack it ("").
+        ("protocol_version", header, "protocol_version"),
         ("cmd_name", command, "name"),
     ):
         value = source.get(source_field)

@@ -128,30 +128,17 @@ def services(tmp_path):
         )
 
 
-def test_additive_schema_and_offline_backfill_against_real_database(services):
-    from backfill import convert
-    from storage import to_row
+def test_protocol_1_0_schema_against_real_database(services):
     _, db = services
-    raw = b'{"timestamp":"2026-07-07T09:41:42Z","status":"ok","custom":{"v":[null,1]}}'
-    legacy = to_row("puda.robot.tlm.health", raw)
-    legacy.pop("data")
-    legacy["stream"] = ""
-    legacy["received_ns"] = 1783417302999999999
-    db.request("INSERT INTO puda.events FORMAT JSONEachRow", (json.dumps(legacy) + "\n").encode())
-    # DDL is repeatable and must not mutate the old rows.
+    # Fresh 1.0 schema only: no legacy table, protocol_version column present.
+    assert db.request("EXISTS TABLE puda.events").strip() == b"0"
+    assert db.request("SELECT count(protocol_version) FROM puda.command_logs WHERE 0").strip() == b"0"
+    # DDL is repeatable.
     schema = (ROOT / "server/initdb/002-split-events.sql").read_text()
     for _ in range(2):
         for sql in schema.split(";"):
             if sql.strip():
                 db.request(sql)
-    exported = [json.loads(line) for line in db.request("SELECT * FROM puda.events FORMAT JSONEachRow").splitlines()]
-    converted = list(convert(exported))
-    db.write([row for _, row in converted])
-    assert db.request("SELECT count() FROM puda.events").strip() == b"1"
-    stored = json.loads(db.request("SELECT data, raw_json, received_ns, stream FROM puda.telemetry FORMAT JSONEachRow"))
-    assert int(stored["received_ns"]) == 1783417302999999999
-    assert stored["raw_json"] == raw.decode() and stored["stream"] == "health"
-    assert json.loads(stored["data"]) == {"status": "ok", "custom": {"v": [None, 1]}}
     # Exercise the executable query examples against the real schema.
     examples = (ROOT / "server/README.md").read_text().split("## Query examples", 1)[1].split("```sql", 1)[1].split("```", 1)[0]
     for sql in examples.split(";"):
@@ -262,7 +249,7 @@ async def test_real_nats_clickhouse_delivery_failure_and_isolation(services, tmp
             data = (
                 raw
                 if suffix.startswith("cmd")
-                else b'{"timestamp":"2026-07-07T09:41:42.123456789Z","cpu":3.5,"x":1}'
+                else b'{"timestamp":"2026-07-07T09:41:42.123456789Z","data":{"cpu":3.5,"x":1}}'
             )
             await nc.publish("puda.robot." + suffix, data)
         await nc.flush()
@@ -288,7 +275,7 @@ async def test_real_nats_clickhouse_delivery_failure_and_isolation(services, tmp
         assert stored["raw_json"] == raw.decode()
         assert (stored["user_id"], stored["username"]) == ("user-1", "tester")
         assert await query("SELECT uniqExact(msg_type) FROM puda.command_logs") == "2"
-        assert await query("SELECT count() FROM puda.events") == "0"
+        assert await query("SELECT uniqExact(protocol_version) FROM puda.command_logs") == "1"
         for suffix in ("health", "stream.position"):
             actual = {"status": "ready", "nested": {"values": [1, None]}, "data": {"custom": 2}}
             envelope = json.dumps({"timestamp": "2026-07-07T11:41:42.123456789+02:00", "data": actual}, indent=2)

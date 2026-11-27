@@ -43,17 +43,15 @@ GRANT INSERT, SELECT ON puda.command_logs TO puda_logger;
 GRANT INSERT, SELECT ON puda.telemetry TO puda_logger;
 ```
 
-The initialization SQL creates `puda.command_logs`, `puda.telemetry` and the
-retained legacy `puda.events` only on a **new** data volume.
+The initialization SQL creates the Edge Protocol 1.0 schema, `puda.command_logs`
+(with `protocol_version`) and `puda.telemetry`, only on a **new** data volume.
 Changing the SQL is not a migration. To apply additive changes to an existing
 instance, review and run them with `clickhouse-client --multiquery`; never delete
 volumes to apply a schema change. `CLICKHOUSE_DB` is intentionally fixed to `puda`
 in Compose to match the checked-in SQL.
 
-Existing installations must explicitly apply `initdb/002-split-events.sql`
-before upgrading the logger/server healthcheck. Follow [MIGRATION.md](MIGRATION.md)
-for grants, cutover, optional offline/staged backfill, rollback and idempotency
-risks. The new logger never writes the legacy table. Both new tables use monthly
+Logger 1.0 needs this schema in a fresh database; pre-1.0 tables are not
+migrated (see [MIGRATION.md](MIGRATION.md)). Both tables use monthly
 MergeTree partitions with no TTL, retaining `raw_json`; telemetry `data` is JSON
 text in a String, not native JSON or fixed cpu/mem/temp columns.
 
@@ -88,7 +86,7 @@ SELECT event_time, JSONExtractString(data, 'status') AS status,
 FROM puda.telemetry WHERE stream = 'health'
 ORDER BY event_time DESC LIMIT 100;
 
-SELECT event_time, user_id, username, cmd_name, status
+SELECT event_time, user_id, username, protocol_version, cmd_name, status
 FROM puda.command_logs WHERE run_id = 'run-1'
 ORDER BY event_time;
 ```

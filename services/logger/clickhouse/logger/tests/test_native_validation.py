@@ -23,7 +23,8 @@ def test_native_sql_rejects_invalid_wire(services, tmp_path):
     for sql in native_sql.key_statements(path):
         db.request(sql)
     cases = [('puda.robot.tlm.health', raw) for raw in
-        [b'[]', b'{"x":1e999}', b'{"x":NaN}', b'{"x":"\\ud800"}', b'\xff', b'{}garbage']]
+        [b'[]', b'{"x":1e999}', b'{"x":NaN}', b'{"x":"\\ud800"}', b'\xff', b'{}garbage',
+         b'{"cpu":1}', b'{"timestamp":"2026-07-07T09:41:42Z","cpu":1}', b'{"timestamp":null,"data":{"cpu":1}}']]
     for field, value in [('step', 2**63), ('step', -(2**63)-1),
                          ('timestamp','2026-02-30T12:00:00Z'), ('timestamp','2600-01-01T00:00:00Z')]:
         bad = command()
@@ -43,7 +44,7 @@ def test_native_sql_rejects_invalid_wire(services, tmp_path):
     duplicate = json.dumps(command()).replace('"machine_id": "robot"', '"machine_id":"wrong","machine_id":"robot"').encode()
     for subject, raw in [('puda.robot.cmd.response.queue', duplicate),
                          ('puda.robot.cmd.response.queue', json.dumps(command()).encode()),
-                         ('puda.robot.tlm.health', b'{"cpu":1}')]:
+                         ('puda.robot.tlm.health', b'{"timestamp":"2026-07-07T09:41:42Z","data":{"cpu":1}}')]:
         frame = ctx.seal(subject, raw)
         source = f"(SELECT unhex('{frame.hex()}') AS payload, '{subject}' AS _subject)"
         select = native_sql.command_select(source, 'response') if '.cmd.' in subject else native_sql.telemetry_select(source, 'telemetry')

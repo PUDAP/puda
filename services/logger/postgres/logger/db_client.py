@@ -125,6 +125,8 @@ class DatabaseClient:
         machine_id = message.header.machine_id
         created_at = message.header.timestamp
         step_number = message.command.step_number if message.command else None
+        command_name = message.command.name if message.command else None
+        protocol_version = message.header.protocol_version
         payload = message.model_dump_json()
         
         conn = self._conn
@@ -135,8 +137,8 @@ class DatabaseClient:
             with conn.cursor() as cur:  # type: ignore[attr-defined]  # pylint: disable=no-member
                 cur.execute(
                     """
-                    INSERT INTO command_log (run_id, created_at, step_number, payload, machine_id, command_type)
-                    VALUES (%(run_id)s, %(created_at)s, %(step_number)s, %(payload)s::jsonb, %(machine_id)s, %(command_type)s)
+                    INSERT INTO command_log (run_id, created_at, step_number, command_name, protocol_version, payload, machine_id, command_type)
+                    VALUES (%(run_id)s, %(created_at)s, %(step_number)s, %(command_name)s, %(protocol_version)s, %(payload)s::jsonb, %(machine_id)s, %(command_type)s)
                     """,
                     {
                         'run_id': run_id,
@@ -144,6 +146,8 @@ class DatabaseClient:
                         'command_type': command_type,
                         'created_at': created_at,
                         'step_number': step_number,
+                        'command_name': command_name,
+                        'protocol_version': protocol_version,
                         'payload': payload
                     }
                 )

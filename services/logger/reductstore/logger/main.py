@@ -1,6 +1,10 @@
 """
 Logger service that listens to NATS command, response, and telemetry
 subjects and writes them to ReductStore.
+
+Speaks PUDA Edge Protocol 1.0 (docs/edge-protocol/edge-protocol-v1.0.md) as
+an observer: it never subscribes to `cmd.immediate`, `cmd.ping` or `update`,
+and never updates or deletes the provisioned response streams.
 """
 from __future__ import annotations
 
@@ -8,14 +12,27 @@ import asyncio
 import json
 import logging
 import os
+import re
 import signal
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 from dotenv import load_dotenv
 from nats.aio.client import Client as NATS
 from nats.aio.msg import Msg
 from nats.errors import NotJSMessageError
+from nats.js.api import (
+    AckPolicy,
+    ConsumerConfig,
+    DeliverPolicy,
+    RetentionPolicy,
+    StorageType,
+    StreamConfig,
+)
+from nats.js.errors import NotFoundError
+from puda import e2e
 
 from reduct_client import ENTRY_COMMANDS, ENTRY_TELEMETRY, ReductClient
 
@@ -28,35 +45,99 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 NAMESPACE = "puda"
-CMD_REQUEST_SUBJECT = f"{NAMESPACE}.*.cmd.*"
-TELEMETRY_SUBJECT = f"{NAMESPACE}.*.tlm.health"
+# Queued requests only. Immediate commands are recorded from RESPONSE_IMMEDIATE:
+# subscribing to cmd.immediate would create interest and stop the broker from
+# answering "no responders" for offline machines (spec §8.3).
+CMD_QUEUE_SUBJECT = f"{NAMESPACE}.*.cmd.queue"
+TELEMETRY_HEALTH_SUBJECT = f"{NAMESPACE}.*.tlm.health"
+TELEMETRY_STREAM_SUBJECT = f"{NAMESPACE}.*.tlm.stream.>"
 RESPONSE_QUEUE_SUBJECT = f"{NAMESPACE}.*.cmd.response.queue"
 RESPONSE_IMMEDIATE_SUBJECT = f"{NAMESPACE}.*.cmd.response.immediate"
 
 STREAM_RESPONSE_QUEUE = "RESPONSE_QUEUE"
 STREAM_RESPONSE_IMMEDIATE = "RESPONSE_IMMEDIATE"
+RESPONSE_STREAMS = {
+    STREAM_RESPONSE_QUEUE: RESPONSE_QUEUE_SUBJECT,
+    STREAM_RESPONSE_IMMEDIATE: RESPONSE_IMMEDIATE_SUBJECT,
+}
+# Provisioned response stream settings (spec §5).
+RESPONSE_STREAM_MAX_AGE = 24 * 3600  # seconds
 
 QUEUE_CMD_REQUESTS = "reductstore_logger_cmd_requests"
 QUEUE_TELEMETRY = "reductstore_logger_telemetry"
+QUEUE_TELEMETRY_STREAM = "reductstore_logger_telemetry_stream"
 DURABLE_RESP_QUEUE = "reductstore_logger_resp_queue"
 DURABLE_RESP_IMMEDIATE = "reductstore_logger_resp_immediate"
+RESPONSE_CONSUMERS = {
+    STREAM_RESPONSE_QUEUE: DURABLE_RESP_QUEUE,
+    STREAM_RESPONSE_IMMEDIATE: DURABLE_RESP_IMMEDIATE,
+}
+
+KEYRING_POLL_SECONDS = 2
+# machine_id and telemetry stream names (spec §3, §12); safe as entry names.
+ID_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
 
 
-def get_required_env(key: str) -> str:
-    value = os.getenv(key)
-    if value is None or value == "":
-        raise ValueError(f"Required environment variable '{key}' is not set")
-    return value
+@dataclass
+class Config:
+    servers: list[str]
+    encrypted: bool
+    connect_options: dict
+    reductstore_url: str = "http://localhost:8383"
+    reductstore_token: str = "reduct"
+    reductstore_bucket: str = "puda"
+    # Payload keys loaded once from PUDA_E2E_KEY_FILE; disabled in plaintext mode.
+    context: e2e.Context = field(default_factory=e2e.Context)
+
+    @classmethod
+    def from_env(cls) -> "Config":
+        servers = [
+            s.strip() for s in os.getenv("NATS_SERVERS", "").split(",") if s.strip()
+        ]
+        if not servers:
+            raise ValueError("Required environment variable 'NATS_SERVERS' is not set")
+        ca = os.getenv("PUDA_NATS_CA", "").strip()
+        key = os.getenv("PUDA_E2E_KEY_FILE", "").strip()
+        if bool(ca) != bool(key):
+            raise ValueError("Set both PUDA_NATS_CA and PUDA_E2E_KEY_FILE, or neither")
+        encrypted = bool(ca)
+        scheme = "tls://" if encrypted else "nats://"
+        if any(not s.startswith(scheme) for s in servers):
+            raise ValueError(f"This mode requires all NATS_SERVERS URLs to use {scheme}")
+        if encrypted:
+            if not Path(ca).is_file() or not Path(key).is_file():
+                raise ValueError(
+                    "PUDA_NATS_CA and PUDA_E2E_KEY_FILE must reference existing files"
+                )
+            try:
+                context = e2e.Context(key)
+            except Exception:
+                raise ValueError(
+                    "PUDA_E2E_KEY_FILE must contain a valid encrypt key"
+                ) from None
+            if not os.access(key, os.W_OK) or not os.access(Path(key).parent, os.W_OK):
+                raise ValueError(
+                    "Key file and its directory must be writable for key rotation"
+                )
+        else:
+            context = e2e.Context()
+        try:
+            options = e2e.connect_kwargs(servers, ca or None)
+        except Exception:
+            raise ValueError("Cannot load NATS TLS CA certificate") from None
+        return cls(
+            servers=servers,
+            encrypted=encrypted,
+            connect_options=options,
+            reductstore_url=os.getenv("REDUCTSTORE_URL", "http://localhost:8383"),
+            reductstore_token=os.getenv("REDUCTSTORE_TOKEN", "reduct"),
+            reductstore_bucket=os.getenv("REDUCTSTORE_BUCKET", "puda"),
+            context=context,
+        )
 
 
-NATS_SERVERS = [
-    server.strip()
-    for server in get_required_env("NATS_SERVERS").split(",")
-    if server.strip()
-]
-REDUCTSTORE_URL = os.getenv("REDUCTSTORE_URL", "http://localhost:8383")
-REDUCTSTORE_TOKEN = os.getenv("REDUCTSTORE_TOKEN", "reduct")
-REDUCTSTORE_BUCKET = os.getenv("REDUCTSTORE_BUCKET", "puda")
+class InvalidMessage(ValueError):
+    """A payload that does not match the protocol 1.0 shape; logged and dropped."""
 
 
 def parse_iso_timestamp(value: Any) -> Optional[datetime]:
@@ -92,22 +173,6 @@ def parse_iso_timestamp(value: Any) -> Optional[datetime]:
     return None
 
 
-def unwrap_body(payload: dict) -> dict:
-    """Prefer the inner `data` object used by the older envelope format."""
-    data = payload.get("data")
-    if isinstance(data, dict) and (
-        "header" in data
-        or "command" in data
-        or "response" in data
-        or "cpu" in data
-        or "mem" in data
-        or "temp" in data
-        or "timestamp" in data
-    ):
-        return data
-    return payload
-
-
 def machine_id_from_subject(subject: str) -> Optional[str]:
     parts = subject.split(".")
     if len(parts) >= 2 and parts[0] == NAMESPACE:
@@ -122,6 +187,32 @@ def topic_from_subject(subject: str) -> Optional[str]:
     if index == -1:
         return None
     return subject[index + len(marker) :]
+
+
+def stream_name_from_subject(subject: str) -> Optional[str]:
+    """puda.first.tlm.stream.pos -> pos"""
+    parts = subject.split(".")
+    if len(parts) == 5 and parts[0] == NAMESPACE and parts[2:4] == ["tlm", "stream"]:
+        return parts[4]
+    return None
+
+
+def telemetry_stream_entry(machine_id: str, stream: str) -> str:
+    """One ReductStore entry per machine and telemetry stream."""
+    return f"stream__{machine_id}__{stream}"
+
+
+def unwrap_telemetry(payload: Any) -> tuple[datetime, dict]:
+    """Return (timestamp, data) from the §12 `{timestamp, data}` wrapper."""
+    if not isinstance(payload, dict):
+        raise InvalidMessage("telemetry must be a JSON object")
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise InvalidMessage("telemetry must use the {timestamp, data} wrapper")
+    timestamp = parse_iso_timestamp(payload.get("timestamp"))
+    if timestamp is None:
+        raise InvalidMessage("telemetry timestamp must be ISO 8601")
+    return timestamp, data
 
 
 # Grafana's ReductStore plugin only creates columns from JSON *leaves*, so the
@@ -162,178 +253,336 @@ def response_column_value(response: dict) -> Optional[str]:
     return None
 
 
+def command_labels(subject: str, payload: Any, msg_type: str) -> tuple[datetime, dict]:
+    """Map a protocol 1.0 command/response envelope (§8.1, §8.4) to labels."""
+    if not isinstance(payload, dict):
+        raise InvalidMessage("envelope must be a JSON object")
+    header = payload.get("header")
+    command = payload.get("command")
+    if not isinstance(header, dict) or not isinstance(command, dict):
+        raise InvalidMessage("envelope requires header and command objects")
+    response = payload.get("response")
+    if msg_type == "response" and not isinstance(response, dict):
+        raise InvalidMessage("response envelope requires a response object")
+    response = response if isinstance(response, dict) else {}
+
+    timestamp = parse_iso_timestamp(header.get("timestamp")) or datetime.now(
+        timezone.utc
+    )
+    labels = {
+        "machine_id": header.get("machine_id") or machine_id_from_subject(subject),
+        "topic": topic_from_subject(subject),
+        "cmd_name": command.get("name"),
+        "msg_type": msg_type,
+        "status": response.get("status") if msg_type == "response" else "sent",
+        "protocol_version": header.get("protocol_version"),
+        "username": header.get("username"),
+        "run_id": header.get("run_id"),
+        "subject": subject,
+        "user_id": header.get("user_id"),
+        "step_number": command.get("step_number"),
+    }
+    if msg_type == "response":
+        labels["response_code"] = response.get("code")
+        labels["completed_at"] = response.get("completed_at")
+        response_text = response_column_value(response)
+        if response_text:
+            labels["response"] = response_text
+    return timestamp, labels
+
+
+def is_e2e_frame(data: bytes) -> bool:
+    return len(data) >= 34 and data[:2] == b"\xe2\x01"
+
+
 class LoggerService:
     """Subscribe to PUDA NATS traffic and persist it in ReductStore."""
 
-    def __init__(self) -> None:
+    def __init__(self, config: Config) -> None:
+        self.config = config
         self.nc = NATS()
+        self.js: Any = None
         self.db = ReductClient(
-            url=REDUCTSTORE_URL,
-            token=REDUCTSTORE_TOKEN,
-            bucket=REDUCTSTORE_BUCKET,
+            url=config.reductstore_url,
+            token=config.reductstore_token,
+            bucket=config.reductstore_bucket,
         )
+        self.key_lock = asyncio.Lock()
+        self._tasks: list[asyncio.Task] = []
 
     async def start(self) -> None:
         await self.db.connect()
         await self.nc.connect(
-            servers=NATS_SERVERS,
+            servers=self.config.servers,
+            name="puda-reductstore-logger",
             max_reconnect_attempts=-1,
             reconnect_time_wait=2,
             disconnected_cb=self._on_disconnected,
             reconnected_cb=self._on_reconnected,
             error_cb=self._on_error,
+            **self.config.connect_options,
         )
-        logger.info("Connected to NATS at %s", ", ".join(NATS_SERVERS))
+        logger.info(
+            "Connected to NATS at %s (%s)",
+            ", ".join(self.config.servers),
+            "E2EE" if self.config.encrypted else "plaintext",
+        )
+        self.js = self.nc.jetstream()
+        await self.ensure_streams()
+        await self.sync_keyring()
+        if self.config.encrypted:
+            self._tasks.append(asyncio.create_task(self._watch_keys()))
         await self._subscribe()
 
     async def stop(self) -> None:
+        for task in self._tasks:
+            task.cancel()
+        await asyncio.gather(*self._tasks, return_exceptions=True)
         if self.nc.is_connected:
             await self.nc.drain()
         await self.db.close()
         logger.info("Disconnected from NATS and ReductStore")
 
-    async def _subscribe(self) -> None:
-        # Command requests use a core subscription so this logger does not
-        # compete with the machine's WorkQueue JetStream consumer.
-        await self.nc.subscribe(
-            CMD_REQUEST_SUBJECT,
-            queue=QUEUE_CMD_REQUESTS,
-            cb=self._on_command_request,
-        )
-        await self.nc.subscribe(
-            TELEMETRY_SUBJECT,
-            queue=QUEUE_TELEMETRY,
-            cb=self._on_telemetry,
-        )
+    # --- E2E keyring (§13.5) -------------------------------------------------
 
-        js = self.nc.jetstream()
-        await js.subscribe(
-            RESPONSE_QUEUE_SUBJECT,
-            stream=STREAM_RESPONSE_QUEUE,
-            durable=DURABLE_RESP_QUEUE,
-            queue=DURABLE_RESP_QUEUE,
-            manual_ack=True,
-            cb=self._on_response,
-        )
-        await js.subscribe(
-            RESPONSE_IMMEDIATE_SUBJECT,
-            stream=STREAM_RESPONSE_IMMEDIATE,
-            durable=DURABLE_RESP_IMMEDIATE,
-            queue=DURABLE_RESP_IMMEDIATE,
-            manual_ack=True,
-            cb=self._on_response,
-        )
+    async def sync_keyring(self) -> None:
+        if not self.config.encrypted:
+            return
+        async with self.key_lock:
+            try:
+                kv = await self.js.key_value(e2e.KEYRING_BUCKET)
+            except NotFoundError:
+                return
+            try:
+                entry = await kv.get(e2e.KEYRING_KEY)
+            except NotFoundError:
+                self.config.context.drop_previous()
+                return
+            plain = self.config.context.open_payload(
+                e2e.kv_aad(e2e.KEYRING_BUCKET, e2e.KEYRING_KEY), entry.value
+            )
+            if self.config.context.adopt_record(plain):
+                logger.info("Adopted rotated E2E keyring")
+
+    async def _watch_keys(self) -> None:
+        while True:
+            await asyncio.sleep(KEYRING_POLL_SECONDS)
+            try:
+                await self.sync_keyring()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.error(
+                    "Keyring refresh failed (%s); retaining current keys",
+                    type(exc).__name__,
+                )
+                await asyncio.sleep(8)
+
+    # --- JetStream objects (§5) ----------------------------------------------
+
+    async def ensure_streams(self) -> None:
+        """Check the response streams; create only missing ones, never update."""
+        for name, subject in RESPONSE_STREAMS.items():
+            try:
+                info = await self.js.stream_info(name)
+            except NotFoundError:
+                logger.warning(
+                    "Stream %s is missing; broker is unprovisioned. Creating it "
+                    "with the protocol 1.0 settings",
+                    name,
+                )
+                await self.js.add_stream(
+                    config=StreamConfig(
+                        name=name,
+                        subjects=[subject],
+                        retention=RetentionPolicy.INTEREST,
+                        storage=StorageType.FILE,
+                        max_age=RESPONSE_STREAM_MAX_AGE,
+                    )
+                )
+            else:
+                cfg = info.config
+                if cfg.retention == RetentionPolicy.WORK_QUEUE:
+                    raise ValueError(
+                        f"Stream {name} uses workqueue retention; a logger consumer "
+                        "would steal responses from clients. Reprovision it with "
+                        "interest retention"
+                    )
+                if (
+                    subject not in (cfg.subjects or [])
+                    or cfg.retention != RetentionPolicy.INTEREST
+                    or cfg.storage != StorageType.FILE
+                    or cfg.max_age != RESPONSE_STREAM_MAX_AGE
+                ):
+                    logger.warning(
+                        "Stream %s does not match the provisioned settings "
+                        "(subjects=%s retention=%s storage=%s max_age=%s); "
+                        "leaving it unchanged",
+                        name,
+                        cfg.subjects,
+                        cfg.retention,
+                        cfg.storage,
+                        cfg.max_age,
+                    )
+            await self.ensure_consumer(name, subject)
+
+    async def ensure_consumer(self, stream: str, subject: str) -> ConsumerConfig:
+        """Create this logger's durable push consumer if missing and return it."""
+        durable = RESPONSE_CONSUMERS[stream]
+        try:
+            info = await self.js.consumer_info(stream, durable)
+        except NotFoundError:
+            config = ConsumerConfig(
+                durable_name=durable,
+                deliver_group=durable,
+                deliver_subject=f"reductstore_logger.deliver.{stream.lower()}",
+                filter_subject=subject,
+                ack_policy=AckPolicy.EXPLICIT,
+                deliver_policy=DeliverPolicy.ALL,
+            )
+            info = await self.js.add_consumer(stream, config=config)
+            logger.info("Created durable consumer %s on %s", durable, stream)
+        config = info.config
+        if (
+            config.deliver_group != durable
+            or config.filter_subject != subject
+            or not config.deliver_subject
+            or config.ack_policy != AckPolicy.EXPLICIT
+        ):
+            raise ValueError(
+                f"Incompatible existing consumer {durable} on {stream}; delete it "
+                "to let the logger recreate it"
+            )
+        return config
+
+    # --- Subscriptions -------------------------------------------------------
+
+    async def _subscribe(self) -> None:
+        # Core subscriptions: the queued-command subscription observes publishes
+        # to COMMAND_QUEUE without competing with the machine's WorkQueue
+        # consumer. No cmd.immediate, cmd.ping or update subscriptions (§8.3).
+        for subject, group, cb in (
+            (CMD_QUEUE_SUBJECT, QUEUE_CMD_REQUESTS, self._on_command_request),
+            (TELEMETRY_HEALTH_SUBJECT, QUEUE_TELEMETRY, self._on_telemetry),
+            (TELEMETRY_STREAM_SUBJECT, QUEUE_TELEMETRY_STREAM, self._on_telemetry_stream),
+        ):
+            await self.nc.subscribe(subject, queue=group, cb=cb)
+
+        # Bind to the explicitly created durables; subscribe_bind never creates
+        # streams or consumers implicitly.
+        for stream, subject in RESPONSE_STREAMS.items():
+            config = await self.ensure_consumer(stream, subject)
+            await self.js.subscribe_bind(
+                stream=stream,
+                config=config,
+                consumer=RESPONSE_CONSUMERS[stream],
+                cb=self._on_response,
+                manual_ack=True,
+            )
         logger.info(
-            "Subscribed to %s, %s, %s, %s",
-            CMD_REQUEST_SUBJECT,
-            TELEMETRY_SUBJECT,
+            "Subscribed to %s, %s, %s, %s, %s",
+            CMD_QUEUE_SUBJECT,
+            TELEMETRY_HEALTH_SUBJECT,
+            TELEMETRY_STREAM_SUBJECT,
             RESPONSE_QUEUE_SUBJECT,
             RESPONSE_IMMEDIATE_SUBJECT,
         )
 
     async def _on_command_request(self, msg: Msg) -> None:
-        await self._write_command(msg, msg_type="command", default_status="sent")
+        await self._write_command(msg, msg_type="command")
 
     async def _on_response(self, msg: Msg) -> None:
         await self._write_command(msg, msg_type="response")
 
     async def _on_telemetry(self, msg: Msg) -> None:
-        ok = False
-        try:
-            payload = self._decode_json(msg)
-            if (
-                isinstance(payload, dict)
-                and set(payload) == {"timestamp", "data"}
-                and isinstance(payload["data"], dict)
-            ):
-                body = payload["data"]
-                time_value = payload["timestamp"]
-            else:
-                body = unwrap_body(payload) if isinstance(payload, dict) else {}
-                time_value = body.get("timestamp")
-            timestamp = parse_iso_timestamp(time_value) or datetime.now(timezone.utc)
+        async def write(payload: Any, raw: bytes) -> None:
+            timestamp, body = unwrap_telemetry(payload)
             labels = {
-                "machine_id": machine_id_from_subject(msg.subject)
-                or body.get("machine_id"),
+                "machine_id": machine_id_from_subject(msg.subject),
                 "subject": msg.subject,
             }
-            for field in ("cpu", "mem", "temp", "connected", "status"):
-                value = body.get(field)
+            for field_name in ("cpu", "mem", "temp", "status"):
+                value = body.get(field_name)
                 if value is not None:
-                    labels[field] = value
-            await self.db.write(ENTRY_TELEMETRY, msg.data, timestamp, labels)
-            ok = True
-        except Exception:
-            logger.exception("Failed to log telemetry from %s", msg.subject)
-        await self._finish(msg, ok)
+                    labels[field_name] = value
+            await self.db.write(ENTRY_TELEMETRY, raw, timestamp, labels)
 
-    async def _write_command(
-        self,
-        msg: Msg,
-        msg_type: str,
-        default_status: Optional[str] = None,
-    ) -> None:
-        ok = False
+        await self._handle(msg, "telemetry", write)
+
+    async def _on_telemetry_stream(self, msg: Msg) -> None:
+        async def write(payload: Any, raw: bytes) -> None:
+            machine_id = machine_id_from_subject(msg.subject) or ""
+            stream = stream_name_from_subject(msg.subject) or ""
+            if not ID_PATTERN.fullmatch(machine_id) or not ID_PATTERN.fullmatch(stream):
+                raise InvalidMessage("unsupported telemetry stream subject")
+            timestamp, _ = unwrap_telemetry(payload)
+            labels = {"machine_id": machine_id, "stream": stream, "subject": msg.subject}
+            await self.db.write(
+                telemetry_stream_entry(machine_id, stream),
+                raw,
+                timestamp,
+                labels,
+            )
+
+        await self._handle(msg, "telemetry stream", write)
+
+    async def _write_command(self, msg: Msg, msg_type: str) -> None:
+        async def write(payload: Any, raw: bytes) -> None:
+            timestamp, labels = command_labels(msg.subject, payload, msg_type)
+            await self.db.write(ENTRY_COMMANDS, raw, timestamp, labels)
+
+        await self._handle(msg, msg_type, write)
+
+    async def _handle(self, msg: Msg, kind: str, write) -> None:
+        """Open, decode and store one message; ack/nak/term JetStream deliveries."""
         try:
-            payload = self._decode_json(msg)
-            body = unwrap_body(payload) if isinstance(payload, dict) else {}
-            header = body.get("header") if isinstance(body.get("header"), dict) else {}
-            command = (
-                body.get("command") if isinstance(body.get("command"), dict) else {}
+            plain = await self._open(msg)
+        except Exception as exc:
+            logger.error(
+                "Cannot decrypt %s on %s (%s)", kind, msg.subject, type(exc).__name__
             )
-            response = (
-                body.get("response") if isinstance(body.get("response"), dict) else {}
-            )
-
-            timestamp = (
-                parse_iso_timestamp(header.get("timestamp"))
-                or parse_iso_timestamp(payload.get("timestamp") if isinstance(payload, dict) else None)
-                or datetime.now(timezone.utc)
-            )
-            labels = {
-                "machine_id": header.get("machine_id")
-                or machine_id_from_subject(msg.subject),
-                "topic": topic_from_subject(msg.subject),
-                "cmd_name": command.get("name"),
-                "msg_type": msg_type,
-                "status": response.get("status") or default_status,
-                "username": header.get("username"),
-                "run_id": header.get("run_id"),
-                "subject": msg.subject,
-                "user_id": header.get("user_id"),
-                "step_number": command.get("step_number"),
-            }
-            if msg_type == "response":
-                labels["response_code"] = response.get("code")
-                labels["completed_at"] = response.get("completed_at")
-                response_text = response_column_value(response)
-                if response_text:
-                    labels["response"] = response_text
-
-            await self.db.write(ENTRY_COMMANDS, msg.data, timestamp, labels)
-            ok = True
-        except Exception:
-            logger.exception("Failed to log %s from %s", msg_type, msg.subject)
-        await self._finish(msg, ok)
-
-    def _decode_json(self, msg: Msg) -> Any:
+            # A sealed frame may be readable after the next keyring refresh;
+            # plaintext-when-keyed (or sealed-without-key) never will be.
+            retry = self.config.encrypted and is_e2e_frame(msg.data)
+            await self._finish(msg, "nak" if retry else "term")
+            return
         try:
-            return json.loads(msg.data.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            logger.error("Failed to parse message on %s: %s", msg.subject, exc)
-            return {}
+            payload = json.loads(plain.decode("utf-8"))
+            # Store the opened (plaintext) JSON so records stay readable.
+            await write(payload, plain)
+        except (UnicodeDecodeError, json.JSONDecodeError, InvalidMessage) as exc:
+            logger.error("Dropping invalid %s on %s: %s", kind, msg.subject, exc)
+            await self._finish(msg, "term")
+            return
+        except Exception:
+            logger.exception("Failed to log %s from %s", kind, msg.subject)
+            await self._finish(msg, "nak")
+            return
+        await self._finish(msg, "ack")
 
-    async def _finish(self, msg: Msg, ok: bool) -> None:
-        # Only JetStream deliveries are acked. Core command requests (including
-        # `puda.<id>.cmd.ping`) carry the requester's reply inbox; acking them
-        # would send +ACK/-NAK to the CLI ahead of the machine's real reply.
+    async def _open(self, msg: Msg) -> bytes:
+        context = self.config.context
+        try:
+            return context.open_payload(msg.subject, msg.data)
+        except e2e.E2EError:
+            if not self.config.encrypted:
+                raise
+            # A newly rotated message may arrive before the periodic refresh.
+            await self.sync_keyring()
+            return context.open_payload(msg.subject, msg.data)
+
+    async def _finish(self, msg: Msg, action: str) -> None:
+        # Only JetStream deliveries are acked. Core messages never carry a
+        # JetStream ack subject; replying to them would confuse requesters.
         if not (msg.reply or "").startswith("$JS.ACK."):
             return
         try:
-            if ok:
+            if action == "ack":
                 await msg.ack()
+            elif action == "term":
+                await msg.term()
             else:
-                await msg.nak()
+                await msg.nak(delay=5)
         except NotJSMessageError:
             return
 
@@ -348,7 +597,8 @@ class LoggerService:
 
 
 async def main() -> None:
-    service = LoggerService()
+    config = Config.from_env()
+    service = LoggerService(config)
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
