@@ -17,6 +17,13 @@ judge compatibility by that, not by package versions.
 
 ### Fixed
 
+Edge Protocol 1.0 errata (spec §19); the protocol version stays `1.0`:
+
+- A command redelivered without a result while the estop latch is set is answered "outcome unknown" (it may already have run) instead of `MACHINE_ESTOPPED` (E-3).
+- While the estop latch is set, every state put from the command processor reads `estopped`, including after `pause` and a failed `reset` (E-4).
+- Responses echo unknown `header`, `command` and top-level fields unchanged, so fields added by a later 1.x minor survive the round trip (E-5).
+- A response `code` this SDK does not know is kept as a string instead of failing validation, so `CommandService` no longer times out on codes added by a later 1.x minor (E-6).
+- A malformed update request is answered `EXECUTION_ERROR` when it can be correlated, instead of leaving the CLI to time out (E-7).
 - `StreamSubscriber` never acknowledges a message that failed. It subscribed with
   nats-py's auto-ack, which acked after the callback even when the handler raised
   (the wrapper swallowed the error), so a message whose payload could not be

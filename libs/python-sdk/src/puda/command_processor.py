@@ -6,7 +6,7 @@ import json
 import logging
 import time
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from nats.aio.msg import Msg
 from pydantic import ValidationError
@@ -308,6 +308,12 @@ class CommandProcessor:
         elif ack:
             await msg.ack()
 
+    async def _publish_state(self, payload: dict[str, Any]) -> None:
+        """Put machine state; while the estop latch is set it always reads estopped (§9.6)."""
+        if self._is_estopped and payload.get("state") != MachineState.OFFLINE:
+            payload = {**payload, "state": MachineState.ESTOPPED}
+        await self._client.publish_state(payload)
+
     def _remember_result(self, msg: Msg, text: str | None, term: bool) -> None:
         seq = _stream_seq(msg)
         if seq is None:
@@ -347,18 +353,6 @@ class CommandProcessor:
             step_number = message.command.step_number if message.command else None
             command = message.command.name if message.command else None
 
-            if self._is_estopped:
-                # Discard, do not redeliver: work queued before an estop must
-                # not run after the reset.
-                await self._respond_queue(
-                    msg,
-                    _error(
-                        CommandResponseCode.MACHINE_ESTOPPED,
-                        "Machine emergency stopped; send reset before queuing commands",
-                    ),
-                    term=True,
-                )
-                return
             if _num_delivered(msg) > 1 and seq not in self._nacked:
                 # Delivered before, with no result on record: this edge lost
                 # track of it (it restarted while handling it). The hardware
@@ -374,6 +368,19 @@ class CommandProcessor:
                     ),
                     term=True,
                     complete_run_id=run_id if self.run_manager.get_active_run_id() == run_id else None,
+                )
+                return
+            if self._is_estopped:
+                # Discard, do not redeliver: work queued before an estop must
+                # not run after the reset. Checked after row 0b, so a command
+                # that may already have run is reported as outcome unknown.
+                await self._respond_queue(
+                    msg,
+                    _error(
+                        CommandResponseCode.MACHINE_ESTOPPED,
+                        "Machine emergency stopped; send reset before queuing commands",
+                    ),
+                    term=True,
                 )
                 return
             self._nacked.discard(seq)
@@ -497,7 +504,7 @@ class CommandProcessor:
         except Exception as e:
             logger.error("Error processing immediate command: %s", e)
             await self._reply_immediate(msg, _error(CommandResponseCode.EXECUTION_ERROR, str(e)))
-            await self._client.publish_state({"state": MachineState.ERROR, "run_id": None})
+            await self._publish_state({"state": MachineState.ERROR, "run_id": None})
 
     async def _dispatch_immediate(
         self,
@@ -544,7 +551,7 @@ class CommandProcessor:
                 CommandResponseCode.RUN_ID_MISMATCH,
                 f"cannot start, {self.run_manager.get_active_run_id()} is currently running",
             )
-        await self._client.publish_state({"state": MachineState.IDLE, "run_id": run_id})
+        await self._publish_state({"state": MachineState.IDLE, "run_id": run_id})
         return _ok()
 
     @staticmethod
@@ -613,7 +620,7 @@ class CommandProcessor:
             await self.run_manager.complete_run(run_id)
         # busy until an aborted driver call actually returns
         state = MachineState.BUSY if self._running is not None else MachineState.IDLE
-        await self._client.publish_state({"state": state, "run_id": None})
+        await self._publish_state({"state": state, "run_id": None})
         return CommandResponse(status=CommandResponseStatus.SUCCESS, data=data)
 
     async def _immediate_pause(self, message: NATSMessage, handler: CommandHandler) -> CommandResponse:
@@ -622,7 +629,7 @@ class CommandProcessor:
                 self._is_paused = True
                 self._update_runnable()
                 logger.info("Queue paused")
-                await self._client.publish_state(
+                await self._publish_state(
                     {"state": MachineState.PAUSED, "run_id": self.run_manager.get_active_run_id()}
                 )
         return await handler(message)
@@ -636,7 +643,7 @@ class CommandProcessor:
                 self._update_runnable()
                 logger.info("Queue resumed")
                 state = MachineState.BUSY if self._running is not None else MachineState.IDLE
-                await self._client.publish_state(
+                await self._publish_state(
                     {"state": state, "run_id": self.run_manager.get_active_run_id()}
                 )
         return await handler(message)
@@ -656,10 +663,10 @@ class CommandProcessor:
                 self._is_estopped = False
                 self._update_runnable()
                 logger.warning("Emergency stop cleared by reset")
-            await self._client.publish_state({"state": MachineState.IDLE, "run_id": None})
+            await self._publish_state({"state": MachineState.IDLE, "run_id": None})
             logger.info("Machine reset")
         else:
-            await self._client.publish_state({"state": MachineState.ERROR, "run_id": None})
+            await self._publish_state({"state": MachineState.ERROR, "run_id": None})
             logger.error("Machine reset failed: %s", response.message)
         return response
 
@@ -679,7 +686,7 @@ class CommandProcessor:
             response = await handler(message)
         finally:
             await self.run_manager.clear_run()
-            await self._client.publish_state({"state": MachineState.ESTOPPED, "run_id": None})
+            await self._publish_state({"state": MachineState.ESTOPPED, "run_id": None})
         if response.status == CommandResponseStatus.SUCCESS:
             logger.critical("Emergency stop completed by driver")
         else:

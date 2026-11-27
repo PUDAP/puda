@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import unittest
 
 from processor_fakes import FakeClient, FakeJetStream, FakeMsg
@@ -68,6 +69,30 @@ class QueueResultTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response["code"], "EXECUTION_ERROR")
         self.assertIn("Outcome unknown", response["message"])
         self.assertIsNone(self.processor.run_manager.get_active_run_id())
+
+    async def test_redelivery_without_result_during_estop_is_answered_unknown(self) -> None:
+        # The edge may have acted before it restarted; MACHINE_ESTOPPED would
+        # tell the agent it never ran.
+        await self.processor._immediate_estop(self.handler, _message("estop"))
+        self.runs.clear()
+        await self.processor.process_queue(self.msg(seq=9, delivered=2), self.handler)
+        (response,) = self.client.js.responses()
+        self.assertEqual(response["code"], "EXECUTION_ERROR")
+        self.assertIn("Outcome unknown", response["message"])
+
+    async def test_response_echoes_unknown_envelope_fields(self) -> None:
+        # §8.1: fields this edge does not know (a newer minor) are echoed unchanged.
+        msg = self.msg(seq=12)
+        envelope = json.loads(msg.data)
+        envelope["header"]["trace_id"] = "t-1"
+        envelope["command"]["timeout_s"] = 5
+        envelope["origin"] = {"agent": "a"}
+        msg.data = json.dumps(envelope).encode()
+        await self.processor.process_queue(msg, self.handler)
+        echoed = json.loads(self.client.js.published[0][1])
+        self.assertEqual(echoed["header"]["trace_id"], "t-1")
+        self.assertEqual(echoed["command"]["timeout_s"], 5)
+        self.assertEqual(echoed["origin"], {"agent": "a"})
 
     async def test_command_nacked_on_pause_runs_when_redelivered(self) -> None:
         await self.processor._immediate_pause(_message("pause"), self.handler)

@@ -144,6 +144,17 @@ class RunnerEstopTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("puda machine estop", response.message)
         self.assertIsNone(driver.estop_thread)
 
+    async def test_processor_state_stays_estopped_while_latched(self) -> None:
+        # §9.6: every state publish reports estopped until a successful reset.
+        client = FakeClient()
+        processor = CommandProcessor(client)
+        await processor._immediate_estop(_success, _message("estop"))
+        await processor._immediate_pause(_message("pause"), _success)
+        await processor._immediate_reset(_failure, _message("reset"))
+        self.assertEqual({s["state"] for s in client.states}, {MachineState.ESTOPPED})
+        await processor._immediate_reset(_success, _message("reset"))
+        self.assertEqual(client.states[-1]["state"], MachineState.IDLE)
+
     async def test_published_state_stays_estopped_until_reset(self) -> None:
         client = EdgeNatsClient(["nats://localhost:4222"], "test-1")
         runner = EdgeRunner(client, EstopDriver(), _telemetry)

@@ -134,6 +134,11 @@
               ]
             },
             {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$",
+              "description": "A code added by a later 1.x minor. Receivers MUST accept it and treat the response as an error with that code (spec \u00a78.6)."
+            },
+            {
               "type": "null"
             }
           ]
@@ -167,21 +172,29 @@
             ],
             "properties": {
               "code": {
-                "enum": [
-                  "COMMAND_CANCELLED",
-                  "JSON_DECODE_ERROR",
-                  "EXECUTION_ERROR",
-                  "EXECUTION_LOCKED",
-                  "UNKNOWN_COMMAND",
-                  "PAUSE_ERROR",
-                  "RESUME_ERROR",
-                  "NO_EXECUTION",
-                  "RUN_ID_MISMATCH",
-                  "MISSING_RUN_ID",
-                  "CANCEL_ERROR",
-                  "MACHINE_PAUSED",
-                  "MACHINE_ESTOPPED",
-                  "ESTOP_NOT_SUPPORTED"
+                "anyOf": [
+                  {
+                    "enum": [
+                      "COMMAND_CANCELLED",
+                      "JSON_DECODE_ERROR",
+                      "EXECUTION_ERROR",
+                      "EXECUTION_LOCKED",
+                      "UNKNOWN_COMMAND",
+                      "PAUSE_ERROR",
+                      "RESUME_ERROR",
+                      "NO_EXECUTION",
+                      "RUN_ID_MISMATCH",
+                      "MISSING_RUN_ID",
+                      "CANCEL_ERROR",
+                      "MACHINE_PAUSED",
+                      "MACHINE_ESTOPPED",
+                      "ESTOP_NOT_SUPPORTED"
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^[A-Z][A-Z0-9_]*$"
+                  }
                 ]
               }
             }
