@@ -19,3 +19,10 @@ Run the check from the repository root:
 ```bash
 uv run --with jsonschema python docs/edge-protocol/v1.0/check.py
 ```
+
+Both reference implementations test themselves against these files, so either one drifting from the spec fails its own suite:
+
+- CLI: `apps/cli/internal/nats/edge-protocol-spec_test.go` (`go test ./internal/nats -run Spec`)
+- Python SDK: `libs/python-sdk/tests/test_edge_protocol_spec.py`
+
+Each checks that the implementation seals every E2E vector byte-for-byte and reaches every negative outcome. It also checks that decoding the examples keeps every spec field, and that the payloads it builds itself (commands, responses, pongs, catalogs, keyring records) validate against the schemas. A new implementation such as a C SDK should add the same checks to its own suite.
