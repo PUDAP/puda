@@ -5,7 +5,7 @@ Models for Puda Comms.
 from enum import Enum
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .constants import PROTOCOL_VERSION
 
@@ -76,6 +76,8 @@ def _get_current_timestamp() -> str:
 
 class CommandRequest(BaseModel):
     """Command request data for NATS messages."""
+    # Fields from a newer protocol minor are kept, so the response echoes them (§8.1).
+    model_config = ConfigDict(extra="allow")
     name: str = Field(description="The command name (string) to send to the machine.")
     params: Dict[str, Any] = Field(default_factory=dict, description="The parameters to send to the machine.")
     kwargs: Dict[str, Any] = Field(default_factory=dict, description="Additional keyword arguments (e.g., channels in Biologic).")
@@ -87,12 +89,16 @@ class CommandResponse(BaseModel):
     """Result data in a command response."""
     status: CommandResponseStatus = Field(description="Status of the command response.")
     completed_at: str = Field(default_factory=_get_current_timestamp, description="ISO format timestamp (auto-set on creation)")
-    code: Optional[CommandResponseCode] = Field(default=None, description="Error code")
+    # A newer protocol minor may add codes; keep an unknown one as its string.
+    code: Optional[CommandResponseCode | str] = Field(
+        default=None, union_mode="left_to_right", description="Error code"
+    )
     message: Optional[str] = Field(default=None, description="Error message (human-readable description)")
     data: Optional[Dict[Any, Any]] = Field(default=None, description="Optional output data from the command handler")
 
 class MessageHeader(BaseModel):
     """Header for NATS messages."""
+    model_config = ConfigDict(extra="allow")
     protocol_version: str = Field(description="PUDA Edge Protocol version (MAJOR.MINOR); required")
     message_type: MessageType = Field(description="Type of message")
     user_id: str = Field(description="User ID")
@@ -118,7 +124,10 @@ class NATSMessage(BaseModel):
     - header: MessageHeader with protocol_version, message_type, timestamp, user_id, username, machine_id, run_id
     - command: Optional CommandRequest (for command messages)
     - response: Optional CommandResponse data (for response messages)
+
+    Unknown fields are kept and echoed unchanged in responses (spec §8.1).
     """
+    model_config = ConfigDict(extra="allow")
     header: MessageHeader = Field(description="Header of the NATS message.")
     command: Optional[CommandRequest] = Field(default=None, description="Command request (for command messages)")
     response: Optional[CommandResponse] = Field(default=None, description="Command response (for response messages)")

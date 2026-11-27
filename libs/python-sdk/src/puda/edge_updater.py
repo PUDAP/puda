@@ -30,7 +30,9 @@ from datetime import datetime, timezone
 from typing import Awaitable, Callable, Literal, Optional
 
 from nats.aio.msg import Msg
+from pydantic import ValidationError
 
+from .command_processor import CommandProcessor
 from .edge_nats_client import EdgeNatsClient
 from .models import (
     CommandResponse,
@@ -141,9 +143,19 @@ class EdgeUpdater:
     async def _handle_message(self, msg: Msg) -> None:
         """Core NATS subscription callback for the update subject."""
         try:
-            message = NATSMessage.model_validate_json(self.nats_client.encryption.open_payload(msg.subject, msg.data))
+            plain = self.nats_client.encryption.open_payload(msg.subject, msg.data)
         except Exception as e:
-            logger.error("Failed to parse update message: %s", e)
+            logger.error("Cannot open update message; no response sent: %s", e)
+            return
+        try:
+            message = NATSMessage.model_validate_json(plain)
+        except ValidationError as e:
+            # Answer if the client can correlate it (§8.4), so it fails fast
+            # instead of waiting for its timeout. Nothing is updated.
+            logger.error("Malformed update message: %s", e)
+            text = CommandProcessor._correlatable_response(plain, CommandProcessor._invalid_envelope(e))
+            if text is not None:
+                await self._publish_text(text)
             return
         
         handler = self._handler or self._default_handler
@@ -183,16 +195,19 @@ class EdgeUpdater:
             response_message = original.model_copy(
                 update={'header': response_header, 'response': response}
             )
-            await nc.publish(
-                subject=self.nats_client.update_response,
-                payload=self.nats_client.encryption.seal(
-                    self.nats_client.update_response,
-                    response_message.model_dump_json().encode(),
-                ),
-            )
+            await self._publish_text(response_message.model_dump_json())
             logger.info("Published update response: %s", response.status)
         except Exception as e:
             logger.error("Error publishing update response: %s", e)
+
+    async def _publish_text(self, text: str) -> None:
+        nc = self.nats_client.nc
+        if nc is None:
+            return
+        await nc.publish(
+            subject=self.nats_client.update_response,
+            payload=self.nats_client.encryption.seal(self.nats_client.update_response, text.encode()),
+        )
     
     # -- default handler (git / docker) --------------------------------------
     

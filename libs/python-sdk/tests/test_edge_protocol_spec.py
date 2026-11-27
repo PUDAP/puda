@@ -94,6 +94,15 @@ def test_spec_envelope_example_round_trips(path):
             )
 
 
+def test_unknown_response_code_from_a_newer_minor_is_accepted():
+    # §2: a minor may add response codes; a 1.0 client reads them as errors.
+    original = json.loads((SPEC / "examples" / "response-queue-unknown-command.json").read_text())
+    original["response"]["code"] = "SOME_NEW_CODE"
+    message = NATSMessage.model_validate(original)
+    assert message.response is not None and message.response.code == "SOME_NEW_CODE"
+    validate("nats-message", json.loads(message.model_dump_json()))
+
+
 def test_sdk_command_payload_matches_spec():
     service = object.__new__(CommandService)
     for run_id in ("22222222-2222-4333-8444-555555555555", ""):

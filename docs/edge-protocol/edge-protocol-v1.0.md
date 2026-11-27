@@ -36,7 +36,10 @@ The protocol version is `MAJOR.MINOR`, and it is the only compatibility signal. 
 
 - Every command and response carries `header.protocol_version`. Clients MUST send `"1.0"` under this spec. An edge MUST refuse a command whose `header.protocol_version` is missing, is not two dot-separated decimal numbers, or has a major other than its own: it is an invalid envelope (§8.4), answered `EXECUTION_ERROR` "Invalid command envelope: header.protocol_version: …" and never executed ([example](v1.0/examples/response-queue-protocol-mismatch.json)). A response echoes the request's value.
 - Every pong carries `protocol_version`, the version the edge speaks. Clients judge an edge by its major: the CLI supports `1.x`, reports any other value (or none) as unsupported in `puda machine list`/`info` and `puda healthcheck`, and does not block on it.
-- A minor version only adds: new optional fields, verbs or codes. Receivers MUST ignore unknown JSON fields; pydantic and Go `encoding/json` both do. So any `1.x` edge works with any `1.x` client.
+- A minor version only adds: new optional fields, verbs or codes. So that any `1.x` edge works with any `1.x` client:
+  - Receivers MUST ignore unknown JSON fields.
+  - An edge MUST echo unknown envelope fields unchanged in its response (§8.1).
+  - Receivers MUST accept a response `code` they do not know and treat the response as an error with that code (§8.6).
 - Changing a subject, consumer name, required field, ack rule, reply rule or the E2E frame layout requires a new major version, which is a breaking release of every client and edge implementation. There is no negotiation and no support for older majors.
 - Commands carry no per-command version.
 
@@ -255,23 +258,25 @@ Rules:
 | `JSON_DECODE_ERROR` | Reserved. Undecodable payloads cannot be correlated, so they get no response (§8.4). |
 | `PAUSE_ERROR`, `RESUME_ERROR`, `CANCEL_ERROR`, `NO_EXECUTION` | Reserved. Not emitted by the reference. |
 
+A later `1.x` minor may add codes (upper case, digits and `_`). A receiver MUST accept a code it does not know, and treat it as `status: "error"` with that code; it MUST NOT reject the envelope.
+
 ## 9. Run model and command semantics
 
 ### 9.1 Runs
 
 - An edge holds at most one active `run_id`. It lives in memory only; after an edge restart there is no active run.
 - Queued commands MUST carry the active `run_id`. `start` sets it, and `complete`, `reset` and `estop` clear it.
-- **Any error response to a queued command ends the active run.** The edge clears the run and terminates the message. Clients must send a new `start` to continue ([transcript 03, `run2_unknown` → `run2_fail`](v1.0/transcripts/03-errors.md)).
+- **An error from running a queued command ends the active run**: rows 0b and 7–10 of §9.2. The edge clears the run and terminates the message, and clients must send a new `start` to continue ([transcript 03, `run2_unknown` → `run2_fail`](v1.0/transcripts/03-errors.md)). Rejections before anything runs (rows 1–6) leave the run unchanged.
 
 ### 9.2 Queued command decision table
 
-The edge MUST evaluate these checks in this order. The edge MUST remember the results of at least its last queued command by stream sequence; the reference keeps 64. Rows 0a and 0b make every queued command run at most once even though results are stored before the ack (§8.4): a redelivery that already has a result is answered again, and one without (the edge restarted mid-command, so the hardware may have acted) is reported, not run. Clients take the first response per `(run_id, step_number, machine_id)`.
+The edge MUST evaluate these checks in the order of the table: 0a, 1, 0b, 2, 3, … A malformed message (row 1) never ran, so it is rejected before row 0b. Row 0b comes before the estop latch (row 2), so a command that may already have run is reported as outcome unknown rather than as refused. The edge MUST remember the results of at least its last queued command by stream sequence; the reference keeps 64. Rows 0a and 0b make every queued command run at most once even though results are stored before the ack (§8.4): a redelivery that already has a result is answered again, and one without (the edge restarted mid-command, so the hardware may have acted) is reported, not run. Clients take the first response per `(run_id, step_number, machine_id)`.
 
 | # | Condition | Ack | Response | Run | State |
 |---|---|---|---|---|---|
 | 0a | Redelivered, and this edge has the result of that stream sequence | as before | the same result again (same `Nats-Msg-Id`) | — | — |
-| 0b | Redelivered (delivery count > 1: the `<delivered>` token of the reply subject `$JS.ACK.<stream>.<consumer>.<delivered>.…`) with no result on record and not NAKed by this edge on pause | `+TERM` | `EXECUTION_ERROR` "Redelivered without a result: the edge restarted while handling this command. Outcome unknown; it was not run again" | cleared | — |
 | 1 | Payload unreadable or not a valid envelope | `+TERM` | `EXECUTION_ERROR` if correlatable (§8.4), else none | — | — |
+| 0b | Redelivered (delivery count > 1: the `<delivered>` token of the reply subject `$JS.ACK.<stream>.<consumer>.<delivered>.…`) with no result on record and not NAKed by this edge on pause | `+TERM` | `EXECUTION_ERROR` "Redelivered without a result: the edge restarted while handling this command. Outcome unknown; it was not run again" | cleared | — |
 | 2 | Estop latch set | `+TERM` | `MACHINE_ESTOPPED` "Machine emergency stopped; send reset before queuing commands" | — | — |
 | 3 | Paused | `-NAK`, confirmed (§9.4) | none; redelivered after resume | — | — |
 | 4 | `run_id` is `null` | `+ACK` | `EXECUTION_ERROR` "Command requires run_id" | — | — |
@@ -288,7 +293,7 @@ Row 3 only applies to a message delivered at the instant the edge paused; otherw
 
 ### 9.3 Immediate commands
 
-Immediate verbs are matched case-insensitively. Any other name is dispatched to the driver like a queued command (§8.5), without run checks.
+Immediate verbs are matched case-insensitively. Any other name is answered `UNKNOWN_COMMAND` "Unknown immediate command: <name>"; driver commands are only reachable through the queue.
 
 Every verb is safe to repeat, so a client that timed out (§8.3) can resend it: `start` of the run that is already active answers `success` with `data: {"already_started": true}` ([example](v1.0/examples/response-immediate-start-repeat.json)); `complete` of a run that already ended answers `already_completed` (§9.8); `pause`, `resume`, `reset` and `estop` are idempotent.
 
@@ -296,15 +301,15 @@ Every verb is safe to repeat, so a client that timed out (§8.3) can resend it: 
 |---|---|---|---|---|
 | `start` | `run_id` set; no estop latch; no other active run | Run becomes active | `success` (`already_started` if it was) / `MISSING_RUN_ID` / `MACHINE_ESTOPPED` / `RUN_ID_MISMATCH` "cannot start, <active> is currently running" | `idle` + `run_id` |
 | `complete` | `run_id` = active run, and no command of the run running unless `params.abort` | Run cleared; see §9.8 | `success` / `EXECUTION_LOCKED` / `MISSING_RUN_ID` / `RUN_ID_MISMATCH` "Run <id> not active" | `idle`, `run_id: null` |
-| `pause` | — | Pause latch set; driver `pause` hook called if implemented (§11.2) | Driver result, or `success` if absent | `paused` + active run |
+| `pause` | — | Pause latch set; driver `pause` hook called if implemented (§11.2) | Driver result, or `success` if absent | `paused` + active run (`estopped` while latched) |
 | `resume` | No estop latch | Pause latch cleared; driver `resume` called if present | Driver result, or `success` if absent / `MACHINE_ESTOPPED` | `idle` + active run, or `busy` if a command is running |
-| `reset` | — | Run cleared; driver `reset` called if present. On success the estop latch is cleared. | Driver result, or `success` if absent | `idle` on success, `error` on failure |
+| `reset` | — | Run cleared; driver `reset` called if present. On success the estop latch is cleared. | Driver result, or `success` if absent | `idle` on success; on failure `error`, or `estopped` if the latch is still set |
 | `estop` | — | §9.6 | — | `estopped` |
 
 Notes:
 
 - "Driver result, or `success` if absent" is the normative rule. A machine without a `pause` method still pauses.
-- There is no `cancel` verb. It is answered `UNKNOWN_COMMAND` "Unknown immediate command: cancel" like any other unknown verb ([example](v1.0/examples/response-immediate-cancel-unknown.json)). A driver method named `cancel` is dispatched only through the queue.
+- There is no `cancel` verb. It is answered `UNKNOWN_COMMAND` "Unknown immediate command: cancel" like any other unknown name ([example](v1.0/examples/response-immediate-cancel-unknown.json)). A driver method named `cancel` is dispatched only through the queue.
 - `pause` and `resume` do not change the run. The `run_id` they put in state is the **active** run (or `null`), never `header.run_id`.
 
 ### 9.4 Pause
@@ -566,6 +571,7 @@ The CLI judges an edge "ready" from the kids it reports in its pong. This whole 
 
 - The request is a NATSMessage with `command.name = "update"` on core subject `puda.<id>.update` ([example](v1.0/examples/update-request.json)). For example `params: {"source_type": "git"|"docker", "ref": …, "checkout": …}`. `header.run_id` is a fresh UUID used only to correlate the reply.
 - The edge MUST publish exactly one response on `puda.<id>.update.response`, with the same envelope rules as §8.4, **before** it restarts. Success means the new code is staged; there is no second "restarted" message.
+- A malformed request, including one with another major's `header.protocol_version`, is not acted on. It is answered `EXECUTION_ERROR` "Invalid command envelope: …" when it is correlatable (§8.4), and otherwise dropped and logged.
 - After restarting, the edge MUST resume heartbeats. The CLI waits for one.
 - Python performs `git fetch` / `reset --hard` / `uv sync` or `docker pull`, then re-executes itself. Other implementations MAY interpret `source_type` differently, for example `"ota"` with `ref` as a firmware URL. They MUST answer unknown source types with `UNKNOWN_COMMAND`.
 - An edge that does not support updates SHOULD still answer with `UNKNOWN_COMMAND`, so the CLI fails fast instead of timing out.
@@ -622,6 +628,20 @@ The Communication page (`apps/docs/docs/overview/communication.mdx`) does not ma
 2. Consider an MQTT binding. The broker already exposes MQTT, and ESP-IDF has a native MQTT client. Work-queue consumption and ack semantics would need to be specified first.
 3. Consider `sdk_name` in the pong, so reports can tell implementations apart; compatibility does not need it (§2).
 
+## 19. Errata
+
+These fix contradictions in the 1.0 text, and places where the reference disagreed with it. The protocol version stays `1.0`. "Fixed" names the first Python SDK release that conforms.
+
+| ID | Change | Fixed |
+|---|---|---|
+| E-1 | §9.3: an unknown immediate name is answered `UNKNOWN_COMMAND`. The text said it was dispatched to the driver; its own `cancel` note and the reference already answered `UNKNOWN_COMMAND`. | text only |
+| E-2 | §9.1: only errors from running a command (§9.2 rows 0b and 7–10) end the run. The text said any error did, which contradicted rows 4–6. | text only |
+| E-3 | §9.2: the order is 0a, 1, 0b, 2. The reference checked the estop latch before row 0b, so a command that may already have run was answered `MACHINE_ESTOPPED` instead of outcome unknown. | Unreleased |
+| E-4 | §9.3, §9.6: while the estop latch is set, `pause` and a failed `reset` put `estopped`. The reference put `paused` and `error`. | Unreleased |
+| E-5 | §8.1: the reference dropped unknown `header`, `command` and top-level fields instead of echoing them. | Unreleased |
+| E-6 | §2, §8.6: receivers accept unknown response codes. The reference Python client rejected the whole response, so its wait timed out, and the schema allowed only the 1.0 codes. | Unreleased |
+| E-7 | §14: a malformed update request is answered when correlatable. The reference dropped it, so the CLI waited for its timeout. | Unreleased |
+
 ---
 
 ## Appendix A. JetStream wire operations for clients without a JetStream library
@@ -651,7 +671,7 @@ A JetStream-delivered message arrives on the subscription's inbox with its MSG s
 - **Time.** Gate startup on SNTP sync (§4.3).
 - **Keys.** Keep the ring in NVS (encrypted NVS if available). Use the hardware AES-GCM through mbedTLS.
 - **Updates.** Map `update` with `source_type: "ota"` to ESP-IDF OTA. Publish the response, then reboot. Heartbeats resume after boot.
-- **Conformance.** Run `check.py` against your crypto implementation using the vectors. Compare your edge's wire behaviour against the transcripts.
+- **Conformance.** Run `check.py` against your crypto implementation using the vectors, and validate the payloads your edge builds against the schemas, as the reference test suites do (see the [README](README.md)). The transcripts are historical: they were captured from SDK 0.0.23 and show the pre-1.0 wire shape (Appendix C). Where they disagree with the examples or this text, the examples and this text win.
 
 ## Appendix C. How the evidence was produced
 
