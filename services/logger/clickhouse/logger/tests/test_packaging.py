@@ -11,14 +11,27 @@ def test_server_pins_verified_latest_stable_image():
     assert "clickhouse/clickhouse-server:26.10.2.103@sha256:b2bfa4d8399ee9973868cc5c1754cb506a6f4b86fbddc41010cc090beb55c85e" in compose
 
 
-def test_additive_split_schema_keeps_legacy_initialization():
-    schema = ROOT.parent / "server/initdb/002-split-events.sql"
-    assert schema.is_file(), "Add the two-table schema without replacing legacy events"
-    text = schema.read_text()
+def test_protocol_1_0_schema_is_fresh_split_tables_only():
+    initdb = ROOT.parent / "server/initdb"
+    assert sorted(p.name for p in initdb.glob("*.sql")) == ["002-split-events.sql"]
+    text = (initdb / "002-split-events.sql").read_text()
     assert "puda.command_logs" in text and "puda.telemetry" in text
-    assert "data String" in text
+    assert "data String" in text and "protocol_version LowCardinality(String)" in text
+    assert "cmd_version" not in text and "puda.events" not in text
     assert "DROP" not in text.upper()
-    assert "CREATE TABLE IF NOT EXISTS puda.events" in (schema.parent / "001-events.sql").read_text()
+    assert not (ROOT / "backfill.py").exists()
+
+
+def test_pins_and_docs_target_edge_protocol_1_0():
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+    assert {"puda==0.1.0rc1", "nats-py==2.17.0"} <= set(project["dependencies"])
+    for doc in (ROOT / "README.md", ROOT.parent / "README.md"):
+        assert "Edge Protocol 1.0" in doc.read_text()
+    for path in ROOT.glob("*.py"):
+        text = path.read_text()
+        assert "cmd_version" not in text and "header.version" not in text, path
+    for path in [*ROOT.glob("*.md"), *ROOT.parent.glob("*/*.md")]:
+        assert "backfill.py" not in path.read_text(), path
 
 
 def test_container_uses_locked_uv_project():
@@ -32,3 +45,5 @@ def test_container_uses_locked_uv_project():
     lock = tomllib.loads((ROOT / "uv.lock").read_text())
     names = {package["name"] for package in lock["package"]}
     assert {"puda", "nats-py"} <= names
+    versions = {package["name"]: package.get("version") for package in lock["package"]}
+    assert versions["puda"] == "0.1.0rc1" and versions["nats-py"] == "2.17.0"

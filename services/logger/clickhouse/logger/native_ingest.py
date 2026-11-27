@@ -1,11 +1,14 @@
 """Opt-in native ingestion DDL/control plane. Never consumes data messages."""
 import hashlib
+import logging
 import os
 from pathlib import Path
 import tempfile
 
-from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy, RetentionPolicy
+from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy
 from nats.js.errors import NotFoundError
+
+from storage import RESPONSE_STREAMS, ensure_response_streams
 
 # Compatibility exports: existing operators/tests may import these here.
 from native_sql import (
@@ -13,6 +16,8 @@ from native_sql import (
     decrypt_with, timestamp_expression, command_select, telemetry_select,
     key_statements, validate_settings,
 )
+
+log = logging.getLogger('clickhouse_logger.native')
 
 
 def write_keys(path, keys):
@@ -108,12 +113,11 @@ async def sync_keys_once(js, db, path, trusted_keys, publish=None):
 
 
 async def provision_consumers(js):
-    """Only additive, separate logger pull durables. Never changes streams."""
+    """Only additive, separate logger pull durables. Never updates or deletes
+    streams; a missing response stream is created with spec settings (§5)."""
+    await ensure_response_streams(js, log)
     for stream, durable in DURABLES.items():
-        info = await js.stream_info(stream)
-        if info.config.retention not in (RetentionPolicy.LIMITS, RetentionPolicy.INTEREST):
-            raise ValueError('Native logging refuses WorkQueue retention')
-        subject = 'puda.*.cmd.response.' + stream.removeprefix('RESPONSE_').lower()
+        subject = RESPONSE_STREAMS[stream]
         try:
             existing = await js.consumer_info(stream, durable)
         except NotFoundError:

@@ -5,6 +5,7 @@ import pytest
 def command():
     return {
         "header": {
+            "protocol_version": "1.0",
             "machine_id": "robot",
             "run_id": "run-1",
             "username": "tester",
@@ -35,6 +36,21 @@ def test_command_keeps_raw_json_and_nanoseconds():
     )
     assert row["msg_type"] == "response"
     assert row["status"] == "success"
+    assert row["protocol_version"] == "1.0"
+    assert "cmd_version" not in row and "version" not in row
+
+
+def test_missing_protocol_version_is_stored_empty():
+    # An edge echoes a malformed command in its EXECUTION_ERROR response (§8.4).
+    from subscriber import to_row
+
+    payload = command()
+    del payload["header"]["protocol_version"]
+    row = to_row("puda.robot.cmd.response.queue", json.dumps(payload).encode())
+    assert row["protocol_version"] == ""
+    payload["header"]["protocol_version"] = 1
+    with pytest.raises(ValueError):
+        to_row("puda.robot.cmd.response.queue", json.dumps(payload).encode())
 
 
 @pytest.mark.parametrize(
@@ -46,6 +62,16 @@ def test_command_keeps_raw_json_and_nanoseconds():
         ("puda.robot.tlm.health", b"\xff"),
         ("puda.robot.cmd.queue", b"{}"),
         ("puda.robot.cmd.other", b"{}"),
+        # Immediate commands are only recorded from RESPONSE_IMMEDIATE (§8.3).
+        ("puda.robot.cmd.immediate", json.dumps(command()).encode()),
+        ("puda.robot.cmd.ping", b"{}"),
+        ("puda.robot.update", json.dumps(command()).encode()),
+        # Telemetry without the {timestamp, data} wrapper is invalid (§12).
+        ("puda.robot.tlm.health", b'{"cpu":4.5,"mem":null}'),
+        ("puda.robot.tlm.health", b'{"timestamp":"2026-07-07T09:41:42Z","cpu":4.5}'),
+        ("puda.robot.tlm.health", b'{"data":{"cpu":4.5}}'),
+        ("puda.robot.tlm.health", b'{"timestamp":null,"data":{"cpu":4.5}}'),
+        ("puda.robot.tlm.stream.position", b'{"timestamp":"2026-07-07T09:41:42Z","data":[1]}'),
     ],
 )
 def test_invalid_messages_rejected(subject, payload):
@@ -55,15 +81,19 @@ def test_invalid_messages_rejected(subject, payload):
         to_row(subject, payload)
 
 
-def test_health_and_stream_without_timestamp_use_receipt_time():
-    import time
+def test_health_and_stream_use_wrapper_timestamp():
     from subscriber import to_row, timestamp_ns
 
-    before = time.time_ns()
-    row = to_row("puda.robot.tlm.health", b'{"cpu":4.5,"mem":null}')
-    assert before <= row["event_ns"] <= time.time_ns()
+    row = to_row(
+        "puda.robot.tlm.health",
+        b'{"timestamp":"2026-07-07T09:41:42Z","data":{"cpu":4.5,"mem":null}}',
+    )
+    assert row["event_ns"] == 1783417302000000000
     assert json.loads(row["data"]) == {"cpu": 4.5, "mem": None}
-    row = to_row("puda.robot.tlm.stream.position", b'{"x":1}')
+    row = to_row(
+        "puda.robot.tlm.stream.position",
+        b'{"timestamp":"2026-07-07T09:41:42Z","data":{"x":1}}',
+    )
     assert row["stream"] == "position" and row["msg_type"] == "telemetry_stream"
     assert timestamp_ns("2026-07-07T11:41:42.123456789+02:00") == 1783417302123456789
     with pytest.raises(ValueError):

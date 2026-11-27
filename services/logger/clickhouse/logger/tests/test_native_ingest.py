@@ -73,9 +73,9 @@ async def test_native_encrypted_response(services, tmp_path):
         # Core subscriptions have no replay; allow background attachment before publishing.
         await asyncio.sleep(2)
         cases = [('cmd.queue', raw), ('cmd.response.immediate', raw),
-            ('tlm.health', b'{"timestamp":"2026-07-07T11:41:42.123456789+02:00","cpu":4.5,"nested":{"x":null}}'),
+            ('tlm.health', b'{"timestamp":"2026-07-07T11:41:42.123456789+02:00","data":{"cpu":4.5,"nested":{"x":null}}}'),
             ('tlm.stream.position', b'{"timestamp":"2026-07-07T11:41:42.123456789+02:00","data":{"x":[1,null]}}'),
-            ('tlm.stream.legacy', b'{"timestamp":null,"data":{"x":2},"extra":true}')]
+            ('tlm.stream.extra', b'{"timestamp":"2026-07-07T09:41:42Z","data":{"x":2},"extra":true}')]
         for suffix, plaintext in cases:
             target = 'puda.robot.' + suffix
             await nc.publish(target, ctx.seal(target, plaintext))
@@ -95,7 +95,7 @@ async def test_native_encrypted_response(services, tmp_path):
             actual = json.loads(db.request(f"SELECT * FROM puda.{table} WHERE subject='{target}' FORMAT JSONEachRow"))
             expected = to_row(target, plaintext)
             for name, value in expected.items():
-                if name == 'received_ns' or (name == 'event_ns' and b'null' in plaintext and suffix.endswith('legacy')):
+                if name == 'received_ns':
                     continue
                 found = actual[name]
                 if name in ('event_ns', 'step_number'):

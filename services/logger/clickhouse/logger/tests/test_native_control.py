@@ -102,9 +102,51 @@ async def test_consumer_info_reused_with_post_create_readback(exists):
     results = [SimpleNamespace(config=c) for c in configs]
     if not exists:
         results = [item for result in results for item in (NotFoundError(), result)]
+    from nats.js.api import StorageType, StreamConfig
+    streams = {name: StreamConfig(name=name, subjects=[subject], retention=RetentionPolicy.INTEREST,
+                                  storage=StorageType.FILE, max_age=86400)
+               for name, subject in native_ingest.RESPONSE_STREAMS.items()}
     js = SimpleNamespace(
-        stream_info=AsyncMock(return_value=SimpleNamespace(config=SimpleNamespace(retention=RetentionPolicy.LIMITS))),
+        stream_info=AsyncMock(side_effect=lambda name: SimpleNamespace(config=streams[name])),
+        add_stream=AsyncMock(), update_stream=AsyncMock(), delete_stream=AsyncMock(),
         consumer_info=AsyncMock(side_effect=results), add_consumer=AsyncMock())
     await native_ingest.provision_consumers(js)
     assert js.consumer_info.await_count == (2 if exists else 4)
     assert js.add_consumer.await_count == (0 if exists else 2)
+    js.add_stream.assert_not_called()
+    js.update_stream.assert_not_called()
+    js.delete_stream.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_native_provisioning_creates_only_missing_streams_and_refuses_workqueue(caplog):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from nats.js.api import RetentionPolicy, StorageType, StreamConfig
+    from nats.js.errors import NotFoundError
+    existing = {}
+
+    async def stream_info(name):
+        if name not in existing:
+            raise NotFoundError
+        return SimpleNamespace(config=existing[name])
+
+    js = SimpleNamespace(stream_info=AsyncMock(side_effect=stream_info), add_stream=AsyncMock(),
+        update_stream=AsyncMock(), delete_stream=AsyncMock(),
+        consumer_info=AsyncMock(side_effect=lambda stream, durable: SimpleNamespace(config=SimpleNamespace(
+            deliver_subject=None, deliver_group=None, filter_subjects=None,
+            filter_subject=native_ingest.RESPONSE_STREAMS[stream], ack_policy=native_ingest.AckPolicy.EXPLICIT,
+            max_deliver=-1, max_ack_pending=1, ack_wait=2, deliver_policy=native_ingest.DeliverPolicy.ALL))),
+        add_consumer=AsyncMock())
+    await native_ingest.provision_consumers(js)
+    created = [call.kwargs['config'] for call in js.add_stream.call_args_list]
+    assert [c.name for c in created] == list(native_ingest.RESPONSE_STREAMS)
+    assert all(c.retention == RetentionPolicy.INTEREST and c.storage == StorageType.FILE
+               and c.max_age == 86400 for c in created)
+    assert 'unprovisioned' in caplog.text
+    existing.update({name: StreamConfig(name=name, subjects=[subject], retention=RetentionPolicy.WORK_QUEUE)
+                     for name, subject in native_ingest.RESPONSE_STREAMS.items()})
+    with pytest.raises(ValueError, match='WorkQueue'):
+        await native_ingest.provision_consumers(js)
+    js.update_stream.assert_not_called()
+    js.delete_stream.assert_not_called()

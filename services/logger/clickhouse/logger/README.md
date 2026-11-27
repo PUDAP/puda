@@ -5,7 +5,9 @@ and tested locally; see [NATIVE.md](NATIVE.md) for control-plane commands,
 acceptance coverage and deployment gates. The Python logger below remains the
 unchanged rollback path; native ingestion is not enabled by this Compose file.
 
-Python 3.11+ and `puda==0.1.0rc1` (Edge Protocol 1.0), matching the existing InfluxDB logger's E2EE
+Requires **PUDA Edge Protocol 1.0** (puda SDK 0.1.0rc1+, CLI 0.2.0-rc1+); see
+[Upgrading from 0.0.x](../README.md#upgrading-from-00x) for breaking changes.
+Python 3.11+ and `puda==0.1.0rc1`, matching the existing InfluxDB logger's E2EE
 wire implementation. No Telegraf or ClickHouse client SDK is required. The
 standard-library HTTP transport sends `JSONEachRow` batches synchronously with
 `async_insert=0` and `wait_end_of_query=1`; it checks both HTTP status and an empty
@@ -13,14 +15,12 @@ INSERT response body before acknowledging any response messages.
 
 ## Python file roles
 
-All five original top-level Python files are used; they are not five competing
-workers. The refactor adds one pure-SQL module:
+All top-level Python files are used; they are not competing workers:
 
 | File | Purpose / when used |
 |---|---|
 | `subscriber.py` | **Default Docker entrypoint and rollback data path**: Python subscriptions, E2EE/keyring handling, batching and response ACKs. |
-| `storage.py` | Shared configuration, HTTP client and Python wire normalization; used by the subscriber, native control CLI and migration tooling. |
-| `backfill.py` | **Optional offline migration CLI**: converts exported legacy rows into split-table JSONEachRow files. Not a running service or part of the Docker image. |
+| `storage.py` | Shared configuration, HTTP client, response-stream checks and Python wire normalization; used by the subscriber and native control CLI. |
 | `native_control.py` | **Opt-in native control CLI**: private-key bootstrap, installation and one-shot encrypted KV key sync. Never subscribes to data messages. |
 | `native_ingest.py` | Native control helpers: private key files, historical-key synchronization and separate pull-consumer provisioning. Retains existing SQL imports as compatibility exports. |
 | `native_sql.py` | Pure native DDL and directly reusable SELECT builders, including SQL E2EE/normalization and endpoint/path validation. No filesystem or network I/O. |
@@ -30,7 +30,7 @@ subscriber. Native ingestion requires explicit operator installation; it is not
 a default-path replacement. Keep the Python deployment for rollback, and avoid
 running both into the same destination unless duplicate rows are intentional.
 See [NATIVE.md](NATIVE.md) for local-only acceptance and unresolved production
-gates, and [MIGRATION.md](../server/MIGRATION.md) for optional legacy backfill.
+gates, and [MIGRATION.md](../server/MIGRATION.md) for the 1.0 schema.
 
 ## Configure and run
 
@@ -78,17 +78,21 @@ Do not share full Compose config/inspect output; it includes environment secrets
 | `puda.*.cmd.response.immediate` | `RESPONSE_IMMEDIATE`, durable/group `clickhouse_logger_responses_immediate` |
 
 Immediate commands (`cmd.immediate`) are core request/reply answered by the
-edge, and are not tapped: any other subscriber on that subject stops the broker
-from answering "no responders" for an offline machine. They are logged from
+edge, and are never subscribed to (nor `cmd.ping` or `update`): any other
+subscriber on that subject stops the broker from answering "no responders" for
+an offline machine. They are logged from
 the edge's copy on `RESPONSE_IMMEDIATE`, which carries the full header and
 command. No command WorkQueue consumer is attached or acknowledged. Queue groups and
 response delivery subjects (`puda.logger.clickhouse.deliver.*`) are independent
 of InfluxDB/ReductStore, so other backends still receive their own copies.
-Replicas of this backend share its groups/durables to balance work. Missing
-response streams are created with Limits retention and a 24-hour max age;
-existing Limits- or Interest-retention streams are validated, **not mutated**.
-WorkQueue streams fail closed because logging must not compete with machine
-consumers. Interest retention preserves messages only while matching consumer
+Replicas of this backend share its groups/durables to balance work.
+`RESPONSE_QUEUE`/`RESPONSE_IMMEDIATE` belong to the provisioner
+(`infra/nats/jetstream/setup_streams.sh`); the logger never updates or deletes a
+stream. A missing stream is created with the spec settings (interest retention,
+file storage, 24-hour max age) and a warning that the broker is unprovisioned.
+An existing stream must carry the expected subject and must not be WorkQueue
+(fails closed: logging must not compete with machine consumers); any other
+difference is logged as a mismatch and left unchanged. Interest retention preserves messages only while matching consumer
 interest exists; it does not promise replay from before this logger's consumer
 was created.
 A NATS operator can pre-provision the streams/consumers if the logger lacks
@@ -109,7 +113,8 @@ incompatible ClickHouse consumers fail closed rather than resetting their cursor
   overflow, process failure or a failed insert can lose them. There is no local
   persistent spool and no promise to replay machine command WorkQueues.
 - Invalid JSON, non-object messages, malformed required command fields/timestamps,
-  non-finite numbers and non-UTF-8 payloads are discarded; durable responses get
+  telemetry without the `{timestamp, data}` wrapper, non-finite numbers and
+  non-UTF-8 payloads are logged and discarded; durable responses get
   TERM (not a success ACK), preventing poison-message retry storms. No raw
   payloads, subjects, exception bodies or credentials are logged. Invalid payloads
   are **not** retained in a dead-letter store. Monitor error counts/logs.
@@ -123,8 +128,9 @@ incompatible ClickHouse consumers fail closed rather than resetting their cursor
 ## Schema and timestamps
 
 `puda.command_logs` keeps commands and responses together, exposing
-machine/run/user/command/step/status/topic metadata, including `user_id`
-and `username`. `puda.telemetry` exposes machine/time/msg_type/topic
+machine/run/user/command/step/status/topic metadata, including `user_id`,
+`username` and `protocol_version` (`header.protocol_version`; empty only for an
+edge's echo of a malformed command). `puda.telemetry` exposes machine/time/msg_type/topic
 and `stream` (`health` for health; the complete suffix for named streams).
 Telemetry `data` is **JSON text in a String**, not ClickHouse native JSON, and has
 no fixed CPU/memory/temperature columns. Nested objects, arrays, nulls, status,
@@ -133,22 +139,12 @@ and arbitrary measurements survive without schema changes.
 Both tables retain the **unchanged decrypted UTF-8 JSON text** in `raw_json`.
 Params, nested response data, unknown fields and response completion time remain
 queryable with JSON extraction functions. Encryption framing is not retained;
-protect the stored plaintext like other lab data. No SDK dependency upgrade is
-required to read either telemetry wire shape:
+protect the stored plaintext like other lab data. `tlm.health` and
+`tlm.stream.<name>` always use the `{timestamp, data: {...}}` wrapper (Edge
+Protocol 1.0 §12): `data` stores the inner object, unwrapped **once**. A message
+without a string `timestamp` and object `data` is invalid and dropped.
 
-- Legacy flattened `{timestamp, cpu, custom, ...}`: `data` contains all fields
-  except the outer timestamp.
-- New SDK `{timestamp, data: {...}}`: unwrap the inner object **once**, retaining
-  even its own `timestamp` and `data` measurement keys.
-- Envelope detection requires **exactly** the two keys `timestamp` and `data`,
-  with an object-valued `data`. Extra siblings, a missing timestamp or non-object
-  `data` remain legacy fields. There is no invented marker. An old flattened
-  payload consisting solely of those two keys with object-valued `data` is
-  inherently indistinguishable and is interpreted as the new envelope. Audit
-  such publishers before rollout; the original is always retained in `raw_json`.
-
-Commands use `header.timestamp`; telemetry uses the optional outer timestamp,
-otherwise receipt time. RFC3339 fractions/offsets use integer arithmetic;
+Commands use `header.timestamp`; telemetry uses the wrapper timestamp. RFC3339 fractions/offsets use integer arithmetic;
 `event_ns` retains nine digits with UTC `DateTime64(9)` materialized `event_time`.
 Supported timestamps are nonnegative Int64 nanoseconds (1970 through April
 2262). Both append-only MergeTree tables are partitioned monthly, with **no TTL**;
@@ -156,9 +152,9 @@ provision retention/backups explicitly. `received_ns` records receipt time.
 
 `CLICKHOUSE_COMMAND_TABLE` and `CLICKHOUSE_TELEMETRY_TABLE` default to
 `command_logs` and `telemetry`. They must differ. The retired `CLICKHOUSE_TABLE`
-is rejected, even if empty, to prevent a silent cutover. Review the
-[non-destructive migration and backfill procedure](../server/MIGRATION.md)
-before upgrading an existing installation. The legacy `puda.events` is untouched.
+is rejected, even if empty. The 1.0 schema needs a fresh database; see
+[MIGRATION.md](../server/MIGRATION.md). `--healthcheck` fails against a pre-1.0
+`command_logs` table (no `protocol_version` column).
 
 A mixed batch makes two independent synchronous INSERTs, commands first. There
 is no cross-table transaction. If the second insert fails, responses are NAKed
@@ -182,7 +178,8 @@ The SDK validates AES-GCM subject AAD. The logger reads encrypted
 `E2E_KEYRING/current`, adopts and persists rotations, polls every 2 seconds, keeps
 the previous key during the rotation window and drops it when the KV key is
 removed. A missing KV bucket leaves the existing keyring untouched. NATS
-permissions must allow these KV reads and response stream/consumer management.
+permissions must allow these KV reads, response `STREAM.INFO` and consumer
+management (stream creation only on an unprovisioned broker).
 
 ## Tests (no production connections)
 
@@ -201,10 +198,10 @@ RUN_NATIVE_INTEGRATION=1 \
 ```
 
 Unit tests use real loopback HTTP transport, real SDK AES-GCM/rotation and
-controlled NATS boundaries. Integration exercises real ClickHouse/NATS, all six
+controlled NATS boundaries. Integration exercises real ClickHouse/NATS, all five
 subject shapes, command WorkQueue isolation, backend consumer independence,
-nanosecond/raw-text preservation, old/new telemetry envelopes, additive DDL and
-offline backfill, and response retry across a database failure. Both Limits and
+nanosecond/raw-text preservation, the telemetry wrapper, the 1.0 DDL and query
+examples, and response retry across a database failure. Both Limits and
 Interest response retention are tested without changing the broker policy. The
 native mode runs the same assertions, not a simulation; it does not verify the
 Docker image/build/entrypoint. Use only downloaded, checksum-verified test

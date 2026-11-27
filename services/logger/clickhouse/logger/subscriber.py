@@ -6,23 +6,27 @@ import signal
 import sys
 
 import nats
-from nats.js.api import (
-    AckPolicy,
-    ConsumerConfig,
-    DeliverPolicy,
-    RetentionPolicy,
-    StreamConfig,
-)
+from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy
 from nats.js.errors import NotFoundError
 from puda import e2e
 
-from storage import ClickHouse, Config, to_row, timestamp_ns as timestamp_ns
+from storage import (
+    RESPONSE_STREAMS,
+    ClickHouse,
+    Config,
+    ensure_response_streams,
+    to_row,
+    timestamp_ns as timestamp_ns,
+)
 
 log = logging.getLogger("clickhouse_logger")
-RESPONSE_STREAMS = {
-    "RESPONSE_QUEUE": "puda.*.cmd.response.queue",
-    "RESPONSE_IMMEDIATE": "puda.*.cmd.response.immediate",
-}
+# Never subscribe to puda.*.cmd.immediate, cmd.ping or update subjects (§8.3):
+# immediate commands are recorded from RESPONSE_IMMEDIATE only.
+CORE_SUBJECTS = (
+    ("puda.*.cmd.queue", "clickhouse_logger_cmd_requests"),
+    ("puda.*.tlm.health", "clickhouse_logger_telemetry"),
+    ("puda.*.tlm.stream.>", "clickhouse_logger_telemetry_stream"),
+)
 RESPONSE_CONSUMERS = {
     "RESPONSE_QUEUE": "clickhouse_logger_responses_queue",
     "RESPONSE_IMMEDIATE": "clickhouse_logger_responses_immediate",
@@ -66,30 +70,8 @@ class Subscriber:
                 await asyncio.sleep(8)
 
     async def ensure_streams(self):
+        await ensure_response_streams(self.js, log)
         for stream, subject in RESPONSE_STREAMS.items():
-            try:
-                info = await self.js.stream_info(stream)
-            except NotFoundError:
-                # Shared response streams only. Never create/consume command WorkQueues.
-                await self.js.add_stream(
-                    config=StreamConfig(
-                        name=stream,
-                        subjects=[subject],
-                        retention=RetentionPolicy.LIMITS,
-                        max_age=86400,
-                    )
-                )
-            else:
-                if (
-                    subject not in (info.config.subjects or [])
-                    or info.config.retention not in (
-                        RetentionPolicy.LIMITS, RetentionPolicy.INTEREST
-                    )
-                ):
-                    raise ValueError(
-                        "Response stream requires the expected subject and Limits or Interest retention"
-                    )
-                # Existing retention/age belongs to the broker operator, not this backend.
             durable = RESPONSE_CONSUMERS[stream]
             try:
                 info = await self.js.consumer_info(stream, durable)
@@ -135,11 +117,7 @@ class Subscriber:
             pending_bytes_limit=64 * 1024 * 1024,
         )
         subscriptions = []
-        for subject, group in (
-            ("puda.*.cmd.queue", "clickhouse_logger_cmd_requests"),
-            ("puda.*.tlm.health", "clickhouse_logger_telemetry"),
-            ("puda.*.tlm.stream.>", "clickhouse_logger_telemetry_stream"),
-        ):
+        for subject, group in CORE_SUBJECTS:
             subscriptions.append(
                 await self.nc.subscribe(subject, queue=group, cb=self.receive, **limits)
             )

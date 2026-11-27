@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from nats.js.api import AckPolicy, RetentionPolicy, StreamConfig
+from nats.js.api import AckPolicy, RetentionPolicy, StorageType, StreamConfig
 from nats.js.errors import NotFoundError
 from puda import e2e
 
@@ -141,22 +141,39 @@ async def test_batch_flushes_on_threshold_and_timer():
         await asyncio.gather(worker, return_exceptions=True)
 
 
-@pytest.mark.asyncio
-async def test_streams_are_limits_only_and_consumer_names_independent():
-    from subscriber import RESPONSE_CONSUMERS
+def stream_js(configs):
+    async def stream_info(name):
+        if name not in configs:
+            raise NotFoundError
+        return SimpleNamespace(config=configs[name])
 
-    sub = service()
-    sub.js = SimpleNamespace(
-        stream_info=AsyncMock(side_effect=NotFoundError),
+    return SimpleNamespace(
+        stream_info=AsyncMock(side_effect=stream_info),
         add_stream=AsyncMock(),
+        update_stream=AsyncMock(),
+        delete_stream=AsyncMock(),
         consumer_info=AsyncMock(side_effect=NotFoundError),
         add_consumer=AsyncMock(),
     )
+
+
+@pytest.mark.asyncio
+async def test_missing_streams_created_with_spec_settings_and_warning(caplog):
+    from subscriber import RESPONSE_CONSUMERS, RESPONSE_STREAMS
+
+    sub = service()
+    sub.js = stream_js({})
     await sub.ensure_streams()
     assert len(sub.js.add_stream.call_args_list) == 2
     for call in sub.js.add_stream.call_args_list:
-        assert call.kwargs["config"].retention == RetentionPolicy.LIMITS
-        assert ".cmd.response." in call.kwargs["config"].subjects[0]
+        config = call.kwargs["config"]
+        assert config.subjects == [RESPONSE_STREAMS[config.name]]
+        assert config.retention == RetentionPolicy.INTEREST
+        assert config.storage == StorageType.FILE
+        assert config.max_age == 86400
+    assert caplog.text.count("unprovisioned") == 2
+    sub.js.update_stream.assert_not_called()
+    sub.js.delete_stream.assert_not_called()
     for call in sub.js.add_consumer.call_args_list:
         config = call.kwargs["config"]
         assert config.ack_policy == AckPolicy.EXPLICIT
@@ -166,45 +183,53 @@ async def test_streams_are_limits_only_and_consumer_names_independent():
     assert not any(
         name.startswith("puda_logger") for name in RESPONSE_CONSUMERS.values()
     )
-    # A WorkQueue stream must fail closed, not be mutated into LIMITS.
-    sub.js.stream_info = AsyncMock(
-        return_value=SimpleNamespace(
-            config=StreamConfig(
-                name="RESPONSE_QUEUE",
-                subjects=["puda.*.cmd.response.queue"],
-                retention=RetentionPolicy.WORK_QUEUE,
-            )
-        )
-    )
-    with pytest.raises(ValueError):
-        await sub.ensure_streams()
 
 
 @pytest.mark.asyncio
-async def test_existing_interest_streams_are_accepted_without_mutation():
+@pytest.mark.parametrize("retention,subjects", [
+    (RetentionPolicy.WORK_QUEUE, None),
+    (RetentionPolicy.INTEREST, ["puda.*.cmd.response.other"]),
+])
+async def test_workqueue_or_wrong_subject_fails_closed_without_mutation(retention, subjects):
+    from subscriber import RESPONSE_STREAMS
+
+    sub = service()
+    sub.js = stream_js({
+        name: StreamConfig(name=name, subjects=subjects or [subject], retention=retention)
+        for name, subject in RESPONSE_STREAMS.items()
+    })
+    with pytest.raises(ValueError):
+        await sub.ensure_streams()
+    sub.js.add_stream.assert_not_called()
+    sub.js.update_stream.assert_not_called()
+    sub.js.delete_stream.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retention,max_age,mismatch", [
+    (RetentionPolicy.INTEREST, 86400, False),
+    (RetentionPolicy.INTEREST, 7200, True),
+    (RetentionPolicy.LIMITS, 86400, True),
+])
+async def test_existing_streams_left_unchanged_and_mismatch_logged(
+    caplog, retention, max_age, mismatch
+):
     from subscriber import RESPONSE_STREAMS
 
     sub = service()
     configs = {
-        name: StreamConfig(name=name, subjects=[subject], retention=RetentionPolicy.INTEREST)
+        name: StreamConfig(name=name, subjects=[subject], retention=retention,
+                           storage=StorageType.FILE, max_age=max_age)
         for name, subject in RESPONSE_STREAMS.items()
     }
-
-    async def stream_info(name):
-        return SimpleNamespace(config=configs[name])
-
-    sub.js = SimpleNamespace(
-        stream_info=AsyncMock(side_effect=stream_info),
-        add_stream=AsyncMock(),
-        update_stream=AsyncMock(),
-        consumer_info=AsyncMock(side_effect=NotFoundError),
-        add_consumer=AsyncMock(),
-    )
+    sub.js = stream_js(configs)
     await sub.ensure_streams()
     sub.js.add_stream.assert_not_awaited()
-    sub.js.update_stream.assert_not_awaited()
+    sub.js.update_stream.assert_not_called()
+    sub.js.delete_stream.assert_not_called()
     assert sub.js.add_consumer.await_count == 2
-    assert all(c.retention == RetentionPolicy.INTEREST for c in configs.values())
+    assert all(c.retention == retention and c.max_age == max_age for c in configs.values())
+    assert (caplog.text.count("leaving it unchanged") == 2) is mismatch
 
 
 @pytest.mark.asyncio
@@ -221,6 +246,13 @@ async def test_subscriptions_never_use_machine_jetstream_consumers():
         "puda.*.tlm.health",
         "puda.*.tlm.stream.>",
     }
+    # Observers must never subscribe to immediate, ping or update subjects (§8.3).
+    subjects = [c.args[0] for c in calls + sub.js.subscribe.call_args_list]
+    assert not any(
+        s.endswith((".cmd.immediate", ".cmd.ping", ".update", ".update.response", ">"))
+        and s != "puda.*.tlm.stream.>"
+        for s in subjects
+    )
     assert all(c.kwargs["queue"].startswith("clickhouse_") for c in calls)
     assert len(sub.js.subscribe.call_args_list) == 2
     for call in sub.js.subscribe.call_args_list:
