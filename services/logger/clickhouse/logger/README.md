@@ -6,7 +6,7 @@ acceptance coverage and deployment gates. The Python logger below remains the
 unchanged rollback path; native ingestion is not enabled by this Compose file.
 
 Requires **PUDA Edge Protocol 1.0** (puda SDK 0.1.0rc1+, CLI 0.2.0-rc1+); see
-[Upgrading from 0.0.x](../README.md#upgrading-from-00x) for breaking changes.
+[Upgrading to 0.2.x](../README.md#upgrading-to-02x) for breaking changes.
 Python 3.11+ and `puda==0.1.0rc1`, matching the existing InfluxDB logger's E2EE
 wire implementation. No Telegraf or ClickHouse client SDK is required. The
 standard-library HTTP transport sends `JSONEachRow` batches synchronously with

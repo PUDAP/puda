@@ -1,0 +1,166 @@
+---
+sidebar_position: 1.6
+---
+
+# Upgrading to v0.2.x
+
+These steps take a **0.1.x** setup (CLI **v0.1.x**, Python SDK **0.0.x**) to **0.2.x**. This guide targets **CLI v0.2.0-rc1** and **Python SDK 0.1.0rc1**, both release candidates. If you are still on 0.0.x, follow [Upgrading to v0.1.x](./upgrading-to-0.1.x) first.
+
+0.2.x is the first release that speaks [PUDA Edge Protocol 1.0](https://github.com/PUDAP/puda/blob/main/docs/edge-protocol/edge-protocol-v1.0.md), the wire contract between edges, the CLI, agents and loggers. Compatibility is now judged by the protocol version, not by package versions. There is no compatibility mode: a 0.2.x CLI does not drive a 0.0.x edge, and a 0.1.0 edge refuses commands from a 0.1.x CLI.
+
+Here's what's updated in 0.2.x:
+
+- Immediate commands (`start`, `complete`, `pause`, `resume`, `reset`, `estop`) are core NATS request/reply. An offline machine fails at once with `no responders`, and a stale command can no longer replay when an edge comes back.
+- `puda machine complete --abort` stops the running command and ends the run. `cancel` is removed.
+- Pause holds the queue instead of rejecting commands; `resume` runs them in order.
+- Lifecycle hooks (`pause`, `resume`, `reset`, `estop`, `abort`, `shutdown`) are plain driver methods, reported by `puda machine commands`.
+- A queued command's result is stored before the command is acknowledged, so a result is never lost while the broker is unreachable.
+- `COMMAND_QUEUE` holds at most 10 commands per machine and refuses the 11th as `queue full`, instead of deleting the oldest.
+- `puda healthcheck` checks every PUDA stream and KV bucket and lists issues with a next step.
+- The loggers are 1.0.0: they never modify the broker's streams and record each message's protocol version.
+
+Upgrade in this order: NATS, CLI, every edge, skills, protocols, then the logger. Edges and the CLI must move together: plan a window where no protocol runs are in progress.
+
+## 1. Re-provision the NATS server
+
+The stream configs changed. Re-run JetStream provisioning on the existing broker with the same `REPLICAS` as before (1 for a single node, 3 for the three-node cluster). The server itself does not need redeploying.
+
+```bash
+NATS_URL=nats://<nats-host>:4222 REPLICAS=1 infra/nats/jetstream/setup_streams.sh
+```
+
+For a TLS server, use the `tls://` URL and set `NATS_CA` to the CA file:
+
+```bash
+NATS_URL=tls://<nats-host>:4222 NATS_CA=/absolute/path/ca.pem REPLICAS=1 infra/nats/jetstream/setup_streams.sh
+```
+
+This applies `infra/nats/jetstream/streams/*.json`:
+
+- `COMMAND_QUEUE` gets `max_msgs_per_subject: 10` and `discard_new_per_subject`. Run it while no machine has more than 10 commands waiting, because lowering the limit makes the broker delete the oldest excess commands.
+- `RESPONSE_QUEUE` and `RESPONSE_IMMEDIATE` use interest retention with a 24-hour max age.
+- There is no `COMMAND_IMMEDIATE` stream any more. Edges no longer create it; an existing one is unused and can be removed with `nats stream rm COMMAND_IMMEDIATE` once every edge is upgraded.
+
+Edges, the CLI and the loggers never update provisioned streams. If an object does not match, they log the mismatch and leave it unchanged, so this step is the only way to apply the new settings.
+
+## 2. Install the new CLI
+
+`puda update` skips release candidates unless you ask for one:
+
+```bash
+puda update v0.2.0-rc1
+puda --version
+```
+
+The envelope header `version` is now `protocol_version` and is required, and `command.version` is gone. A leftover `"version"` key in a protocol step is ignored.
+
+`puda machine list` and `info` warn about each edge that does not speak protocol 1.x:
+
+```text
+warning: machine <id> speaks edge protocol none; this CLI supports 1.x (update the edge's PUDA SDK)
+```
+
+Every edge reports `none` until it is upgraded in the next step.
+
+## 3. Upgrade every edge to SDK 0.1.0rc1
+
+On each edge, set the `puda` dependency in `pyproject.toml`:
+
+```toml title="pyproject.toml"
+dependencies = [
+    "puda==0.1.0rc1",
+]
+```
+
+SDK 0.1.0 requires `nats-py>=2.17.0`. Then lock and install:
+
+```bash
+uv lock
+uv sync
+```
+
+### Remove `@command` from lifecycle hooks
+
+`pause`, `resume`, `reset`, `estop`, `abort` and `shutdown` are found by name and must be plain methods. An edge with any of them decorated with `@command` refuses to start with `LifecycleHookError`:
+
+```python title="driver.py"
+# 0.1.x
+@command
+def reset(self):
+    ...
+
+# 0.2.x
+def reset(self):
+    ...
+```
+
+Hooks are listed under `hooks` in `puda machine commands`, not as commands. Queueing one is answered with an error naming the right CLI command.
+
+### Replace `cancel` with `abort`
+
+The `cancel` immediate command is removed; edges answer it with `UNKNOWN_COMMAND`. Delete any `cancel` method. To stop a running command, add an optional `abort` hook that makes in-flight hardware calls return. `puda machine complete --abort` calls it on its own thread:
+
+```python title="driver.py"
+def abort(self):
+    self.gantry.halt()
+```
+
+Without `abort`, `complete --abort` still ends the run, but the running command continues until its driver call returns.
+
+### Redeploy
+
+Rebuild and restart each edge, or deploy with `puda machine update` after the driver changes. On startup the edge logs its remote commands and lifecycle hooks. Check that every hook you expect is in that line.
+
+## 4. Refresh skills
+
+On the agent host:
+
+```bash
+puda skills update
+```
+
+The updated **puda** skill covers `complete --abort`: when `complete` is refused with `EXECUTION_LOCKED`, and when an operator wants the running command stopped.
+
+## 5. Re-validate protocols
+
+```bash
+puda protocol validate <protocol.json>
+```
+
+`start`, `complete` and lifecycle hook names are rejected as protocol steps; the runner sends `start` and `complete` itself, and pause, resume, reset and estop are CLI commands. Interrupting `puda protocol run` (Ctrl+C) now sends `complete --abort` to every started machine.
+
+## 6. PUDA Logger
+
+Upgrade the [PUDA Logger](./observability/logging-service) to 1.0.0 from [`services/logger`](https://github.com/PUDAP/puda/tree/main/services/logger). The 1.0.0 loggers pin SDK 0.1.0rc1 and are a breaking release:
+
+- **No stream changes.** The 0.1.x InfluxDB logger switched the response streams to limits retention on startup. The 1.0.0 loggers only check the streams; provisioning in step 1 owns them.
+- **`JS_RESPONSE_MAX_AGE` is removed** (InfluxDB). Delete it from `.env`; the max age is part of provisioning.
+- **No `cmd.immediate` tap.** An observer subscribed to `puda.*.cmd.immediate` stops the broker answering `no responders` for an offline machine. Immediate commands are recorded from `RESPONSE_IMMEDIATE` and appear as `response.immediate` records only. The ReductStore logger subscribed to `puda.*.cmd.*`, which matched it.
+- **`protocol_version`** is recorded on every command and response: a tag in InfluxDB, a column in ClickHouse and PostgreSQL, a label in ReductStore. `cmd_version` is gone.
+- **Telemetry** without the `{timestamp, data}` wrapper is dropped.
+
+Per database:
+
+- **InfluxDB:** existing tables keep working; `commands` gains the `protocol_version` tag.
+- **ClickHouse:** needs a fresh database or volume for the new `protocol_version` column. `backfill.py` and the legacy `puda.events` table are removed. See `server/MIGRATION.md`.
+- **PostgreSQL:** run the `ALTER TABLE` in its README. It now supports TLS and E2EE, and no longer acknowledges messages that failed to store.
+- **ReductStore:** now supports TLS and E2EE, and records `tlm.stream.>` into one entry per machine and stream. The `nats-stream-init` service is removed.
+
+Stop the old logger, update `.env`, then rebuild:
+
+```bash
+docker compose up -d --build
+```
+
+## 7. Confirm the fleet
+
+```bash
+puda healthcheck
+puda machine list
+puda machine info <machine_id>
+puda machine commands <machine_id>
+```
+
+`puda healthcheck` should report no issues. Its `compatibility` section lists each machine's `sdk_version`, `protocol_version` and `status`; every machine should be `supported`. If it reports stream issues, its `next_step` gives the exact `setup_streams.sh` command. `puda machine info` should show `protocol_version` `1.0`, and `puda machine commands` should list the driver's lifecycle hooks under `hooks`.
+
+More detail: [Edge Protocol 1.0](https://github.com/PUDAP/puda/blob/main/docs/edge-protocol/edge-protocol-v1.0.md), the [CLI changelog](https://github.com/PUDAP/puda/blob/main/apps/cli/CHANGELOG.md) and the [Python SDK changelog](https://github.com/PUDAP/puda/blob/main/libs/python-sdk/CHANGELOG.md). SDK package: [Python SDK 0.1.0rc1](https://pypi.org/project/puda/0.1.0rc1/).

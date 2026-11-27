@@ -1,7 +1,7 @@
 # ClickHouse backend
 
 Requires **PUDA Edge Protocol 1.0**: Python SDK `puda` 0.1.0rc1 or later on the
-edges and CLI 0.2.0-rc1 or later. Older edges/clients (0.0.x) are not supported.
+edges and CLI 0.2.0-rc1 or later. Older edges and clients (CLI 0.1.x, SDK 0.0.x) are not supported.
 
 - [Server](server/README.md): local, authenticated ClickHouse with persistent data.
 - [Logger](logger/README.md): independent NATS subscriptions, E2EE rotation, batched inserts.
@@ -9,7 +9,7 @@ edges and CLI 0.2.0-rc1 or later. Older edges/clients (0.0.x) are not supported.
 Start the server first. Configure and start the logger separately only when ready
 to connect to your NATS broker. No NATS endpoint or lab credentials are bundled.
 
-## Upgrading from 0.0.x
+## Upgrading to 0.2.x
 
 Breaking release, no backward compatibility:
 

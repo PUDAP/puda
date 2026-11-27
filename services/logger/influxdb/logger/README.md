@@ -7,7 +7,7 @@ when configured, maps them to Influx line protocol, and writes to Telegraf's
 
 Requires **PUDA Edge Protocol 1.0** (`docs/edge-protocol/edge-protocol-v1.0.md`):
 puda SDK `0.1.0rc1`+ on the edges and CLI `0.2.0-rc1`+. Earlier SDKs and CLIs
-are not supported; see [Upgrading from 0.0.x](#upgrading-from-00x).
+are not supported; see [Upgrading to 0.2.x](#upgrading-to-02x).
 
 ## Measurements
 
@@ -213,7 +213,7 @@ To inspect the subscriber's line protocol directly:
 NATS_SERVERS=nats://localhost:4222 uv run python subscriber.py
 ```
 
-## Upgrading from 0.0.x
+## Upgrading to 0.2.x
 
 This is a breaking release for Edge Protocol 1.0; there is no backward compatibility.
 

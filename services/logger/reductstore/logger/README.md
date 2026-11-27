@@ -4,9 +4,9 @@ Streams PUDA NATS machine traffic to [ReductStore](https://www.reduct.store/).
 
 Requires **PUDA Edge Protocol 1.0** (`docs/edge-protocol/edge-protocol-v1.0.md`):
 puda SDK `0.1.0rc1`+ on edges and CLI `0.2.0-rc1`+. Logger version 1.0.0 has no
-compatibility with 0.0.x SDKs, CLIs or brokers.
+compatibility with 0.1.x setups (CLI 0.1.x, SDK 0.0.x).
 
-## Upgrading from 0.0.x
+## Upgrading to 0.2.x
 
 - Upgrade edges (SDK 0.1.0rc1) and the CLI (0.2.0-rc1) first; older envelopes
   and telemetry are now dropped as invalid.

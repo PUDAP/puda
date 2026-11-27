@@ -18,7 +18,7 @@ Note: The service only listens to response streams (`{namespace}.*.cmd.response.
 
 The `RESPONSE_QUEUE` and `RESPONSE_IMMEDIATE` streams belong to the provisioner (`infra/nats/jetstream/setup_streams.sh`). The logger only checks them (`STREAM.INFO`) and never creates, updates or deletes a stream; startup fails if one is missing. It uses one durable consumer per stream (`logger_resp_queue`, `logger_resp_immediate`) with explicit acks, so interest retention keeps messages while the logger is down (up to the 24 h `max_age`). Failed decrypts or database inserts are redelivered; invalid envelopes are terminated.
 
-## Upgrading from 0.0.x
+## Upgrading to 0.2.x
 
 - Breaking: only Edge Protocol 1.0 messages are logged; upgrade edges to puda SDK 0.1.0rc1+ and the CLI to 0.2.0-rc1+.
 - `command_log` has a new `protocol_version TEXT NOT NULL` column. `init.sql` only runs on a fresh database, so migrate existing ones:

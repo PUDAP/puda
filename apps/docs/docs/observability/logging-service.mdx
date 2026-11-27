@@ -13,7 +13,7 @@ The recommended template is [`services/logger`](https://github.com/PUDAP/puda/tr
 The template uses InfluxDB. Most PUDA log queries are filtered by timestamp—runs, commands, telemetry, and events over a time window.
 
 :::info Protocol 1.0
-The loggers speak PUDA Edge Protocol 1.0: Python SDK `0.1.0rc1` or later, CLI `0.2.0-rc1` or later. They do not read traffic from older edges or brokers. See [Upgrade from 0.0.x](#upgrade-from-00x).
+The loggers speak PUDA Edge Protocol 1.0: Python SDK `0.1.0rc1` or later, CLI `0.2.0-rc1` or later. They do not read traffic from older edges or brokers. Coming from 0.1.x, see [Upgrading to v0.2.x](../upgrading-to-0.2.x#6-puda-logger).
 :::
 
 ## Run the logger
@@ -149,17 +149,6 @@ Acknowledgment happens after handing line protocol to Telegraf, not after confir
 :::tip
 For the full field and tag schema, see the [influxdb-logger README](https://github.com/PUDAP/puda/blob/main/services/logger/influxdb/logger/README.md).
 :::
-
-## Upgrade from 0.0.x
-
-The 1.0 loggers are a breaking release with no compatibility mode:
-
-- **Streams:** the logger no longer switches response streams to limits retention. Run `setup_streams.sh` on the broker so they match the protocol.
-- **`JS_RESPONSE_MAX_AGE` is removed.** The max age is part of provisioning. Delete it from `.env`.
-- **`protocol_version`** is recorded on every command and response. `cmd_version` is gone, because 1.0 commands carry no per-command version.
-- **Telemetry** without the `{timestamp, data}` wrapper is dropped.
-- **No `cmd.immediate` tap:** immediate commands appear only as `response.immediate` records.
-- **ClickHouse** needs a fresh database (new `protocol_version` column; `backfill.py` and `puda.events` are removed). **PostgreSQL** needs the `ALTER TABLE` in its README. **ReductStore** gains E2EE and per-stream telemetry entries.
 
 ## Migrate an existing database
 
