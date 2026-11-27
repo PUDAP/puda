@@ -13,7 +13,9 @@ import logging
 from typing import Optional, Callable, Awaitable, List, Any
 from abc import abstractmethod
 import nats
+from nats.errors import TimeoutError as NATSTimeoutError
 from nats.js.client import JetStreamContext
+from nats.js.errors import NotFoundError
 from nats.aio.msg import Msg
 
 from . import e2e
@@ -31,6 +33,17 @@ class StreamSubscriber:
     
     Handles connection management, durable subscriptions, and message routing.
     Services can extend this class and implement message handling logic.
+
+    Acknowledgement is the handler's job (``manual_ack``): call ``msg.ack()`` once
+    the message is stored, ``msg.term()`` for one that can never succeed. A
+    message whose payload cannot be opened, or whose handler raises, is
+    negatively acknowledged with a delay so JetStream redelivers it; it is never
+    acked on failure. Messages of one subscription are handled one at a time.
+
+    Subscriptions survive reconnects: nats-py restores them itself, so nothing is
+    re-subscribed. With a payload key, the subscriber follows key rotation in
+    ``E2E_KEYRING/current``. It never creates, updates or deletes streams,
+    consumers' streams or KV buckets.
     
     Example:
         ```python
@@ -83,6 +96,9 @@ class StreamSubscriber:
         self._subscriptions: List[Any] = []
         self._is_connected = False
         self._should_run = True
+        self._keyring_task: Optional[asyncio.Task] = None
+        # Delay before JetStream redelivers a message that failed.
+        self.nak_delay: float = 5.0
     
     async def connect(self) -> bool:
         """
@@ -91,7 +107,8 @@ class StreamSubscriber:
         Returns:
             True if connected successfully, False otherwise
         """
-        if self._is_connected:
+        if self.nc is not None and not self.nc.is_closed:
+            # Connected, or nats-py is reconnecting this connection; never open a second one.
             return True
         
         try:
@@ -108,6 +125,7 @@ class StreamSubscriber:
             )
             self.js = self.nc.jetstream()
             self._is_connected = True
+            self._start_keyring_watch()
             logger.info("Connected to NATS servers: %s", self.servers)
             return True
         except Exception as e:
@@ -118,6 +136,7 @@ class StreamSubscriber:
     async def disconnect(self):
         """Disconnect from NATS and cleanup subscriptions."""
         self._should_run = False
+        self._stop_keyring_watch()
         
         # Unsubscribe from all streams
         for sub in self._subscriptions:
@@ -167,96 +186,55 @@ class StreamSubscriber:
         if callback is None:
             callback = self.handle_message
         
-        # Create callback wrapper
         async def message_wrapper(msg: Msg):
             try:
                 msg.data = self.encryption.open_payload(msg.subject, msg.data)
+            except e2e.E2EError as exc:
+                # Possibly a key we have not adopted yet: refresh, then redeliver.
+                logger.error("Cannot open payload on %s: %s", msg.subject, exc)
+                await self._refresh_keyring()
+                await self._nak(msg)
+                return
+            try:
                 await callback(msg, stream, subject)
-            except Exception as e:
-                logger.error(
-                    "Error in message callback for stream=%s, subject=%s: %s",
-                    stream, subject, e, exc_info=True
+            except Exception:
+                logger.exception(
+                    "Error in message callback for stream=%s, subject=%s", stream, subject
                 )
-                # Don't ack on error - let the caller decide
-                # This allows for retry logic in the handler
-        
+                await self._nak(msg)
+
+        kwargs: dict[str, Any] = {"stream": stream, "cb": message_wrapper, "manual_ack": True}
+        if durable:
+            kwargs["durable"] = durable
         try:
-            # Subscribe with durable consumer if specified
-            if durable:
-                sub = await self.js.subscribe(
-                    subject,
-                    stream=stream,
-                    durable=durable,
-                    cb=lambda msg: asyncio.create_task(message_wrapper(msg))
-                )
-            else:
-                # Ephemeral subscription
-                sub = await self.js.subscribe(
-                    subject,
-                    stream=stream,
-                    cb=lambda msg: asyncio.create_task(message_wrapper(msg))
-                )
-            
-            self._subscriptions.append(sub)
-            logger.info(
-                "Subscribed to stream=%s, subject=%s, durable=%s",
-                stream, subject, durable or "ephemeral"
-            )
+            sub = await self.js.subscribe(subject, **kwargs)
         except Exception as e:
-            error_msg = str(e)
-            # Handle the specific case where consumer is already bound
-            if "consumer is already bound" in error_msg.lower():
-                logger.warning(
-                    "Consumer '%s' for stream '%s' is already bound. "
-                    "This usually happens when the service didn't shut down cleanly. "
-                    "Attempting to delete the consumer and retry...",
-                    durable, stream
-                )
-                if durable:
-                    try:
-                        # Try to delete the consumer (may fail if actively bound)
-                        await self.js.delete_consumer(stream, durable)
-                        logger.info("Deleted consumer '%s' for stream '%s'", durable, stream)
-                        # Retry subscription after deletion
-                        sub = await self.js.subscribe(
-                            subject,
-                            stream=stream,
-                            durable=durable,
-                            cb=lambda msg: asyncio.create_task(message_wrapper(msg))
-                        )
-                        self._subscriptions.append(sub)
-                        logger.info(
-                            "Successfully subscribed after consumer cleanup: stream=%s, subject=%s, durable=%s",
-                            stream, subject, durable
-                        )
-                    except Exception as retry_error:
-                        retry_error_msg = str(retry_error)
-                        if "bound" in retry_error_msg.lower() or "in use" in retry_error_msg.lower():
-                            logger.error(
-                                "Consumer '%s' for stream '%s' cannot be deleted because it's still bound. "
-                                "This typically means the previous service instance is still running or "
-                                "the subscription hasn't timed out yet. Solutions:\n"
-                                "  1. Wait a few seconds and restart the service\n"
-                                "  2. Manually delete the consumer: nats consumer rm %s %s\n"
-                                "  3. Restart the NATS server\n"
-                                "  4. Use a different durable consumer name",
-                                durable, stream, stream, durable
-                            )
-                        else:
-                            logger.error(
-                                "Failed to delete consumer '%s' for stream '%s': %s",
-                                durable, stream, retry_error
-                            )
-                        raise
-                else:
-                    raise
-            else:
-                logger.error(
-                    "Failed to subscribe to stream=%s, subject=%s: %s",
-                    stream, subject, e
-                )
-                raise
-    
+            if durable and "already bound" in str(e).lower():
+                # Deleting the durable would drop its pending messages (interest
+                # retention keeps them only for existing consumers), so never do it.
+                raise RuntimeError(
+                    f"Consumer '{durable}' on stream '{stream}' is already bound to another "
+                    "subscriber, probably another instance of this service. Stop it, or use "
+                    "a different durable name; if no instance is running, wait for the old "
+                    f"connection to time out. Last resort: nats consumer rm {stream} {durable} "
+                    "(drops its pending messages)."
+                ) from e
+            logger.error("Failed to subscribe to stream=%s, subject=%s: %s", stream, subject, e)
+            raise
+        self._subscriptions.append(sub)
+        logger.info(
+            "Subscribed to stream=%s, subject=%s, durable=%s",
+            stream, subject, durable or "ephemeral"
+        )
+
+    async def _nak(self, msg: Msg) -> None:
+        try:
+            await msg.nak(delay=self.nak_delay)
+        except Exception as exc:
+            # Already acked/terminated by the handler, or the connection is down;
+            # JetStream redelivers after ack_wait in the latter case.
+            logger.debug("Could not nak message on %s: %s", msg.subject, exc)
+
     @abstractmethod
     async def handle_message(self, msg: Msg, stream: str, subject: str):
         """
@@ -294,68 +272,116 @@ class StreamSubscriber:
         self._is_connected = False
     
     async def _reconnected_callback(self):
-        """Callback when reconnected to NATS."""
+        """Callback when reconnected to NATS.
+
+        nats-py restores every subscription on the same connection, so this only
+        refreshes state; re-subscribing would create duplicate subscriptions.
+        """
         logger.info("Reconnected to NATS servers")
         self._is_connected = True
-        if self.nc:
-            self.js = self.nc.jetstream()
-            # Clear old subscriptions as they're no longer valid after reconnection
-            self._subscriptions.clear()
-            # Re-subscribe to all streams
-            await self._resubscribe_all()
+        self._start_keyring_watch()
     
     async def _closed_callback(self):
         """Callback when connection is closed."""
         logger.info("NATS connection closed")
         self._is_connected = False
-    
-    async def _resubscribe_all(self):
-        """
-        Re-subscribe to all streams after reconnection.
-        
-        Override this method in subclasses to restore subscriptions.
-        The default implementation does nothing - subclasses should track
-        their subscriptions and re-subscribe here.
-        """
-        logger.debug("Reconnection detected, but no subscriptions to restore")
+
+    # ==================== Key rotation ====================
+
+    def _start_keyring_watch(self) -> None:
+        self._stop_keyring_watch()
+        if self.encryption.enabled() and self.js is not None:
+            self._keyring_task = asyncio.get_running_loop().create_task(self._watch_keyring())
+
+    def _stop_keyring_watch(self) -> None:
+        if self._keyring_task is not None:
+            self._keyring_task.cancel()
+            self._keyring_task = None
+
+    async def _watch_keyring(self) -> None:
+        """Follow ``E2E_KEYRING/current`` (Edge Protocol 1.0, section 13.5)."""
+        try:
+            kv = await self.js.key_value(e2e.KEYRING_BUCKET)
+            await self._refresh_keyring(kv)
+            watcher = await kv.watch(e2e.KEYRING_KEY)
+            while True:
+                try:
+                    entry = await watcher.updates(timeout=30)
+                except (asyncio.TimeoutError, NATSTimeoutError):
+                    continue
+                if entry is None:
+                    continue
+                if getattr(entry, "operation", None) in ("DEL", "PURGE"):
+                    self.encryption.drop_previous()
+                    continue
+                self._apply_keyring_value(entry.value)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Keyring watch stopped: %s", exc)
+
+    async def _refresh_keyring(self, kv: Any = None) -> None:
+        if not self.encryption.enabled() or self.js is None:
+            return
+        try:
+            kv = kv or await self.js.key_value(e2e.KEYRING_BUCKET)
+            entry = await kv.get(e2e.KEYRING_KEY)
+        except NotFoundError:
+            self.encryption.drop_previous()
+            return
+        except Exception as exc:
+            logger.warning("Cannot read %s/%s: %s", e2e.KEYRING_BUCKET, e2e.KEYRING_KEY, exc)
+            return
+        self._apply_keyring_value(getattr(entry, "value", None))
+
+    def _apply_keyring_value(self, value: bytes | None) -> None:
+        if value is None:
+            self.encryption.drop_previous()
+            return
+        try:
+            plain = self.encryption.open_payload(
+                e2e.kv_aad(e2e.KEYRING_BUCKET, e2e.KEYRING_KEY), value
+            )
+            if self.encryption.adopt_record(plain):
+                logger.info("Adopted rotated E2E keyring")
+        except e2e.E2EError as exc:
+            logger.error("Failed to adopt keyring: %s", exc)
     
     async def run(self, health_check_interval: float = 1.0):
         """
-        Run the subscriber service with connection health monitoring.
+        Run the subscriber service.
         
         This method will:
         1. Connect to NATS (with retry logic)
         2. Call on_start() hook for subclasses to set up subscriptions
-        3. Monitor connection health and reconnect if needed
+        3. Wait while nats-py keeps the connection (and its subscriptions) alive.
+           Only if the connection closes for good (reconnect attempts exhausted)
+           does it connect again and call on_start() again.
         4. Call on_stop() hook on shutdown
         
         Args:
-            health_check_interval: Interval in seconds to check connection health
+            health_check_interval: Interval in seconds to check the connection
         """
-        # Connect to NATS with retry logic
-        while self._should_run:
-            if await self.connect():
-                break
-            logger.warning("Failed to connect to NATS, retrying in 5 seconds...")
-            await asyncio.sleep(5)
-        
-        # Call on_start hook for subclasses to set up subscriptions
-        await self.on_start()
-        
-        logger.info("Stream subscriber service started")
-        
-        # Main loop with health monitoring
+        async def connect_and_start() -> None:
+            while self._should_run:
+                if await self.connect():
+                    break
+                logger.warning("Failed to connect to NATS, retrying in 5 seconds...")
+                await asyncio.sleep(5)
+            if self._should_run:
+                self._subscriptions.clear()
+                await self.on_start()
+
         try:
+            await connect_and_start()
+            logger.info("Stream subscriber service started")
             while self._should_run:
                 await asyncio.sleep(health_check_interval)
-                
-                # Check connection health
-                if not self._is_connected:
-                    logger.warning("Connection lost, attempting to reconnect...")
-                    if await self.connect():
-                        # Clear old subscriptions as they're no longer valid after reconnection
-                        self._subscriptions.clear()
-                        await self._resubscribe_all()
+                if self.nc is not None and self.nc.is_closed:
+                    logger.warning("NATS connection closed; connecting again")
+                    self.nc = None
+                    self.js = None
+                    await connect_and_start()
         except KeyboardInterrupt:
             logger.info("Received KeyboardInterrupt, shutting down...")
         except Exception as e:
